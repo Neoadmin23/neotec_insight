@@ -1,0 +1,40 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:type_name",
+ "creation": "2026-06-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "type_name",
+  "display_order",
+  "is_opening_balance",
+  "default_sign",
+  "is_seeded",
+  "description"
+ ],
+ "fields": [
+  {"fieldname": "type_name", "fieldtype": "Data", "label": "Movement Type Name", "reqd": 1, "unique": 1, "in_list_view": 1, "description": "Name of the movement type (e.g. 'Net Income for the Period'). Used as the document name."},
+  {"fieldname": "display_order", "fieldtype": "Int", "label": "Display Order", "default": "100", "in_list_view": 1, "description": "Order this appears in dropdowns. The Opening Balance type usually goes first (10). Other types follow in chronological/logical order."},
+  {"fieldname": "is_opening_balance", "fieldtype": "Check", "label": "Is Opening Balance", "default": "0", "in_list_view": 1, "description": "When checked, this type marks the OPENING figure for a component. The Statement of Shareholder's Equity uses this flag (not the name) to identify openings. Exactly ONE movement type should have this flag set — otherwise the statement cannot identify which entry is the opening anchor. Renaming the opening type (e.g. 'Beginning Balance' → 'B/Fwd') is safe as long as the flag stays set."},
+  {"fieldname": "default_sign", "fieldtype": "Select", "options": "Either\nIncrease only\nDecrease only", "default": "Either", "label": "Default Sign", "description": "Informational hint shown in the UI. 'Increase only' is for types that always add to the component (Net Income, Transfer In). 'Decrease only' is for types that always reduce it (Dividend Paid, Transfer Out). 'Either' allows both. Does NOT enforce a sign on the amount field — that's the bookkeeper's judgement."},
+  {"fieldname": "is_seeded", "fieldtype": "Check", "label": "Is Seeded", "default": "0", "read_only": 1, "in_list_view": 1, "description": "Indicates this type was installed by Neotec Insight as a sensible default."},
+  {"fieldname": "description", "fieldtype": "Small Text", "label": "Description", "description": "Optional internal note about when this movement type applies."}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Equity Movement Type",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"create": 0, "delete": 0, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts User", "share": 1, "write": 0}
+ ],
+ "sort_field": "display_order",
+ "sort_order": "ASC",
+ "track_changes": 1
+}

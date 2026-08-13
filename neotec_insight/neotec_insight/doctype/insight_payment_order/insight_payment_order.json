@@ -1,0 +1,36 @@
+{
+ "actions": [],
+ "autoname": "format:GPO-{YY}-{#####}",
+ "creation": "2026-08-06 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "field_order": ["company", "sales_invoice", "customer", "cb_head", "order_date", "order_reference", "amount", "sb_notes", "notes"],
+ "fields": [
+  {"fieldname": "company", "fieldtype": "Link", "label": "Company", "options": "Company", "reqd": 1, "in_standard_filter": 1},
+  {"fieldname": "sales_invoice", "fieldtype": "Link", "label": "Sales Invoice", "options": "Sales Invoice", "reqd": 1, "in_list_view": 1, "search_index": 1},
+  {"fieldname": "customer", "fieldtype": "Link", "label": "Customer", "options": "Customer", "read_only": 1, "fetch_from": "sales_invoice.customer", "in_list_view": 1},
+  {"fieldname": "cb_head", "fieldtype": "Column Break"},
+  {"fieldname": "order_date", "fieldtype": "Date", "label": "Payment Order Date", "reqd": 1, "in_list_view": 1,
+   "description": "Date of the \u0623\u0645\u0631 \u0627\u0644\u062f\u0641\u0639. Under the Government Tenders and Procurement Law this is a tax point: the invoice enters the return of the quarter containing this date, whether or not the money has arrived."},
+  {"fieldname": "order_reference", "fieldtype": "Data", "label": "Order Reference", "in_list_view": 1,
+   "description": "The government's own reference for the order. This is what ZATCA asks for when it queries why a supply was declared in a given quarter."},
+  {"fieldname": "amount", "fieldtype": "Currency", "label": "Amount Ordered", "options": "Company:company:default_currency",
+   "description": "Leave BLANK when the order covers the whole invoice \u2014 the usual case. Enter a figure only for a part order. Part-ordered invoices are flagged for a decision rather than released automatically."},
+  {"fieldname": "sb_notes", "fieldtype": "Section Break"},
+  {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notes"}
+ ],
+ "links": [],
+ "modified": "2026-08-06 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Payment Order",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"create": 1, "read": 1, "report": 1, "role": "Accounts User", "write": 1}
+ ],
+ "sort_field": "order_date",
+ "sort_order": "DESC",
+ "title_field": "sales_invoice"
+}

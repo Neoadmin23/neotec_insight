@@ -1,0 +1,227 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:slug",
+ "creation": "2026-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "label",
+  "slug",
+  "report",
+  "fiscal_year",
+  "sb_dim",
+  "dimension_type",
+  "dimension_value",
+  "custom_dimension_fieldname",
+  "sb_ownership",
+  "owner_user",
+  "status",
+  "is_primary_axis_book",
+  "sb_meta",
+  "label_is_custom",
+  "description",
+  "sb_derive",
+  "derive_basis_offset",
+  "derive_default_growth_pct",
+  "derive_overrides_json",
+  "derive_last_run_at",
+  "derive_last_run_count"
+ ],
+ "fields": [
+  {
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label",
+   "reqd": 1
+  },
+  {
+   "fieldname": "slug",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Slug",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "report",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Report",
+   "options": "Insight Report Definition",
+   "reqd": 1
+  },
+  {
+   "fieldname": "fiscal_year",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Fiscal Year",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_dim",
+   "fieldtype": "Section Break",
+   "label": "Dimension"
+  },
+  {
+   "default": "total",
+   "description": "What dimension this book budgets against. 'total' means no dimension filter (the rolled-up company budget).",
+   "fieldname": "dimension_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Dimension Type",
+   "options": "total\ncost_center\ndepartment\nproject\ncustom",
+   "reqd": 1
+  },
+  {
+   "description": "The dimension value (e.g. cost center name, project name). Empty for dimension_type=total.",
+   "fieldname": "dimension_value",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Dimension Value"
+  },
+  {
+   "fieldname": "sb_ownership",
+   "fieldtype": "Section Break",
+   "label": "Ownership"
+  },
+  {
+   "description": "User responsible for filling and submitting this book.",
+   "fieldname": "owner_user",
+   "fieldtype": "Link",
+   "label": "Owner",
+   "options": "User"
+  },
+  {
+   "default": "draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "draft\nsubmitted\napproved\nlocked",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "When checked on the Total book of a report, indicates that this book is the auto-rolled-up sum of all primary-axis books for the same fiscal year.",
+   "fieldname": "is_primary_axis_book",
+   "fieldtype": "Check",
+   "label": "Is Primary Axis Roll-up"
+  },
+  {
+   "fieldname": "sb_meta",
+   "fieldtype": "Section Break",
+   "label": "Metadata"
+  },
+  {
+   "default": "0",
+   "description": "When checked, the user customized the label and it should not be regenerated from dimension.",
+   "fieldname": "label_is_custom",
+   "fieldtype": "Check",
+   "label": "Label Is Custom"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "custom_dimension_fieldname",
+   "fieldtype": "Data",
+   "label": "Custom Dimension Fieldname",
+   "description": "When dimension_type is \"custom\", this holds the Accounting Dimension fieldname (e.g. \"region\"). Leave empty for native scopes (total, cost_center, project, department, branch).",
+   "depends_on": "eval:doc.dimension_type==\"custom\""
+  },
+  {
+   "fieldname": "sb_derive",
+   "fieldtype": "Section Break",
+   "label": "Derivation Settings (v1.9.56)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "derive_basis_offset",
+   "fieldtype": "Int",
+   "default": "1",
+   "label": "Basis Year Offset",
+   "description": "When deriving cells from a prior year, how many years back to look (1 = FY-1, 2 = FY-2, ..., max 5). Only used by the Derive action; doesnt affect saved cells."
+  },
+  {
+   "fieldname": "derive_default_growth_pct",
+   "fieldtype": "Float",
+   "default": "10",
+   "label": "Default Growth %",
+   "description": "The default growth percentage applied to basis-year values. e.g. 10 means basis \u00d7 1.10. Can be negative for shrink."
+  },
+  {
+   "fieldname": "derive_overrides_json",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "label": "Per-row growth overrides (JSON)",
+   "description": "Optional dict mapping row_key \u2192 growth%. Section row keys cascade to their source rows unless the source row has its own override. UI-managed; admins normally shouldnt edit by hand."
+  },
+  {
+   "fieldname": "derive_last_run_at",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "label": "Last Derived At",
+   "description": "When the Derive action last ran on this book."
+  },
+  {
+   "fieldname": "derive_last_run_count",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "label": "Cells from Last Derivation",
+   "description": "How many cells the last Derive action created."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Budget Book",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "fiscal_year",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "label",
+ "track_changes": 1
+}

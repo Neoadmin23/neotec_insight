@@ -1,0 +1,10 @@
+src/App.tsx: error TS2345: Argument of type 'string' is not assignable to parameter of type 'Workspace'.
+src/features/briefing/CfoBriefing.tsx: error TS2345: Argument of type 'Record<string, string | string[]> | null' is not assignable to parameter of type 'Record<string, string> | null | undefined'.
+src/features/dashboard/DashboardApp.tsx: error TS2345: Argument of type 'Record<string, string | string[]> | null' is not assignable to parameter of type 'Record<string, string> | null | undefined'.
+src/features/group/GroupApp.tsx: error TS2345: Argument of type 'Record<string, string | string[]> | null' is not assignable to parameter of type 'Record<string, string> | null | undefined'.
+src/features/hr/HrApp.tsx: error TS2322: Type 'RefObject<HTMLDivElement | null>' is not assignable to type 'RefObject<HTMLElement>'.
+src/features/map/MapTab.tsx: error TS18046: 'res' is of type 'unknown'.
+src/features/rows/RowsTab.tsx: error TS2698: Spread types may only be created from object types.
+src/features/run/RunTab.tsx: error TS2345: Argument of type '(prev: Record<string, string>) => { [x: string]: string | string[]; }' is not assignable to parameter of type 'Record<string, string> | ((p: Record<string, string>) => Record<string, string>)'.
+src/features/run/RunTab.tsx: error TS2345: Argument of type 'Record<string, string> | ((p: Record<string, string>) => Record<string, string>)' is not assignable to parameter of type 'DimensionFiltersMap | ((prev: DimensionFiltersMap) => DimensionFiltersMap)'.
+src/utils/format.ts: error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.

@@ -1,0 +1,37 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:{prefix}-{flag}",
+ "creation": "2026-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "prefix",
+  "flag",
+  "priority",
+  "is_active",
+  "description"
+ ],
+ "fields": [
+  {"description": "Account code prefix to match (e.g. 421 for any 421xxxxx account).", "fieldname": "prefix", "fieldtype": "Data", "in_list_view": 1, "label": "Code Prefix", "reqd": 1},
+  {"fieldname": "flag", "fieldtype": "Data", "in_list_view": 1, "label": "P&L Classification", "reqd": 1},
+  {"default": "100", "description": "Lower number = higher priority. Longer prefixes should have lower priority numbers.", "fieldname": "priority", "fieldtype": "Int", "in_list_view": 1, "label": "Priority"},
+  {"default": "1", "fieldname": "is_active", "fieldtype": "Check", "label": "Is Active"},
+  {"fieldname": "description", "fieldtype": "Small Text", "label": "Notes"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Mapping Rule",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1}
+ ],
+ "sort_field": "priority",
+ "sort_order": "ASC",
+ "track_changes": 1
+}

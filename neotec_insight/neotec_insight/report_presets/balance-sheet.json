@@ -1,0 +1,15 @@
+{
+  "slug": "balance-sheet",
+  "report_name": "Balance Sheet",
+  "description": "Closing balances as of a specific date for Asset, Liability, and Equity accounts. Optional prior-period column for year-over-year comparison.",
+  "report_type": "balance_sheet",
+  "comparison_mode": "actuals_only",
+  "prior_years": 0,
+  "primary_budget_axis": "none",
+  "definition": {
+    "rows": [],
+    "note": "Balance Sheet rows are computed dynamically from the chart of accounts at run time."
+  },
+  "columns": [],
+  "filters": []
+}

@@ -1,0 +1,18 @@
+{
+ "actions": [], "autoname": "format:TAG-{company}-{####}",
+ "creation": "2026-07-12 00:00:00", "doctype": "DocType", "engine": "InnoDB",
+ "field_order": ["company", "account", "tag"],
+ "fields": [
+  {"fieldname": "company", "fieldtype": "Link", "label": "Company", "options": "Company", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "account", "fieldtype": "Link", "label": "Account", "options": "Account", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "tag", "fieldtype": "Data", "label": "Tag", "reqd": 1, "in_list_view": 1}
+ ],
+ "links": [], "modified": "2026-07-12 00:00:00", "module": "Neotec Insight",
+ "name": "Insight Account Tag", "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"read": 1, "role": "Accounts User"}
+ ],
+ "sort_field": "modified", "sort_order": "DESC"
+}

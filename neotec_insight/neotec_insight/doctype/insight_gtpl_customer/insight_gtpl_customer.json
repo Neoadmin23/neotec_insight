@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "creation": "2026-08-06 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": ["customer", "treatment", "reason"],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 4
+  },
+  {
+   "fieldname": "treatment",
+   "fieldtype": "Select",
+   "label": "Treatment",
+   "options": "Government\nNot Government",
+   "default": "Government",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "Overrides the customer-group test in both directions. 'Not Government' is how you exclude an entity that looks governmental but is not a contracting authority under the Government Tenders and Procurement Law \u2014 a sovereign fund invoiced commercially, for example."
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 4,
+   "description": "Required. This is the audit trail ZATCA will ask for."
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-06 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight GTPL Customer",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

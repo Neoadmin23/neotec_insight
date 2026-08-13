@@ -1,0 +1,31 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-06-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["source_doctype", "source_name", "arabic", "english"],
+ "fields": [
+  {"fieldname": "source_doctype", "fieldtype": "Data", "in_list_view": 1, "in_standard_filter": 1, "label": "Source DocType", "reqd": 1, "description": "e.g. Account, Cost Center"},
+  {"fieldname": "source_name", "fieldtype": "Data", "in_list_view": 1, "in_standard_filter": 1, "label": "Source Name", "reqd": 1, "description": "The record name being translated (e.g. the account name/id)."},
+  {"fieldname": "arabic", "fieldtype": "Small Text", "in_list_view": 1, "label": "Arabic", "reqd": 1, "description": "Arabic text to show in Arabic presentation. Overrides the source field."},
+  {"fieldname": "english", "fieldtype": "Data", "label": "English (reference)", "description": "Original English label, kept for reference only."}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Translation Override",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "Accounts User", "write": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

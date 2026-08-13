@@ -1,0 +1,55 @@
+{
+  "slug": "consolidated-p-and-l",
+  "report_name": "Consolidated P&L",
+  "description": "Map-sheet-driven Profit & Loss matching the IRSAA Consolidated Budget and P&L template (Revenue / COGS / OpEx / Below-line / Net Income).",
+  "comparison_mode": "vs_budget",
+  "prior_years": 1,
+  "primary_budget_axis": "cost_center",
+  "filters": [],
+  "columns": [],
+  "definition": {
+    "comparison": {"mode": "vs_budget", "prior_years": 1},
+    "rows": [
+      {"key": "sec_revenue", "kind": "section", "label": "Revenue"},
+      {"key": "r_revenue", "kind": "source", "label": "Revenue", "flag": "Revenue", "accounts": [], "sign": "normal"},
+      {"key": "r_other_revenue", "kind": "source", "label": "Other Revenue", "flag": "Other Revenue", "accounts": [], "sign": "normal"},
+      {"key": "total_revenue", "kind": "formula", "label": "Total revenue", "formula": "r_revenue + r_other_revenue"},
+
+      {"key": "sec_cogs", "kind": "section", "label": "Cost of revenue"},
+      {"key": "r_cogs", "kind": "source", "label": "Cost of revenue for service and solutions", "flag": "Cost of revenue for service and solutions", "accounts": [], "sign": "invert"},
+      {"key": "r_employee", "kind": "source", "label": "Total Employee Cost", "flag": "Total Employee Cost", "accounts": [], "sign": "invert"},
+      {"key": "total_cogs", "kind": "formula", "label": "Total cost of revenue", "formula": "r_cogs + r_employee"},
+      {"key": "gross_profit", "kind": "formula", "label": "Gross profit (GP)", "formula": "total_revenue - total_cogs"},
+
+      {"key": "sec_admin", "kind": "section", "label": "Administration cost"},
+      {"key": "r_rent", "kind": "source", "label": "Rent", "flag": "Rent", "accounts": [], "sign": "invert"},
+      {"key": "r_utilities", "kind": "source", "label": "Utilities", "flag": "Utilities", "accounts": [], "sign": "invert"},
+      {"key": "r_travel", "kind": "source", "label": "Hotels / Accommodation and Travel Expenses", "flag": "Hotels / Accommodation and Travel Expenses", "accounts": [], "sign": "invert"},
+      {"key": "r_repairs", "kind": "source", "label": "Repairs / Maintenance and other services", "flag": "Repairs / Maintenance and other services", "accounts": [], "sign": "invert"},
+      {"key": "r_bank", "kind": "source", "label": "Bank Charges", "flag": "Bank Charges", "accounts": [], "sign": "invert"},
+      {"key": "r_gov", "kind": "source", "label": "Government related", "flag": "Government related", "accounts": [], "sign": "invert"},
+      {"key": "r_marketing", "kind": "source", "label": "Marketing Expenses", "flag": "Marketing Expenses", "accounts": [], "sign": "invert"},
+      {"key": "r_subs", "kind": "source", "label": "Subscriptions & Server Hosting", "flag": "Subscriptions & Server Hosting", "accounts": [], "sign": "invert"},
+      {"key": "r_supplies", "kind": "source", "label": "Kitchen / Stationary / Computer and other supplies", "flag": "Kitchen / Stationary / Computer and other supplies", "accounts": [], "sign": "invert"},
+      {"key": "total_admin", "kind": "formula", "label": "Total administration cost", "formula": "r_rent + r_utilities + r_travel + r_repairs + r_bank + r_gov + r_marketing + r_subs + r_supplies"},
+
+      {"key": "sec_ga", "kind": "section", "label": "G&A professional and consultancy services"},
+      {"key": "r_audit", "kind": "source", "label": "Consultation and Audit Fee", "flag": "Consultation and Audit Fee", "accounts": [], "sign": "invert"},
+      {"key": "r_mgmt_fee", "kind": "source", "label": "Management Fee", "flag": "Management Fee", "accounts": [], "sign": "invert"},
+      {"key": "total_ga", "kind": "formula", "label": "Total G&A professional", "formula": "r_audit + r_mgmt_fee"},
+
+      {"key": "ebitda", "kind": "formula", "label": "EBITDA", "formula": "gross_profit - total_admin - total_ga"},
+
+      {"key": "sec_below", "kind": "section", "label": "Below the line"},
+      {"key": "r_dep", "kind": "source", "label": "Depreciation And Amortization", "flag": "Depreciation And Amortization", "accounts": [], "sign": "invert"},
+      {"key": "r_zakat", "kind": "source", "label": "Zakat and Other Charges", "flag": "Zakat and Other Charges", "accounts": [], "sign": "invert"},
+      {"key": "r_lg", "kind": "source", "label": "Commission For LG", "flag": "Commission For LG", "accounts": [], "sign": "invert"},
+      {"key": "r_finance", "kind": "source", "label": "Finance Interest", "flag": "Finance Interest", "accounts": [], "sign": "invert"},
+      {"key": "r_finance_comm", "kind": "source", "label": "Commission for Financing", "flag": "Commission for Financing", "accounts": [], "sign": "invert"},
+      {"key": "r_bad_debt", "kind": "source", "label": "Bad debt Expenses", "flag": "Bad debt Expenses", "accounts": [], "sign": "invert"},
+      {"key": "total_below", "kind": "formula", "label": "Total below-line cost", "formula": "r_dep + r_zakat + r_lg + r_finance + r_finance_comm + r_bad_debt"},
+
+      {"key": "net_income", "kind": "formula", "label": "Net income", "formula": "ebitda - total_below"}
+    ]
+  }
+}

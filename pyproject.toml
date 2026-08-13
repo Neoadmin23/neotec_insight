@@ -1,0 +1,31 @@
+[project]
+name = "neotec_insight"
+authors = [
+    { name = "Neotec", email = "info@neotec.ai" },
+]
+description = "Financial reporting and BI for ERPNext — map-driven row tree, multi-year comparison, budget, exports, ZATCA VAT return, financial health, integrity & coverage audit, and a separate Visuals workspace."
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    "openpyxl>=3.1.0",
+    "PyMuPDF>=1.24.0",
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+# Bench / Frappe Cloud reads this to resolve the Frappe framework constraint.
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0,<16.0.0"
+
+[tool.bench.dev-dependencies]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B", "RUF"]
+ignore = ["E501", "E741", "F401", "F403", "F405", "W191"]

@@ -1,0 +1,177 @@
+{
+ "actions": [],
+ "autoname": "format:GTPL-{####}",
+ "creation": "2026-08-06 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "effective_from",
+  "is_active",
+  "cb_head",
+  "target_box",
+  "trigger_basis",
+  "order_date_field",
+  "credit_note_presentation",
+  "sb_scope",
+  "scope_html",
+  "customer_groups",
+  "customer_overrides",
+  "sb_accounts",
+  "output_vat_account",
+  "cb_accounts",
+  "deferred_vat_account",
+  "sb_notes",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "effective_from",
+   "fieldtype": "Date",
+   "label": "Effective From",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "The rule that applies to a return period is the newest active rule dated on or before that period's END date. Supersede a rule by adding a NEW one with a later date rather than editing this one — that is what keeps a filed quarter reproducible after the law changes."
+  },
+  {
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "cb_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "target_box",
+   "fieldtype": "Data",
+   "label": "Target Return Box",
+   "default": "1.2",
+   "reqd": 0,
+   "in_list_view": 1,
+   "description": "ZATCA box for standard-rated sales to government entities. A field, not a constant, because ZATCA has renumbered the return before.\n\nLEAVE BLANK to defer without splitting the box: the supplies are still held back until they are due, but when released they join ordinary standard-rated sales in box 1. Some filers disclose the split, some do not — the deferral is the tax treatment, the box is only presentation."
+  },
+  {
+   "fieldname": "trigger_basis",
+   "fieldtype": "Select",
+   "label": "Tax Due Date Basis",
+   "options": "earlier_of_receipt_or_order\nreceipt_only\norder_only\ninvoice_date",
+   "default": "receipt_only",
+   "reqd": 1,
+   "description": "When output VAT on a government supply becomes declarable. 'receipt_only' = when payment is received. 'order_only' = when the payment order is issued. 'earlier_of_receipt_or_order' = whichever comes first. 'invoice_date' disables deferral entirely, so the rule can be switched off forward-dated without deleting history."
+  },
+  {
+   "fieldname": "order_date_field",
+   "fieldtype": "Data",
+   "label": "Payment Order Date Field",
+   "depends_on": "eval:['order_only','earlier_of_receipt_or_order'].includes(doc.trigger_basis)",
+   "description": "Fieldname on Sales Invoice holding the payment-order (أمر الدفع) date, e.g. a custom field custom_payment_order_date. ERPNext has no native field for this. Leave blank and the order basis falls back to receipt."
+  },
+  {
+   "fieldname": "credit_note_presentation",
+   "fieldtype": "Select",
+   "label": "Credit Note Presentation",
+   "options": "gross_with_adjustment\nnet_of_credit_notes",
+   "default": "gross_with_adjustment",
+   "reqd": 1,
+   "description": "How a credit note against a deferred government invoice is shown. 'gross_with_adjustment' puts the full invoice in Amount and the credit note in Adjustment — the ZATCA three-column layout. 'net_of_credit_notes' releases only the surviving balance into Amount. The VAT is identical either way; only the two disclosed figures differ."
+  },
+  {
+   "fieldname": "sb_scope",
+   "fieldtype": "Section Break",
+   "label": "Which customers are governmental"
+  },
+  {
+   "fieldname": "scope_html",
+   "fieldtype": "HTML",
+   "options": "<p class=\"text-muted small\">A customer is governmental if a row below names them explicitly, otherwise if their Customer Group is listed. An explicit row always wins, in both directions.</p>"
+  },
+  {
+   "fieldname": "customer_groups",
+   "fieldtype": "Table",
+   "label": "Government Customer Groups",
+   "options": "Insight GTPL Customer Group"
+  },
+  {
+   "fieldname": "customer_overrides",
+   "fieldtype": "Table",
+   "label": "Per-Customer Overrides",
+   "options": "Insight GTPL Customer"
+  },
+  {
+   "fieldname": "sb_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fieldname": "output_vat_account",
+   "fieldtype": "Link",
+   "label": "Output VAT Account",
+   "options": "Account",
+   "description": "Optional. Blank falls back to the accounts the VAT engine already resolves from tags and heuristics."
+  },
+  {
+   "fieldname": "cb_accounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "deferred_vat_account",
+   "fieldtype": "Link",
+   "label": "Deferred Output VAT Account",
+   "options": "Account",
+   "description": "Optional. Where VAT on undeclared government supplies is parked, if the company reclassifies it out of Output VAT. Reporting only — Insight never posts."
+  },
+  {
+   "fieldname": "sb_notes",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-06 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight GTPL Rule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "effective_from",
+ "sort_order": "DESC",
+ "title_field": "company"
+}

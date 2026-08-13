@@ -1,0 +1,14 @@
+{
+ "actions": [], "creation": "2026-08-03 00:00:00", "doctype": "DocType",
+ "engine": "InnoDB", "istable": 1, "editable_grid": 1,
+ "field_order": ["department", "cost_center"],
+ "fields": [
+  {"fieldname": "department", "fieldtype": "Link", "options": "Department", "label": "Department",
+   "in_list_view": 1, "columns": 5, "reqd": 1},
+  {"fieldname": "cost_center", "fieldtype": "Link", "options": "Cost Center", "label": "Cost Centre",
+   "in_list_view": 1, "columns": 5, "reqd": 1}
+ ],
+ "links": [], "modified": "2026-08-03 00:00:00", "module": "Neotec Insight",
+ "name": "Insight Allocation Dept Map", "owner": "Administrator",
+ "permissions": [], "sort_field": "modified", "sort_order": "DESC"
+}

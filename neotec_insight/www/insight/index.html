@@ -1,0 +1,232 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Neotec Insight") }}{% endblock %}
+
+{% block head_include %}
+<link rel="icon" type="image/svg+xml" href="/assets/neotec_insight/images/neotec-insight-icon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="/assets/neotec_insight/images/neotec-insight-icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/assets/neotec_insight/images/neotec-insight-icon-512.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/assets/neotec_insight/images/neotec-insight-icon-192.png">
+<meta name="theme-color" content="#2A2440">
+{% endblock %}
+
+{% block navbar %}{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block style %}
+<style>
+  html, body, #root, #nai-root { direction: ltr !important; }
+  body { margin: 0; padding: 0; background: #f7f7f5; }
+  #root { min-height: 100vh; }
+  .web-footer, .web-footer-container, .footer-section { display: none !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="root"></div>
+<script>
+  window.csrf_token = "{{ csrf_token or '' }}";
+  window.frappe_user = "{{ frappe_user or '' }}";
+  if (!window.csrf_token && typeof frappe !== "undefined" && frappe.csrf_token) {
+    window.csrf_token = frappe.csrf_token;
+  }
+</script>
+<link rel="stylesheet" href="/assets/neotec_insight/insight/assets/index.css">
+<script type="module" src="/assets/neotec_insight/insight/assets/index.js"></script>
+
+<!-- ════ Neotec AI — additive overlay (scoped #nai-*, does not touch #root) ════
+     Language is owned by the React app's own EN/AR toggle; this panel simply
+     reads/writes the shared `nai_lang` key so it stays in sync. No page-level
+     DOM translation happens here. -->
+<style>
+  #nai-fab{position:fixed;right:22px;bottom:22px;z-index:99998;display:inline-flex;align-items:center;gap:8px;
+    border:0;cursor:grab;font:600 13.5px/1 'Inter',-apple-system,system-ui,sans-serif;color:#fff;
+    background:#5b4fc4;padding:13px 18px;border-radius:30px;box-shadow:0 6px 22px rgba(91,79,196,.4);
+    touch-action:none;user-select:none;opacity:.92;transition:opacity .15s;}
+  #nai-fab:hover{filter:brightness(1.06);opacity:1;} #nai-fab.nai-dragging{cursor:grabbing;opacity:1;}
+  #nai-fab .g{font-size:15px;}
+  #nai-root *{box-sizing:border-box;}
+  #nai-scrim{position:fixed;inset:0;background:rgba(20,18,15,.30);opacity:0;pointer-events:none;transition:.2s;z-index:99998;}
+  #nai-scrim.open{opacity:1;pointer-events:auto;}
+  #nai-panel{position:fixed;top:0;right:0;height:100%;width:440px;max-width:94vw;background:#fffdfa;
+    border-left:.5px solid #e6e1d8;box-shadow:-14px 0 46px rgba(0,0,0,.12);transform:translateX(102%);
+    transition:transform .26s cubic-bezier(.4,0,.2,1);z-index:99999;display:flex;flex-direction:column;
+    font-family:'Inter',-apple-system,system-ui,sans-serif;color:#23211d;}
+  #nai-panel.open{transform:translateX(0);}
+  #nai-panel .hd{padding:15px 17px;border-bottom:.5px solid #e6e1d8;}
+  #nai-panel .hd .r1{display:flex;align-items:center;gap:10px;}
+  #nai-panel .bdg{width:30px;height:30px;border-radius:8px;background:#efedfb;color:#5b4fc4;display:flex;align-items:center;justify-content:center;font-size:16px;}
+  #nai-panel .ttl{font-weight:700;font-size:15px;flex:1;}
+  #nai-panel .ttl small{font-weight:600;color:#9a948a;font-size:10px;letter-spacing:.16em;display:block;}
+  #nai-panel .lng{border:.5px solid #d8d2c6;background:#fffdfa;border-radius:7px;font:600 11px 'Inter',sans-serif;color:#23211d;padding:5px 9px;cursor:pointer;}
+  #nai-panel .cls{cursor:pointer;color:#9a948a;font-size:22px;line-height:1;padding:2px 4px;}
+  #nai-panel .sub{font-size:11px;color:#9a948a;margin-top:8px;display:flex;align-items:center;gap:6px;}
+  #nai-panel .dot{width:7px;height:7px;border-radius:50%;background:#1f7a52;} #nai-panel .dot.off{background:#c2bcae;}
+  #nai-panel .ctrls{padding:11px 17px;border-bottom:.5px solid #e6e1d8;display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  #nai-panel .ctrls .full{grid-column:1/-1;}
+  #nai-panel .ctrls label{font:600 9.5px 'Inter',sans-serif;letter-spacing:.05em;text-transform:uppercase;color:#9a948a;display:block;margin-bottom:3px;}
+  #nai-panel .ctrls select,#nai-panel .ctrls input{width:100%;height:31px;border:.5px solid #d8d2c6;background:#fffdfa;border-radius:7px;font:13px 'Inter',sans-serif;color:#23211d;padding:0 8px;}
+  #nai-body{flex:1;overflow:auto;padding:15px 17px;display:flex;flex-direction:column;gap:12px;}
+  #nai-body .m{font-size:13px;line-height:1.55;}
+  #nai-body .m.me{align-self:flex-end;background:#5b4fc4;color:#fff;padding:8px 12px;border-radius:13px 13px 3px 13px;max-width:86%;}
+  #nai-body .m.ai b{font-weight:700;} #nai-body .m.ai ul{margin:6px 0;padding-inline-start:18px;}
+  #nai-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  #nai-chips button{border:.5px solid #d8d2c6;background:#fffdfa;font:11.5px 'Inter',sans-serif;color:#23211d;padding:6px 10px;border-radius:14px;cursor:pointer;}
+  #nai-chips button:hover{border-color:#5b4fc4;color:#5b4fc4;}
+  #nai-body .typing{display:inline-flex;gap:3px;}
+  #nai-body .typing i{width:5px;height:5px;border-radius:50%;background:#c2bcae;animation:naib 1s infinite;}
+  #nai-body .typing i:nth-child(2){animation-delay:.15s;}#nai-body .typing i:nth-child(3){animation-delay:.3s;}
+  @keyframes naib{0%,60%,100%{opacity:.3}30%{opacity:1}}
+  #nai-foot{padding:11px 14px;border-top:.5px solid #e6e1d8;}
+  #nai-inp{display:flex;gap:8px;align-items:flex-end;background:#f0ede7;border:.5px solid #e6e1d8;border-radius:11px;padding:7px 8px 7px 12px;}
+  #nai-inp textarea{flex:1;border:0;background:transparent;resize:none;font:13px 'Inter',sans-serif;color:#23211d;max-height:96px;outline:0;}
+  #nai-inp button{border:0;background:#5b4fc4;color:#fff;width:31px;height:31px;border-radius:8px;cursor:pointer;font-size:15px;flex:0 0 auto;}
+  #nai-foot .nt{font-size:10px;color:#9a948a;text-align:center;margin-top:7px;}
+</style>
+
+<button id="nai-fab" title="Drag to move • Click to ask"><span class="g">✦</span> <span id="nai-fab-t">Ask Neotec AI</span></button>
+<div id="nai-root">
+  <div id="nai-scrim" onclick="naiClose()"></div>
+  <aside id="nai-panel">
+    <div class="hd">
+      <div class="r1">
+        <div class="bdg">✦</div>
+        <div class="ttl"><small>NEOTEC</small><span id="nai-ttl">Neotec AI</span></div>
+        <button class="lng" id="nai-lng" onclick="naiToggleLang()">العربية</button>
+        <span class="cls" onclick="naiClose()">×</span>
+      </div>
+      <div class="sub"><span class="dot off" id="nai-dot"></span><span id="nai-status">Checking…</span></div>
+    </div>
+    <div class="ctrls">
+      <div class="full"><label id="nai-l-company">Company</label><select id="nai-company"></select></div>
+      <div class="full"><label id="nai-l-report">Report (optional)</label><select id="nai-report"></select></div>
+      <div><label id="nai-l-from">From date</label><input type="date" id="nai-from"></div>
+      <div><label id="nai-l-to">To date</label><input type="date" id="nai-to"></div>
+      <div><label id="nai-l-cc">Cost center</label><select id="nai-cc"></select></div>
+      <div><label id="nai-l-pj">Project</label><select id="nai-pj"></select></div>
+    </div>
+    <div id="nai-body"></div>
+    <div id="nai-foot">
+      <div id="nai-inp">
+        <textarea id="nai-q" rows="1" placeholder="Ask about your financials…"
+          oninput="naiGrow(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();naiSend()}"></textarea>
+        <button id="nai-send" onclick="naiSend()">↑</button>
+      </div>
+      <div class="nt" id="nai-note">Live figures are sent to your configured model. Nothing leaves your network unless you point it at a cloud endpoint.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+(function(){
+  var API="/api/method/neotec_insight.neotec_insight.api.ai.";
+  var lang=(function(){try{return localStorage.getItem("nai_lang")||"en";}catch(e){return "en";}})();
+  var ready=false, booted=false;
+  var T={
+    en:{company:"Company",report:"Report (optional)",from:"From date",to:"To date",cc:"Cost center",pj:"Project",all:"All",
+      ph:"Ask about your financials…",note:"Live figures are sent to your configured model. Nothing leaves your network unless you point it at a cloud endpoint.",
+      on:"powered by NeoNexus \u00b7 local",off:"Neotec AI is off \u2014 enable it in Insight AI Settings",
+      greet:"I read your live General Ledger and report figures for the selected company and dates. Ask me anything \u2014 profitability, variance, balance sheet, cost centres, risks.",
+      none:"(no report \u2014 whole-company view)",
+      c:["Summarise the financial position","Profitability & margins","Monthly trend & momentum","Year-over-year change","Budget vs actual","Receivables & payables ageing","Break down by cost centre","What do I tell the board?"]},
+    ar:{company:"\u0627\u0644\u0634\u0631\u0643\u0629",report:"\u0627\u0644\u062a\u0642\u0631\u064a\u0631 (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)",from:"\u0645\u0646 \u062a\u0627\u0631\u064a\u062e",to:"\u0625\u0644\u0649 \u062a\u0627\u0631\u064a\u062e",cc:"\u0645\u0631\u0643\u0632 \u0627\u0644\u062a\u0643\u0644\u0641\u0629",pj:"\u0627\u0644\u0645\u0634\u0631\u0648\u0639",all:"\u0627\u0644\u0643\u0644",
+      ph:"\u0627\u0633\u0623\u0644 \u0639\u0646 \u0648\u0636\u0639\u0643 \u0627\u0644\u0645\u0627\u0644\u064a\u2026",note:"\u062a\u064f\u0631\u0633\u0644 \u0627\u0644\u0623\u0631\u0642\u0627\u0645 \u0627\u0644\u062d\u064a\u0651\u0629 \u0625\u0644\u0649 \u0646\u0645\u0648\u0630\u062c\u0643 \u0627\u0644\u0645\u0647\u064a\u0651\u0623. \u0644\u0627 \u0634\u064a\u0621 \u064a\u063a\u0627\u062f\u0631 \u0634\u0628\u0643\u062a\u0643 \u0645\u0627 \u0644\u0645 \u062a\u0648\u062c\u0651\u0647\u0647 \u0625\u0644\u0649 \u062e\u062f\u0645\u0629 \u0633\u062d\u0627\u0628\u064a\u0629.",
+      on:"\u0645\u062f\u0639\u0648\u0645 \u0628\u0640 NeoNexus \u00b7 \u0645\u062d\u0644\u064a",off:"\u0646\u064a\u0648\u062a\u0643 AI \u0645\u062a\u0648\u0642\u0651\u0641 \u2014 \u0641\u0639\u0651\u0644\u0647 \u0645\u0646 \u0625\u0639\u062f\u0627\u062f\u0627\u062a \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064a",
+      greet:"\u0623\u0642\u0631\u0623 \u062f\u0641\u062a\u0631 \u0627\u0644\u0623\u0633\u062a\u0627\u0630 \u0648\u0623\u0631\u0642\u0627\u0645 \u0627\u0644\u062a\u0642\u0627\u0631\u064a\u0631 \u0627\u0644\u062d\u064a\u0651\u0629 \u0644\u0644\u0634\u0631\u0643\u0629 \u0648\u0627\u0644\u062a\u0648\u0627\u0631\u064a\u062e \u0627\u0644\u0645\u062d\u062f\u0651\u062f\u0629. \u0627\u0633\u0623\u0644\u0646\u064a \u0639\u0646 \u0627\u0644\u0631\u0628\u062d\u064a\u0629\u060c \u0627\u0644\u0627\u0646\u062d\u0631\u0627\u0641\u0627\u062a\u060c \u0627\u0644\u0645\u064a\u0632\u0627\u0646\u064a\u0629\u060c \u0645\u0631\u0627\u0643\u0632 \u0627\u0644\u062a\u0643\u0644\u0641\u0629\u060c \u0623\u0648 \u0627\u0644\u0645\u062e\u0627\u0637\u0631.",
+      none:"(\u0628\u062f\u0648\u0646 \u062a\u0642\u0631\u064a\u0631 \u2014 \u0639\u0631\u0636 \u0627\u0644\u0634\u0631\u0643\u0629 \u0643\u0627\u0645\u0644\u0629)",
+      c:["\u0644\u062e\u0651\u0635 \u0627\u0644\u0648\u0636\u0639 \u0627\u0644\u0645\u0627\u0644\u064a","\u0627\u0644\u0631\u0628\u062d\u064a\u0629 \u0648\u0627\u0644\u0647\u0648\u0627\u0645\u0634","\u0627\u0644\u0627\u062a\u062c\u0627\u0647 \u0627\u0644\u0634\u0647\u0631\u064a","\u0627\u0644\u062a\u063a\u064a\u0651\u0631 \u0627\u0644\u0633\u0646\u0648\u064a","\u0627\u0644\u0645\u0648\u0627\u0632\u0646\u0629 \u0645\u0642\u0627\u0628\u0644 \u0627\u0644\u0641\u0639\u0644\u064a","\u0623\u0639\u0645\u0627\u0631 \u0627\u0644\u0630\u0645\u0645 \u0627\u0644\u0645\u062f\u064a\u0646\u0629 \u0648\u0627\u0644\u062f\u0627\u0626\u0646\u0629","\u0627\u0644\u062a\u0641\u0635\u064a\u0644 \u062d\u0633\u0628 \u0645\u0631\u0643\u0632 \u0627\u0644\u062a\u0643\u0644\u0641\u0629","\u0645\u0627\u0630\u0627 \u0623\u0642\u0648\u0644 \u0644\u0645\u062c\u0644\u0633 \u0627\u0644\u0625\u062f\u0627\u0631\u0629\u061f"]}
+  };
+  function $(id){return document.getElementById(id);}
+  function applyT(){
+    var t=T[lang];
+    $("nai-l-company").textContent=t.company;$("nai-l-report").textContent=t.report;
+    $("nai-l-from").textContent=t.from;$("nai-l-to").textContent=t.to;$("nai-l-cc").textContent=t.cc;$("nai-l-pj").textContent=t.pj;
+    $("nai-q").placeholder=t.ph;$("nai-note").textContent=t.note;
+    $("nai-lng").textContent=lang==="en"?"\u0627\u0644\u0639\u0631\u0628\u064a\u0629":"English";
+    $("nai-status").textContent=ready?t.on:t.off;
+    var rs=$("nai-report"); if(rs&&rs.options.length){rs.options[0].textContent=t.none;}
+    var ccs=$("nai-cc"),pjs=$("nai-pj");
+    if(ccs&&ccs.options.length)ccs.options[0].textContent=t.all;
+    if(pjs&&pjs.options.length)pjs.options[0].textContent=t.all;
+  }
+  function setLang(l){lang=(l==="ar")?"ar":"en";try{localStorage.setItem("nai_lang",lang);}catch(e){}
+    applyT();if(typeof naiLoadDims==="function"&&booted)naiLoadDims();if($("nai-body").dataset.greeted)naiGreet();}
+  window.naiToggleLang=function(){setLang(lang==="en"?"ar":"en");};
+  window.naiGrow=function(t){t.style.height="auto";t.style.height=Math.min(t.scrollHeight,96)+"px";};
+  function get(url){return fetch(url,{credentials:"same-origin",headers:{"X-Frappe-CSRF-Token":window.csrf_token||""}}).then(function(r){return r.json();});}
+  function post(url,body){return fetch(url,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","X-Frappe-CSRF-Token":window.csrf_token||""},body:JSON.stringify(body)}).then(function(r){return r.json();});}
+  function boot(){
+    if(booted)return;booted=true;
+    var y=new Date().getFullYear();$("nai-from").value=y+"-01-01";$("nai-to").value=y+"-12-31";
+    get(API+"ai_bootstrap").then(function(r){
+      var m=(r&&r.message)||{};
+      ready=!!(m.enabled&&m.endpoint_set);$("nai-dot").classList.toggle("off",!ready);
+      var cs=$("nai-company");cs.innerHTML=(m.companies||[]).map(function(c){return "<option>"+c+"</option>";}).join("");
+      if(m.default_company)cs.value=m.default_company;cs.onchange=naiLoadDims;
+      var opts='<option value="">'+T[lang].none+"</option>";
+      (m.reports||[]).forEach(function(rp){opts+='<option value="'+(rp.slug||rp.name)+'">'+(rp.report_name||rp.slug)+"</option>";});
+      $("nai-report").innerHTML=opts;applyT();naiLoadDims();
+    }).catch(function(){ready=false;applyT();});
+  }
+  function naiLoadDims(){
+    var co=$("nai-company").value||"";var A2="/api/method/neotec_insight.neotec_insight.api.ai.";
+    function fill(sel,kind){get(A2+"dimension_options?kind="+kind+"&company="+encodeURIComponent(co)).then(function(r){var rows=(r&&r.message)||[];
+      var o='<option value="">'+T[lang].all+"</option>";
+      rows.forEach(function(x){var v=x.name;var l=(lang==="ar"&&x.label_ar)?x.label_ar:(x.label||x.name);o+='<option value="'+v+'">'+l+"</option>";});
+      $(sel).innerHTML=o;}).catch(function(){$(sel).innerHTML='<option value="">'+T[lang].all+"</option>";});}
+    fill("nai-cc","cost_center");
+    fill("nai-pj","project");
+  }
+  window.naiOpen=function(){boot();$("nai-panel").classList.add("open");$("nai-scrim").classList.add("open");if(!$("nai-body").dataset.greeted)naiGreet();$("nai-q").focus();};
+  window.naiClose=function(){$("nai-panel").classList.remove("open");$("nai-scrim").classList.remove("open");};  function naiGreet(){var b=$("nai-body");b.dataset.greeted="1";
+    var chips=T[lang].c.map(function(q){return '<button onclick="naiAsk(this.textContent)">'+q+"</button>";}).join("");
+    b.innerHTML='<div class="m ai">'+T[lang].greet+'</div><div id="nai-chips">'+chips+"</div>";}
+  function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");}
+  function md(s){var lines=esc(s).split(/\n/),out="",inUl=false;
+    lines.forEach(function(ln){if(/^\s*[-*]\s+/.test(ln)){if(!inUl){out+="<ul>";inUl=true;}out+="<li>"+ln.replace(/^\s*[-*]\s+/,"")+"</li>";}
+      else{if(inUl){out+="</ul>";inUl=false;}out+=(ln.trim()?("<div>"+ln+"</div>"):"");}});
+    if(inUl)out+="</ul>";return out.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>");}
+  function push(html,who){var b=$("nai-body");var d=document.createElement("div");d.className="m "+who;d.innerHTML=html;b.appendChild(d);b.scrollTop=b.scrollHeight;return d;}
+  window.naiSend=function(){var t=$("nai-q");var q=(t.value||"").trim();if(!q)return;t.value="";naiGrow(t);naiAsk(q);};
+  window.naiAsk=function(q){
+    var chips=$("nai-chips");if(chips)chips.remove();
+    push(esc(q),"me");
+    var wait=push('<span class="typing"><i></i><i></i><i></i></span>',"ai");
+    if(!ready){wait.innerHTML=T[lang].off;return;}
+    post(API+"ask_ai",{question:q,lang:lang,company:$("nai-company").value,report:$("nai-report").value,
+      from_date:$("nai-from").value,to_date:$("nai-to").value,cost_center:$("nai-cc").value,project:$("nai-pj").value})
+      .then(function(r){
+        if(r&&r.message&&r.message.text){wait.innerHTML=md(r.message.text);}
+        else if(r&&r._server_messages){try{var mm=JSON.parse(r._server_messages);wait.textContent=JSON.parse(mm[0]).message;}catch(e){wait.textContent=T[lang].off;}}
+        else{wait.textContent=T[lang].off;}
+      }).catch(function(){wait.textContent=T[lang].off;});
+  };
+  // init
+  try{applyT();}catch(e){}
+
+  // Draggable launcher — users can move the ✦ button anywhere so it never
+  // covers report values. Position persists; a plain click still opens it.
+  (function(){
+    var fab=$("nai-fab"); if(!fab) return;
+    function clamp(){var w=window.innerWidth,h=window.innerHeight;
+      var l=Math.max(6,Math.min(w-fab.offsetWidth-6,fab.offsetLeft));
+      var t=Math.max(6,Math.min(h-fab.offsetHeight-6,fab.offsetTop));
+      fab.style.left=l+"px";fab.style.top=t+"px";fab.style.right="auto";fab.style.bottom="auto";}
+    try{var p=JSON.parse(localStorage.getItem("nai_fab_pos")||"null");
+      if(p&&typeof p.left==="number"){fab.style.left=p.left+"px";fab.style.top=p.top+"px";fab.style.right="auto";fab.style.bottom="auto";clamp();}}catch(e){}
+    var down=false,moved=false,sx=0,sy=0,ox=0,oy=0;
+    fab.addEventListener("pointerdown",function(e){down=true;moved=false;sx=e.clientX;sy=e.clientY;
+      ox=fab.offsetLeft;oy=fab.offsetTop;try{fab.setPointerCapture(e.pointerId);}catch(_){}});
+    fab.addEventListener("pointermove",function(e){if(!down)return;var dx=e.clientX-sx,dy=e.clientY-sy;
+      if(!moved&&Math.abs(dx)+Math.abs(dy)>4){moved=true;fab.classList.add("nai-dragging");}
+      if(moved){fab.style.left=(ox+dx)+"px";fab.style.top=(oy+dy)+"px";fab.style.right="auto";fab.style.bottom="auto";}});
+    function end(){if(!down)return;down=false;fab.classList.remove("nai-dragging");
+      if(moved){clamp();try{localStorage.setItem("nai_fab_pos",JSON.stringify({left:fab.offsetLeft,top:fab.offsetTop}));}catch(_){}}
+      else{window.naiOpen();}}
+    fab.addEventListener("pointerup",end);
+    fab.addEventListener("pointercancel",function(){down=false;moved=false;fab.classList.remove("nai-dragging");});
+    window.addEventListener("resize",clamp);
+  })();
+})();
+</script>
+{% endblock %}

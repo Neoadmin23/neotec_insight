@@ -1,0 +1,3 @@
+neotec_insight.patches.v1_4.migrate_budget_cells_to_books
+neotec_insight.patches.v1_9.fix_investment_holding_comparison_mode
+neotec_insight.patches.v1_9.materialise_legacy_budget_fallback

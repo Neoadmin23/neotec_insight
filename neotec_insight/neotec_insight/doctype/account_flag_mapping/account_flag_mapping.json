@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "report",
+  "account",
+  "is_group_binding",
+  "account_code",
+  "account_name",
+  "flag",
+  "dimension_filters_json",
+  "scope_summary",
+  "auto_suggested",
+  "source"
+ ],
+ "fields": [
+  {"fieldname": "report", "fieldtype": "Link", "in_list_view": 1, "label": "Report", "options": "Insight Report Definition", "reqd": 1},
+  {"fieldname": "account", "fieldtype": "Link", "in_list_view": 1, "label": "Account", "options": "Account", "reqd": 1},
+  {"default": "0", "description": "When checked, this binding includes every leaf account under the linked group, including leaves added in the future. The execution engine resolves the group to its leaves at run time using the Account tree's lft/rgt range.", "fieldname": "is_group_binding", "fieldtype": "Check", "label": "Is Group Binding", "in_list_view": 1},
+  {"fetch_from": "account.account_number", "fieldname": "account_code", "fieldtype": "Data", "label": "Code", "in_list_view": 1, "read_only": 1},
+  {"fetch_from": "account.account_name", "fieldname": "account_name", "fieldtype": "Data", "label": "Account Name", "in_list_view": 1, "read_only": 1},
+  {"fieldname": "flag", "fieldtype": "Data", "in_list_view": 1, "label": "P&L Classification", "reqd": 1},
+  {"description": "Optional per-row dimension scope. JSON array of {dimension_type, dimension_value} pairs. Empty = whole company. When set, this mapping row's GL activity is filtered to the given dimension value(s) — letting the same account feed different rows for different departments / cost centers / projects.", "fieldname": "dimension_filters_json", "fieldtype": "Small Text", "label": "Dimension Filters (JSON)"},
+  {"description": "Human-readable summary of the dimension scope, kept in sync from the JSON for list display.", "fieldname": "scope_summary", "fieldtype": "Data", "label": "Scope", "in_list_view": 1, "read_only": 1},
+  {"default": "0", "description": "Set automatically by a Mapping Rule prefix match.", "fieldname": "auto_suggested", "fieldtype": "Check", "label": "Auto-suggested"},
+  {"default": "manual", "fieldname": "source", "fieldtype": "Select", "label": "Source", "options": "manual\nexcel-import\nauto-suggested\nmap-sheet"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Account Flag Mapping",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

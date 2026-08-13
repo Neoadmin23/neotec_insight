@@ -1,0 +1,22 @@
+{
+ "actions": [], "autoname": "format:VATADJ-{####}",
+ "creation": "2026-07-13 00:00:00", "doctype": "DocType", "engine": "InnoDB",
+ "field_order": ["company", "from_date", "to_date", "voucher_type", "voucher_no", "action", "reason"],
+ "fields": [
+  {"fieldname": "company", "fieldtype": "Link", "label": "Company", "options": "Company", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "from_date", "fieldtype": "Date", "label": "Return Period From", "reqd": 1},
+  {"fieldname": "to_date", "fieldtype": "Date", "label": "Return Period To", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "voucher_type", "fieldtype": "Select", "label": "Voucher Type", "options": "Sales Invoice\nPurchase Invoice", "reqd": 1},
+  {"fieldname": "voucher_no", "fieldtype": "Data", "label": "Voucher No", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "action", "fieldtype": "Select", "label": "Action", "options": "Include\nExclude", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "reason", "fieldtype": "Small Text", "label": "Reason", "reqd": 1}
+ ],
+ "links": [], "modified": "2026-07-13 00:00:00", "module": "Neotec Insight",
+ "name": "Insight VAT Adjustment", "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"read": 1, "role": "Accounts User"}
+ ],
+ "sort_field": "modified", "sort_order": "DESC"
+}

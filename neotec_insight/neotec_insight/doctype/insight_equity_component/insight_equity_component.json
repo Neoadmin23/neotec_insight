@@ -1,0 +1,36 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:component_name",
+ "creation": "2026-06-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "component_name",
+  "display_order",
+  "is_seeded",
+  "description"
+ ],
+ "fields": [
+  {"fieldname": "component_name", "fieldtype": "Data", "label": "Component Name", "reqd": 1, "unique": 1, "in_list_view": 1, "description": "Name of the equity component (e.g. 'Paid-up Share Capital'). Used as the document name; rename via the menu if needed."},
+  {"fieldname": "display_order", "fieldtype": "Int", "label": "Display Order", "default": "100", "in_list_view": 1, "in_standard_filter": 1, "description": "Lower numbers appear first in the Statement of Shareholder's Equity. Use steps of 10 (10, 20, 30...) so you can insert new components between existing ones without renumbering everything."},
+  {"fieldname": "is_seeded", "fieldtype": "Check", "label": "Is Seeded", "default": "0", "read_only": 1, "in_list_view": 1, "description": "Indicates this component was installed by Neotec Insight as a sensible default. You can rename, reorder, or delete seeded components — the seed function is idempotent and will not re-create deleted ones (it checks by name, so renaming a seeded component is also safe)."},
+  {"fieldname": "description", "fieldtype": "Small Text", "label": "Description", "description": "Optional internal note about what this component represents in your chart of accounts."}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Equity Component",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"create": 0, "delete": 0, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts User", "share": 1, "write": 0}
+ ],
+ "sort_field": "display_order",
+ "sort_order": "ASC",
+ "track_changes": 1
+}

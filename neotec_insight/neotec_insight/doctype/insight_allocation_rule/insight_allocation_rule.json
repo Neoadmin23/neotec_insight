@@ -1,0 +1,298 @@
+{
+ "actions": [],
+ "creation": "2026-08-02 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "field:title",
+ "field_order": [
+  "title",
+  "company",
+  "is_active",
+  "driver_label",
+  "cb_pool",
+  "pool_mode",
+  "pool_report",
+  "pool_row_key",
+  "pool_cost_center",
+  "pool_flag",
+  "pool_sign",
+  "sb_driver",
+  "driver_source",
+  "count_as_of",
+  "cc_from",
+  "include_status",
+  "include_on_leave",
+  "dept_map",
+  "cb_lead",
+  "lead_cc_field",
+  "lead_assigned_only",
+  "lead_date_field",
+  "lead_exclude_status",
+  "lead_include_disabled",
+  "lead_split_units",
+  "sb_formula",
+  "formula",
+  "sb_credit",
+  "credit_back",
+  "credit_cost_center",
+  "sb_note",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "reqd": 1,
+   "unique": 1,
+   "description": "e.g. GMO Allocation, Sales & Marketing Allocation"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "label": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active",
+   "default": "1"
+  },
+  {
+   "fieldname": "driver_label",
+   "fieldtype": "Data",
+   "label": "Driver Label",
+   "default": "Head count",
+   "description": "What the pro-rata is based on \u2014 Head count, Leads count, Floor area, ..."
+  },
+  {
+   "fieldname": "cb_pool",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pool_mode",
+   "fieldtype": "Select",
+   "label": "Pool Source",
+   "options": "report_row\nflag\nmanual",
+   "default": "report_row",
+   "description": "report_row: the pool is a row of an existing report, run with one cost centre filter \u2014 the number the P&L already shows. flag: read from account flags. manual: entered per month."
+  },
+  {
+   "fieldname": "pool_report",
+   "fieldtype": "Link",
+   "options": "Insight Report Definition",
+   "label": "Source Report",
+   "depends_on": "eval:doc.pool_mode=='report_row'||doc.pool_mode=='flag'",
+   "description": "The report the pool is read from."
+  },
+  {
+   "fieldname": "pool_row_key",
+   "fieldtype": "Data",
+   "label": "Source Row",
+   "depends_on": "eval:doc.pool_mode=='report_row'",
+   "description": "Key of the row to read, e.g. total_expenses."
+  },
+  {
+   "fieldname": "pool_cost_center",
+   "fieldtype": "Link",
+   "options": "Cost Center",
+   "label": "Source Cost Center",
+   "depends_on": "eval:doc.pool_mode=='report_row'",
+   "description": "The report is run with this single cost centre filter. This is also the cost centre credited back when Credit Back is on."
+  },
+  {
+   "fieldname": "pool_flag",
+   "fieldtype": "Data",
+   "label": "Pool Flag",
+   "depends_on": "eval:doc.pool_mode=='flag'",
+   "description": "The account flag holding the total pool cost for this allocation."
+  },
+  {
+   "fieldname": "pool_sign",
+   "fieldtype": "Select",
+   "label": "Pool Sign",
+   "options": "normal\ninvert",
+   "default": "normal",
+   "depends_on": "eval:doc.pool_mode!='manual'",
+   "description": "Expenses are stored positive; invert if the flag returns a credit balance."
+  },
+  {
+   "fieldname": "sb_driver",
+   "fieldtype": "Section Break",
+   "label": "Driver Capture"
+  },
+  {
+   "fieldname": "driver_source",
+   "fieldtype": "Select",
+   "label": "Driver Source",
+   "options": "manual\nemployee_headcount\ncrm_leads",
+   "default": "manual",
+   "description": "manual: typed into the grid. employee_headcount: counted from Employee records as of each month."
+  },
+  {
+   "fieldname": "count_as_of",
+   "fieldtype": "Select",
+   "label": "Counted As Of",
+   "options": "month_end\nmonth_start",
+   "default": "month_end",
+   "depends_on": "eval:doc.driver_source=='employee_headcount'"
+  },
+  {
+   "fieldname": "cc_from",
+   "fieldtype": "Select",
+   "label": "Cost Centre From",
+   "options": "payroll_cost_center\ndepartment_map",
+   "default": "payroll_cost_center",
+   "depends_on": "eval:doc.driver_source=='employee_headcount'",
+   "description": "payroll_cost_center reads the field on Employee. department_map uses the table below."
+  },
+  {
+   "fieldname": "include_status",
+   "fieldtype": "Data",
+   "label": "Count Statuses",
+   "default": "Active",
+   "depends_on": "eval:doc.driver_source=='employee_headcount'",
+   "description": "Comma-separated Employee statuses to count. Default Active. An employee with a relieving date is still counted in the months before they left, whatever their status is today."
+  },
+  {
+   "fieldname": "include_on_leave",
+   "fieldtype": "Check",
+   "label": "Count employees on long leave",
+   "default": "1",
+   "depends_on": "eval:doc.driver_source=='employee_headcount'"
+  },
+  {
+   "fieldname": "dept_map",
+   "fieldtype": "Table",
+   "options": "Insight Allocation Dept Map",
+   "label": "Department \u2192 Cost Centre",
+   "depends_on": "eval:doc.driver_source=='employee_headcount'"
+  },
+  {
+   "fieldname": "cb_lead",
+   "fieldtype": "Column Break",
+   "depends_on": "eval:doc.driver_source=='crm_leads'"
+  },
+  {
+   "fieldname": "lead_cc_field",
+   "fieldtype": "Data",
+   "label": "Lead \u2192 Cost Centre Field",
+   "default": "business_line",
+   "depends_on": "eval:doc.driver_source=='crm_leads'",
+   "description": "Fieldname on Lead that links to Cost Center. On this site that is business_line."
+  },
+  {
+   "fieldname": "lead_assigned_only",
+   "fieldtype": "Check",
+   "label": "Count assigned leads only",
+   "default": "1",
+   "depends_on": "eval:doc.driver_source=='crm_leads'",
+   "description": "Only leads that have actually been assigned to someone. Assignment means a ToDo record \u2014 lead_owner defaults to whoever created the lead, so it is not evidence of assignment."
+  },
+  {
+   "fieldname": "lead_date_field",
+   "fieldtype": "Select",
+   "label": "Which Date Counts",
+   "options": "assignment\ncustom_creat_date\ncreation\ndate\nqualified_on\nwon_or_lost_date",
+   "default": "assignment",
+   "depends_on": "eval:doc.driver_source=='crm_leads'",
+   "description": "Which date places a lead in a month. 'assignment' uses when the lead was first assigned, read from ToDo \u2014 not the due date on it."
+  },
+  {
+   "fieldname": "lead_exclude_status",
+   "fieldtype": "Small Text",
+   "label": "Exclude Statuses",
+   "depends_on": "eval:doc.driver_source=='crm_leads'",
+   "description": "Comma-separated Lead statuses to leave out, e.g. Do Not Contact. Blank counts every status."
+  },
+  {
+   "fieldname": "lead_include_disabled",
+   "fieldtype": "Check",
+   "label": "Include disabled leads",
+   "default": "0",
+   "depends_on": "eval:doc.driver_source=='crm_leads'"
+  },
+  {
+   "fieldname": "lead_split_units",
+   "fieldtype": "Check",
+   "label": "Split across Business Lead Units",
+   "default": "0",
+   "depends_on": "eval:doc.driver_source=='crm_leads'",
+   "description": "When the Business Lead Unit table is filled, count the lead once per unit instead of once on its business line."
+  },
+  {
+   "fieldname": "sb_formula",
+   "fieldtype": "Section Break",
+   "label": "Formula"
+  },
+  {
+   "fieldname": "formula",
+   "fieldtype": "Small Text",
+   "label": "Allocation Formula",
+   "default": "(pool - amount_total) * (driver / driver_total)",
+   "description": "Evaluated once per cost centre per month. Variables: pool, amount_total, distributable, driver, driver_total, month, year. Functions: IF ROUND ABS MIN MAX. driver_total is the sum of the driver table only \u2014 never a company-wide figure."
+  },
+  {
+   "fieldname": "sb_credit",
+   "fieldtype": "Section Break",
+   "label": "Credit Back"
+  },
+  {
+   "fieldname": "credit_back",
+   "fieldtype": "Check",
+   "label": "Credit the source cost centre",
+   "default": "1",
+   "description": "On: the source cost centre is credited with everything it gave away, so it nets to zero and the consolidated total is unchanged. Off: receiving cost centres are charged and the source keeps its cost, which double-counts at company level unless handled in the report formula."
+  },
+  {
+   "fieldname": "credit_cost_center",
+   "fieldtype": "Link",
+   "options": "Cost Center",
+   "label": "Credit To",
+   "depends_on": "credit_back",
+   "description": "Defaults to the source cost centre when left blank."
+  },
+  {
+   "fieldname": "sb_note",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-02 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Allocation Rule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

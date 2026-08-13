@@ -1,0 +1,177 @@
+{
+ "actions": [],
+ "creation": "2026-08-02 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "hash",
+ "field_order": [
+  "rule",
+  "company",
+  "cost_center",
+  "period_month",
+  "basis",
+  "driver_value",
+  "amount",
+  "manual_pool",
+  "sb_audit",
+  "source",
+  "captured_value",
+  "captured_on",
+  "captured_by",
+  "is_override",
+  "is_frozen",
+  "evidence_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "rule",
+   "fieldtype": "Link",
+   "options": "Insight Allocation Rule",
+   "label": "Rule",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "label": "Company",
+   "search_index": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "options": "Cost Center",
+   "label": "Cost Center",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "period_month",
+   "fieldtype": "Date",
+   "label": "Month",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1,
+   "description": "First day of the month this driver value applies to."
+  },
+  {
+   "fieldname": "basis",
+   "fieldtype": "Select",
+   "label": "Basis",
+   "options": "head_count\namount",
+   "default": "head_count",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "head_count: the amount is calculated from this cost centre's share of the driver. amount: the amount is entered directly, and is carved out of the pool before the calculation."
+  },
+  {
+   "fieldname": "driver_value",
+   "fieldtype": "Float",
+   "label": "Head Count / Driver",
+   "precision": "4",
+   "in_list_view": 1,
+   "description": "Head count / leads count / whatever the rule's driver is.",
+   "depends_on": "eval:doc.basis=='head_count'"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "depends_on": "eval:doc.basis=='amount'",
+   "description": "Entered directly for a cost centre that has no head count. Carved out of the pool before the remainder is spread."
+  },
+  {
+   "fieldname": "manual_pool",
+   "fieldtype": "Currency",
+   "label": "Manual Pool",
+   "description": "Only read when the rule's pool source is manual. Entered once per month; the value on any one row of that month is used."
+  },
+  {
+   "fieldname": "sb_audit",
+   "fieldtype": "Section Break",
+   "label": "Capture & Audit"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "manual\nemployee_headcount\ncrm_leads\nreconstructed",
+   "default": "manual",
+   "read_only": 1,
+   "description": "How this value arrived. 'reconstructed' means it was rebuilt from dated history after the fact rather than captured at the time."
+  },
+  {
+   "fieldname": "captured_value",
+   "fieldtype": "Float",
+   "label": "Captured Value",
+   "precision": "4",
+   "read_only": 1,
+   "description": "What the capture counted. Kept even when overridden, so the difference stays visible."
+  },
+  {
+   "fieldname": "captured_on",
+   "fieldtype": "Datetime",
+   "label": "Captured On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "captured_by",
+   "fieldtype": "Data",
+   "label": "Captured By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_override",
+   "fieldtype": "Check",
+   "label": "Manually Overridden",
+   "default": "0",
+   "description": "Set when a human changed the value after a capture. Captures never overwrite it."
+  },
+  {
+   "fieldname": "is_frozen",
+   "fieldtype": "Check",
+   "label": "Frozen",
+   "default": "0",
+   "description": "A closed month. Re-running capture compares against it and reports drift instead of rewriting it."
+  },
+  {
+   "fieldname": "evidence_json",
+   "fieldtype": "Long Text",
+   "label": "Evidence",
+   "read_only": 1,
+   "description": "The employees or leads counted, snapshotted at capture time. Snapshotted rather than re-queried so the list always reconciles to the number, even after a transfer or a deletion."
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-02 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Allocation Entry",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "period_month",
+ "sort_order": "ASC"
+}

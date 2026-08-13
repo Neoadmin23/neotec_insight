@@ -1,0 +1,40 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:label",
+ "creation": "2026-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "label",
+  "url",
+  "icon",
+  "open_in_new_tab",
+  "sort_order",
+  "enabled"
+ ],
+ "fields": [
+  {"fieldname": "label", "fieldtype": "Data", "in_list_view": 1, "label": "Label", "reqd": 1, "unique": 1, "description": "Text shown in the Insight header menu, e.g. 'General Ledger'."},
+  {"fieldname": "url", "fieldtype": "Data", "in_list_view": 1, "label": "URL", "reqd": 1, "description": "Where the link goes. An ERPNext desk path like /app/general-ledger, or a full external URL."},
+  {"fieldname": "icon", "fieldtype": "Data", "label": "Icon", "description": "Optional Tabler icon name (without the 'ti ti-' prefix), e.g. 'book' or 'list'. Leave blank for a default."},
+  {"default": "1", "fieldname": "open_in_new_tab", "fieldtype": "Check", "label": "Open in New Tab", "description": "On (default): opens in a new browser tab so Insight stays open. Off: navigates in the same tab."},
+  {"default": "10", "fieldname": "sort_order", "fieldtype": "Int", "in_list_view": 1, "label": "Sort Order", "description": "Lower numbers appear first in the menu."},
+  {"default": "1", "fieldname": "enabled", "fieldtype": "Check", "in_list_view": 1, "label": "Enabled", "description": "Uncheck to hide this link without deleting it."}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Quick Link",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"read": 1, "role": "Accounts User"}
+ ],
+ "sort_field": "sort_order",
+ "sort_order": "ASC",
+ "track_changes": 1
+}

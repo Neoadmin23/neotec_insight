@@ -1,0 +1,9 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Neotec Insight">
+  <rect x="96"  y="300" width="40" height="116" rx="13" fill="#FFFFFF" opacity="0.30"/>
+  <rect x="170" y="258" width="40" height="158" rx="13" fill="#FFFFFF" opacity="0.34"/>
+  <rect x="374" y="166" width="40" height="250" rx="13" fill="#FFFFFF" opacity="0.40"/>
+  <rect x="150" y="156" width="50" height="206" rx="15" fill="#FFFFFF"/>
+  <rect x="306" y="156" width="50" height="206" rx="15" fill="#FFFFFF"/>
+  <path d="M150 156 L200 156 L356 362 L306 362 Z" fill="#FFFFFF"/>
+  <path d="M388 88 Q388 138 438 138 Q388 138 388 188 Q388 138 338 138 Q388 138 388 88 Z" fill="#FFFFFF"/>
+</svg>

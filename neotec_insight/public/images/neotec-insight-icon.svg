@@ -1,0 +1,50 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Neotec Insight">
+  <defs>
+    <linearGradient id="ni-bg" x1="48" y1="40" x2="470" y2="486" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2A2440"/><stop offset="0.5" stop-color="#42376F"/><stop offset="1" stop-color="#1FB6A6"/>
+    </linearGradient>
+    <radialGradient id="ni-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(392 116) rotate(122) scale(258)">
+      <stop stop-color="#FF6A3D" stop-opacity="0.5"/><stop offset="1" stop-color="#FF6A3D" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ni-top" x1="256" y1="0" x2="256" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.16"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ni-N" x1="150" y1="150" x2="360" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#EAFBF7"/>
+    </linearGradient>
+    <linearGradient id="ni-spark" x1="338" y1="92" x2="430" y2="196" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE27A"/><stop offset="1" stop-color="#FF6A3D"/>
+    </linearGradient>
+    <filter id="ni-soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="11"/></filter>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#ni-bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#ni-glow)"/>
+  <rect x="16" y="16" width="480" height="250" rx="118" fill="url(#ni-top)"/>
+
+  <!-- Rising financial-growth bars (background) -->
+  <g opacity="0.9">
+    <rect x="96"  y="300" width="40" height="116" rx="13" fill="#FFFFFF" opacity="0.16"/>
+    <rect x="170" y="258" width="40" height="158" rx="13" fill="#FFFFFF" opacity="0.18"/>
+    <rect x="300" y="214" width="40" height="202" rx="13" fill="#FFFFFF" opacity="0.20"/>
+    <rect x="374" y="166" width="40" height="250" rx="13" fill="#FFFFFF" opacity="0.22"/>
+  </g>
+
+  <!-- Bold "N" in the foreground -->
+  <g>
+    <rect x="150" y="156" width="50" height="206" rx="15" fill="url(#ni-N)"/>
+    <rect x="306" y="156" width="50" height="206" rx="15" fill="url(#ni-N)"/>
+    <path d="M150 156 L200 156 L356 362 L306 362 Z" fill="url(#ni-N)"/>
+  </g>
+
+  <!-- small rising glint near the flash (right side, does not cross the N) -->
+  <path d="M372 250 L408 214 L444 178" stroke="#FFD15C" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+
+  <!-- Flash spark off the top-right -->
+  <g>
+    <path filter="url(#ni-soft)" opacity="0.7" d="M388 84 Q388 138 442 138 Q388 138 388 192 Q388 138 334 138 Q388 138 388 84 Z" fill="#FF6A3D"/>
+    <path d="M388 88 Q388 138 438 138 Q388 138 388 188 Q388 138 338 138 Q388 138 388 88 Z" fill="url(#ni-spark)"/>
+  </g>
+  <path d="M446 192 Q446 210 464 210 Q446 210 446 228 Q446 210 428 210 Q446 210 446 192 Z" fill="#FFE27A" opacity="0.9"/>
+</svg>

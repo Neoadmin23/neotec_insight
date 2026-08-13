@@ -1,0 +1,53 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:slug",
+ "creation": "2026-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "label",
+  "slug",
+  "report",
+  "sb_ownership",
+  "owner_user",
+  "is_shared",
+  "sb_content",
+  "tiles_json",
+  "filters_json",
+  "sb_meta",
+  "description"
+ ],
+ "fields": [
+  {"fieldname": "label", "fieldtype": "Data", "in_list_view": 1, "label": "Label", "reqd": 1},
+  {"fieldname": "slug", "fieldtype": "Data", "in_list_view": 1, "label": "Slug", "reqd": 1, "unique": 1},
+  {"fieldname": "report", "fieldtype": "Link", "in_list_view": 1, "label": "Report", "options": "Insight Report Definition", "reqd": 1},
+  {"fieldname": "sb_ownership", "fieldtype": "Section Break", "label": "Ownership"},
+  {"description": "The user who created and owns this dashboard.", "fieldname": "owner_user", "fieldtype": "Link", "label": "Owner", "options": "User"},
+  {"default": "0", "description": "When checked, every user with access to the report can see this dashboard. Otherwise only the owner sees it.", "fieldname": "is_shared", "fieldtype": "Check", "in_list_view": 1, "label": "Shared"},
+  {"fieldname": "sb_content", "fieldtype": "Section Break", "label": "Content"},
+  {"description": "JSON array of tile configs (id, runId, title, type, rowKeys, series, palette).", "fieldname": "tiles_json", "fieldtype": "Long Text", "label": "Tiles JSON"},
+  {"description": "JSON snapshot of the run filters used when this dashboard was saved — lets a reload reproduce the same data.", "fieldname": "filters_json", "fieldtype": "Long Text", "label": "Filters JSON"},
+  {"fieldname": "sb_meta", "fieldtype": "Section Break", "label": "Metadata"},
+  {"fieldname": "description", "fieldtype": "Small Text", "label": "Description"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Dashboard",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"create": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts User", "share": 1, "write": 1}
+ ],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "label",
+ "track_changes": 1
+}

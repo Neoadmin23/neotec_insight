@@ -1,0 +1,40 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"insight-intro\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Neotec Insight</b></span>\",\"col\":12}},{\"id\":\"insight-launch\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports\",\"col\":4}},{\"id\":\"insight-mapping\",\"type\":\"card\",\"data\":{\"card_name\":\"Mapping\",\"col\":4}},{\"id\":\"insight-visuals\",\"type\":\"card\",\"data\":{\"card_name\":\"Visuals\",\"col\":4}}]",
+ "creation": "2026-01-01 00:00:00",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "file",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "Neotec Insight",
+ "links": [
+  {"hidden": 0, "is_query_report": 0, "label": "Reports", "link_count": 0, "onboard": 0, "type": "Card Break"},
+  {"dependencies": "", "hidden": 0, "is_query_report": 0, "label": "Insight Report Definition", "link_count": 0, "link_to": "Insight Report Definition", "link_type": "DocType", "onboard": 0, "type": "Link"},
+  {"hidden": 0, "is_query_report": 0, "label": "Mapping", "link_count": 0, "onboard": 0, "type": "Card Break"},
+  {"dependencies": "", "hidden": 0, "is_query_report": 0, "label": "Account Flag Mapping", "link_count": 0, "link_to": "Account Flag Mapping", "link_type": "DocType", "onboard": 0, "type": "Link"},
+  {"dependencies": "", "hidden": 0, "is_query_report": 0, "label": "Insight Mapping Rule", "link_count": 0, "link_to": "Insight Mapping Rule", "link_type": "DocType", "onboard": 0, "type": "Link"},
+  {"hidden": 0, "is_query_report": 0, "label": "Visuals", "link_count": 0, "onboard": 0, "type": "Card Break"},
+  {"dependencies": "", "hidden": 0, "is_query_report": 0, "label": "Insight Dashboard", "link_count": 0, "link_to": "Insight Dashboard", "link_type": "DocType", "onboard": 0, "type": "Link"},
+  {"dependencies": "", "hidden": 0, "is_query_report": 0, "label": "Insight Budget Cell", "link_count": 0, "link_to": "Insight Budget Cell", "link_type": "DocType", "onboard": 0, "type": "Link"}
+ ],
+ "modified": "2026-01-01 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Neotec Insight",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "restrict_to_domain": "",
+ "roles": [],
+ "sequence_id": 99,
+ "shortcuts": [
+  {"color": "Blue", "doc_view": "", "label": "Open Neotec Insight", "type": "URL", "url": "/insight"}
+ ],
+ "title": "Neotec Insight"
+}

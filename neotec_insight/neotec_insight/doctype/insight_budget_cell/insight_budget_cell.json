@@ -1,0 +1,44 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "book",
+  "report",
+  "fiscal_year",
+  "month",
+  "row_key",
+  "segment",
+  "amount",
+  "currency"
+ ],
+ "fields": [
+  {"description": "The Insight Budget Book this cell belongs to. Required from v1.4.0; legacy cells get migrated.", "fieldname": "book", "fieldtype": "Link", "in_list_view": 1, "label": "Book", "options": "Insight Budget Book"},
+  {"fieldname": "report", "fieldtype": "Link", "in_list_view": 1, "label": "Report", "options": "Insight Report Definition", "reqd": 1},
+  {"fieldname": "fiscal_year", "fieldtype": "Int", "in_list_view": 1, "label": "Fiscal Year", "reqd": 1},
+  {"description": "0 = Jan, 11 = Dec.", "fieldname": "month", "fieldtype": "Int", "in_list_view": 1, "label": "Month", "reqd": 1},
+  {"description": "Stable key of the source row in the report definition.", "fieldname": "row_key", "fieldtype": "Data", "in_list_view": 1, "label": "Row Key", "reqd": 1},
+  {"default": "total", "description": "Legacy field. Kept for backward compatibility; book is the primary identifier as of v1.4.0.", "fieldname": "segment", "fieldtype": "Data", "in_list_view": 1, "label": "Segment (legacy)"},
+  {"fieldname": "amount", "fieldtype": "Currency", "in_list_view": 1, "label": "Amount", "reqd": 1},
+  {"default": "SAR", "fieldname": "currency", "fieldtype": "Link", "label": "Currency", "options": "Currency"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Budget Cell",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"create": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts User", "share": 1, "write": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

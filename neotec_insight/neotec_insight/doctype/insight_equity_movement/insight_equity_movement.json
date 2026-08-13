@@ -1,0 +1,44 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-06-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "fiscal_year",
+  "period",
+  "component",
+  "movement_type",
+  "amount",
+  "narration",
+  "report"
+ ],
+ "fields": [
+  {"fieldname": "company", "fieldtype": "Link", "options": "Company", "label": "Company", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "description": "The entity this equity movement belongs to."},
+  {"fieldname": "fiscal_year", "fieldtype": "Int", "label": "Fiscal Year", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "description": "Year the movement is recorded in (e.g. 2024)."},
+  {"fieldname": "period", "fieldtype": "Select", "options": "FY\nQ1\nQ2\nQ3\nQ4\nH1\nH2", "default": "FY", "label": "Period", "in_list_view": 1, "in_standard_filter": 1, "description": "FY for annual statements; Q1-Q4 for quarterly; H1/H2 for half-yearly. Pick the period you're reporting."},
+  {"fieldname": "component", "fieldtype": "Link", "options": "Insight Equity Component", "label": "Equity Component", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "description": "Which equity line this movement affects. The list is configurable — manage entries via Insight Equity Component."},
+  {"fieldname": "movement_type", "fieldtype": "Link", "options": "Insight Equity Movement Type", "label": "Movement Type", "reqd": 1, "in_list_view": 1, "description": "What kind of movement this is. The list is configurable — manage entries via Insight Equity Movement Type. The system identifies the opening entry by the 'Is Opening Balance' flag on the type, not by its name."},
+  {"fieldname": "amount", "fieldtype": "Currency", "label": "Amount", "reqd": 1, "description": "Signed amount in the company's base currency. Positive = increases the component; negative = decreases. Beginning Balance is always positive."},
+  {"fieldname": "narration", "fieldtype": "Small Text", "label": "Narration", "description": "Optional explanation — e.g. 'Transfer per board resolution dated 15-Mar-2024'."},
+  {"fieldname": "report", "fieldtype": "Link", "options": "Insight Report Definition", "label": "Report (optional)", "description": "Optionally tie this movement to a specific Insight report definition. If left empty, all reports for the same company/year see it."}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Equity Movement",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 0, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts User", "share": 1, "write": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

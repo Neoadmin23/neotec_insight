@@ -1,0 +1,15 @@
+{
+  "slug": "trial-balance",
+  "report_name": "Trial Balance",
+  "description": "Opening, period, and closing debit/credit balances for every account. Receivable and Payable accounts expand to a per-customer / per-supplier subledger view.",
+  "report_type": "trial_balance",
+  "comparison_mode": "actuals_only",
+  "prior_years": 0,
+  "primary_budget_axis": "none",
+  "definition": {
+    "rows": [],
+    "note": "Trial Balance rows are computed dynamically from the chart of accounts at run time. This JSON exists so the report can be selected; the engine reads the company's accounts directly."
+  },
+  "columns": [],
+  "filters": []
+}

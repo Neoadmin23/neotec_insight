@@ -1,0 +1,17 @@
+{
+ "actions": [], "creation": "2026-07-10 00:00:00", "doctype": "DocType",
+ "engine": "InnoDB", "issingle": 1,
+ "field_order": ["menu_json", "brand_json"],
+ "fields": [
+  {"fieldname": "menu_json", "fieldtype": "Code", "label": "Menu Configuration (JSON)", "options": "JSON"},
+  {"fieldname": "brand_json", "fieldtype": "Code", "label": "Brand Kit / Print Setup (JSON)", "options": "JSON"}
+ ],
+ "links": [], "modified": "2026-07-30 00:00:00", "module": "Neotec Insight",
+ "name": "Insight Menu Settings", "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "email": 1, "print": 1, "read": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"read": 1, "write": 1, "role": "Accounts Manager"},
+  {"read": 1, "role": "Accounts User"}
+ ],
+ "sort_field": "modified", "sort_order": "DESC"
+}

@@ -1,0 +1,254 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:slug",
+ "creation": "2026-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "report_name",
+  "slug",
+  "report_type",
+  "description",
+  "is_active",
+  "is_default",
+  "presentation_format",
+  "print_letter_head",
+  "version",
+  "company",
+  "sb_schema",
+  "definition_json",
+  "column_schema_json",
+  "filter_schema_json",
+  "sb_comparison",
+  "comparison_mode",
+  "prior_years",
+  "primary_budget_axis",
+  "sb_display",
+  "default_expand",
+  "hide_zero_accounts",
+  "hide_group_accounts",
+  "sb_source",
+  "seed_source",
+  "source_workbook_name"
+ ],
+ "fields": [
+  {
+   "fieldname": "report_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Report Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "slug",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Slug",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "pnl",
+   "description": "Determines which execution engine handles this report. 'pnl' uses the period-matrix engine; 'trial_balance' uses opening/period/closing balances; 'balance_sheet' uses as-of-date closing balances by account type; 'pnl_statement' is a chart-of-accounts Profit & Loss reading Income/Expense accounts directly.",
+   "fieldname": "report_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Report Type",
+   "options": "pnl\ntrial_balance\nbalance_sheet\npnl_statement",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "default": "1",
+   "description": "Uncheck to hide this report from the picker. Disabled reports remain visible to admins via the desk.",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  },
+  {
+   "default": "0",
+   "description": "Tick to make this the report that loads first in the Reports tab and the CFO Briefing. If multiple reports are marked default, the most recently modified wins.",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Is Default"
+  },
+  {
+   "default": "1",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "label": "Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Default Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "sb_schema",
+   "fieldtype": "Section Break",
+   "label": "Schema"
+  },
+  {
+   "description": "Top-level report definition JSON: rows (section/source/formula), bindings, access policy.",
+   "fieldname": "definition_json",
+   "fieldtype": "Code",
+   "label": "Definition JSON",
+   "options": "JSON",
+   "reqd": 1
+  },
+  {
+   "description": "Nested column schema (period groups, sub-columns).",
+   "fieldname": "column_schema_json",
+   "fieldtype": "Code",
+   "label": "Column Schema JSON",
+   "options": "JSON"
+  },
+  {
+   "description": "Runtime filter definitions.",
+   "fieldname": "filter_schema_json",
+   "fieldtype": "Code",
+   "label": "Filter Schema JSON",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "sb_comparison",
+   "fieldtype": "Section Break",
+   "label": "Comparison Defaults"
+  },
+  {
+   "default": "vs_budget",
+   "fieldname": "comparison_mode",
+   "fieldtype": "Select",
+   "label": "Default Comparison Mode",
+   "options": "actuals_only\nvs_budget"
+  },
+  {
+   "default": "1",
+   "description": "0-5. Default 1.",
+   "fieldname": "prior_years",
+   "fieldtype": "Int",
+   "label": "Default Prior Years"
+  },
+  {
+   "default": "cost_center",
+   "description": "Which dimension's books are summed to make the Total Company book. 'none' disables roll-up (Total is entered manually).",
+   "fieldname": "primary_budget_axis",
+   "fieldtype": "Select",
+   "label": "Primary Budget Axis",
+   "options": "none\ncost_center\ndepartment\nproject"
+  },
+  {
+   "fieldname": "sb_source",
+   "fieldtype": "Section Break",
+   "label": "Seed Source"
+  },
+  {
+   "default": "manual",
+   "fieldname": "seed_source",
+   "fieldtype": "Select",
+   "label": "Seed Source",
+   "options": "manual\nexcel-template\nmap-sheet\napp-preset"
+  },
+  {
+   "fieldname": "source_workbook_name",
+   "fieldtype": "Data",
+   "label": "Source Workbook Name"
+  },
+  {
+   "default": "vertical",
+   "description": "Vertical: classical top-to-bottom statement (default). T-Account: traditional two-column Trading and Profit & Loss layout with c/d and b/d annotations. T-Account requires rows to declare their t_side classification.",
+   "fieldname": "presentation_format",
+   "fieldtype": "Select",
+   "label": "Presentation Format",
+   "options": "vertical\nt_account"
+  },
+  {
+   "fieldname": "print_letter_head",
+   "fieldtype": "Link",
+   "options": "Letter Head",
+   "label": "Default Print Letter Head",
+   "description": "Optional default Letter Head used when this report is printed or exported. If left empty, the company default is used; if no company default, the system default; if none, the export proceeds without letterhead. The user can override at the moment of export."
+  },
+  {
+   "fieldname": "sb_display",
+   "fieldtype": "Section Break",
+   "label": "Display Defaults"
+  },
+  {
+   "fieldname": "default_expand",
+   "fieldtype": "Select",
+   "label": "Default Row Expand",
+   "options": "Collapsed\nExpanded",
+   "default": "Collapsed",
+   "description": "Whether report rows start expanded to their mapped accounts."
+  },
+  {
+   "fieldname": "hide_zero_accounts",
+   "fieldtype": "Check",
+   "label": "Hide zero-value accounts in drill-down",
+   "default": "0"
+  },
+  {
+   "fieldname": "hide_group_accounts",
+   "fieldtype": "Check",
+   "label": "Hide group accounts in drill-down (show only posting accounts)",
+   "default": "0"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Report Definition",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "report_name",
+ "track_changes": 1
+}

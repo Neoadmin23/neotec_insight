@@ -1,0 +1,15 @@
+{
+  "slug": "profit-and-loss-statement",
+  "report_name": "Profit & Loss Statement",
+  "description": "Chart-of-accounts Profit & Loss — reads Income and Expense accounts directly from the chart of accounts in tree order, no flag mapping required. Supports a dimension pivot (by cost center / department / project).",
+  "report_type": "pnl_statement",
+  "comparison_mode": "actuals_only",
+  "prior_years": 0,
+  "primary_budget_axis": "none",
+  "definition": {
+    "rows": [],
+    "note": "Profit & Loss Statement rows are computed dynamically from the chart of accounts at run time."
+  },
+  "columns": [],
+  "filters": []
+}

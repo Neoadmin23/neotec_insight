@@ -1,0 +1,47 @@
+{
+  "slug": "income-statement-investment-holding",
+  "report_name": "Income Statement — Investment Holding",
+  "description": "IFRS-style Income Statement for an investment-holding entity. Mirrors the structure used by holding companies that report dividends, interest, equity-method share of associates' results, and OCI-adjacent items (realised gains on AFS securities, fair-value re-evaluations). Pre-defined rows are bound to flags — go to Reports → Account map to bind each flag to the matching GL accounts in your chart of accounts. Designed to be rendered with the 'Quarterly + Quarter-YTD (interleaved)' granularity for board-pack presentation.",
+  "report_type": "pnl",
+  "comparison_mode": "actuals_only",
+  "prior_years": 2,
+  "primary_budget_axis": "cost_center",
+  "definition": {
+    "rows": [
+      {"key": "section_revenues",                  "kind": "section", "label": "Revenues"},
+      {"key": "div_afs_securities",                "kind": "source",  "label": "Dividends from Available for Sale Securities",            "flag": "div_afs_securities"},
+      {"key": "equity_share_associate",            "kind": "source",  "label": "Equity Share in Net Profit/(Loss) of Associated Company", "flag": "equity_share_associate"},
+      {"key": "reeval_impairment_afs",             "kind": "source",  "label": "Re-evaluation/Impairment Charge for Available for Sale",  "flag": "reeval_impairment_afs"},
+      {"key": "income_from_banks",                 "kind": "source",  "label": "Income from Banks (Interest on Fixed Deposits)",          "flag": "income_from_banks"},
+      {"key": "prior_year_adj_associate",          "kind": "source",  "label": "Prior Years Adjustment / Re-evaluation of Invest. in Associated Co.", "flag": "prior_year_adj_associate"},
+      {"key": "other_income",                      "kind": "source",  "label": "Other Income",                                            "flag": "other_income"},
+      {"key": "total_gains_from_operations",       "kind": "formula", "label": "Total Gains (Losses) from Operations",                    "formula": "div_afs_securities + equity_share_associate + reeval_impairment_afs + income_from_banks + prior_year_adj_associate + other_income"},
+
+      {"key": "section_expenses",                  "kind": "section", "label": "Less: Expenses"},
+      {"key": "general_admin_expenses",            "kind": "source",  "label": "General and Administrative Expenses",                     "flag": "general_admin_expenses",  "sign": "invert"},
+      {"key": "financing_cost_fx_loss",            "kind": "source",  "label": "Financing Cost & Exchange Loss on Foreign Currencies",    "flag": "financing_cost_fx_loss", "sign": "invert"},
+      {"key": "zakat_payable_charge",              "kind": "source",  "label": "Zakat Payable",                                           "flag": "zakat_payable_charge",   "sign": "invert"},
+      {"key": "total_expenses",                    "kind": "formula", "label": "Total Expenses",                                          "formula": "general_admin_expenses + financing_cost_fx_loss + zakat_payable_charge"},
+
+      {"key": "transfer_statutory_reserve",        "kind": "source",  "label": "Transfer to Statutory Reserve",                           "flag": "transfer_statutory_reserve", "sign": "invert"},
+
+      {"key": "net_income_from_operation",         "kind": "formula", "label": "Net Income (Loss) from Operation",                        "formula": "total_gains_from_operations + total_expenses + transfer_statutory_reserve",
+       "style": {"weight": "bold"}},
+
+      {"key": "section_items_not_reclassified",    "kind": "section", "label": "Items Not To be Re-Classified to P/L"},
+      {"key": "comp_share_other_assoc",            "kind": "source",  "label": "Comp. Share (Other Income/Loss in Associated Comp.)",    "flag": "comp_share_other_assoc"},
+      {"key": "net_realized_gains_afs_sale",       "kind": "source",  "label": "Net Realized Gains/(Loss) from Sale of Avail. for Sale Securities", "flag": "net_realized_gains_afs_sale"},
+      {"key": "reeval_fair_value_associate",       "kind": "source",  "label": "Re-evaluations (Fair Value) for Investment In An Associate", "flag": "reeval_fair_value_associate"},
+      {"key": "reeval_fair_value_afs",             "kind": "source",  "label": "Re-evaluations (Fair Value) for Investment In Secu. for Sales", "flag": "reeval_fair_value_afs"},
+      {"key": "total_items_not_reclassified",      "kind": "formula", "label": "Total Profit/(Loss) Not Re-Classified to P/L",            "formula": "comp_share_other_assoc + net_realized_gains_afs_sale + reeval_fair_value_associate + reeval_fair_value_afs"},
+
+      {"key": "net_movement_invest_oci",           "kind": "source",  "label": "Net Movement in Invest. Through Other Comprehensive Income for the Year", "flag": "net_movement_invest_oci"},
+
+      {"key": "total_net_profit_for_year",         "kind": "formula", "label": "Total Net Profit / (Loss) for the Year",                  "formula": "net_income_from_operation + total_items_not_reclassified + net_movement_invest_oci",
+       "style": {"weight": "bold", "borderTop": "double"}}
+    ],
+    "comparison": {"mode": "actuals_only", "prior_years": 2}
+  },
+  "columns": [],
+  "filters": []
+}

@@ -1,0 +1,209 @@
+{
+ "actions": [],
+ "creation": "2026-01-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ai_section",
+  "ai_enabled",
+  "ai_endpoint",
+  "ai_model",
+  "ai_api_key",
+  "ai_col",
+  "ai_system_prompt",
+  "loc_section",
+  "default_language",
+  "ar_labels_section",
+  "arabic_label_sources",
+  "sb_bank_reader",
+  "ollama_url",
+  "ollama_text_model",
+  "ollama_vision_model",
+  "company_aliases",
+  "bank_charges_account",
+  "input_vat_account",
+  "print_org_name",
+  "print_org_address",
+  "print_logo_url",
+  "vacation_days_per_year",
+  "ticket_source",
+  "insurance_source"
+ ],
+ "fields": [
+  {
+   "fieldname": "ai_section",
+   "fieldtype": "Section Break",
+   "label": "AI Engine (NeoNexus / OpenAI-compatible)"
+  },
+  {
+   "fieldname": "ai_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Neotec AI",
+   "default": "0",
+   "description": "When on, the Ask Neotec AI panel on the Reports screen sends live report figures to the endpoint below."
+  },
+  {
+   "fieldname": "ai_endpoint",
+   "fieldtype": "Data",
+   "label": "AI Endpoint (OpenAI-compatible base URL)",
+   "default": "http://host.docker.internal:11434/v1",
+   "description": "NeoNexus / Ollama / LM Studio / OpenAI base URL. /chat/completions is appended automatically."
+  },
+  {
+   "fieldname": "ai_model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "default": "llama3.3"
+  },
+  {
+   "fieldname": "ai_api_key",
+   "fieldtype": "Password",
+   "label": "API Key (optional)",
+   "description": "Leave blank for local engines (Ollama/LM Studio)."
+  },
+  {
+   "fieldname": "ai_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ai_system_prompt",
+   "fieldtype": "Small Text",
+   "label": "System Prompt (optional)",
+   "description": "Override the default analyst persona. Leave blank to use the built-in prompt."
+  },
+  {
+   "fieldname": "loc_section",
+   "fieldtype": "Section Break",
+   "label": "Localization"
+  },
+  {
+   "fieldname": "default_language",
+   "fieldtype": "Select",
+   "label": "Default Language",
+   "options": "en\nar",
+   "default": "en"
+  },
+  {
+   "fieldname": "ar_labels_section",
+   "fieldtype": "Section Break",
+   "label": "Arabic Label Sources",
+   "description": "Map each master to the field that holds its Arabic name. When the UI language is Arabic, accounts / dimensions / company show that field's value. The selectable value (used for filtering) never changes — only the displayed label."
+  },
+  {
+   "fieldname": "arabic_label_sources",
+   "fieldtype": "Table",
+   "label": "Arabic Label Sources",
+   "options": "Insight Arabic Label Source"
+  },
+  {
+   "fieldname": "sb_bank_reader",
+   "fieldtype": "Section Break",
+   "label": "Bank Slip Reader (Ollama)"
+  },
+  {
+   "fieldname": "ollama_url",
+   "fieldtype": "Data",
+   "label": "Ollama URL",
+   "default": "http://localhost:11434",
+   "description": "Local Ollama endpoint. Keeps slip data on-prem (PDPL)."
+  },
+  {
+   "fieldname": "ollama_text_model",
+   "fieldtype": "Data",
+   "label": "Ollama Text Model",
+   "default": "qwen2.5",
+   "description": "Structures digital-PDF text into the slip schema."
+  },
+  {
+   "fieldname": "ollama_vision_model",
+   "fieldtype": "Data",
+   "label": "Ollama Vision Model",
+   "default": "qwen2.5vl",
+   "description": "Reads scanned/image slips (Arabic+English)."
+  },
+  {
+   "fieldname": "company_aliases",
+   "fieldtype": "Small Text",
+   "label": "Company Name Tokens (direction classifier)",
+   "default": "IRSAA, ارساء, إرساء",
+   "description": "Distinctive tokens that identify your company on bank slips. Accounts are read from company Bank Accounts; these cover name-only slips."
+  },
+  {
+   "fieldname": "bank_charges_account",
+   "fieldtype": "Link",
+   "options": "Account",
+   "label": "Default Bank Charges Account"
+  },
+  {
+   "fieldname": "input_vat_account",
+   "fieldtype": "Link",
+   "options": "Account",
+   "label": "Default Input VAT Account (recoverable)"
+  },
+  {
+   "fieldname": "print_org_name",
+   "fieldtype": "Data",
+   "label": "Print: Organisation Name"
+  },
+  {
+   "fieldname": "print_org_address",
+   "fieldtype": "Small Text",
+   "label": "Print: Address / Sub-header"
+  },
+  {
+   "fieldname": "print_logo_url",
+   "fieldtype": "Data",
+   "label": "Print: Logo URL"
+  },
+  {
+   "fieldname": "vacation_days_per_year",
+   "fieldtype": "Int",
+   "label": "Provisions: Vacation Days/Year (0 = auto 21/30)"
+  },
+  {
+   "fieldname": "ticket_source",
+   "fieldtype": "Data",
+   "label": "Provisions: Ticket Source (field:/component:/fixed:)"
+  },
+  {
+   "fieldname": "insurance_source",
+   "fieldtype": "Data",
+   "label": "Provisions: Insurance Source (field:/component:/fixed:)"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-01-01 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight AI Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

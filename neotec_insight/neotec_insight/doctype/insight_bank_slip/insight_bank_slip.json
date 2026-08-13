@@ -1,0 +1,383 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-06-23 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "naming_series": "BSLIP-.YYYY.-.#####",
+ "field_order": [
+  "sb_source",
+  "naming_series",
+  "company",
+  "bank",
+  "channel",
+  "status",
+  "extraction_method",
+  "extraction_confidence",
+  "cb_money",
+  "direction",
+  "direction_basis",
+  "currency",
+  "amount",
+  "fee",
+  "vat",
+  "total_amount",
+  "converted_amount",
+  "converted_currency",
+  "conversion_rate",
+  "cb_party",
+  "source_account",
+  "source_account_link",
+  "counterparty_name",
+  "counterparty_account",
+  "counterparty_bank",
+  "party_type",
+  "party",
+  "cb_dates",
+  "value_date",
+  "processing_date",
+  "cb_ref",
+  "bank_reference",
+  "transaction_id",
+  "references_json",
+  "cb_class",
+  "description",
+  "purpose",
+  "purpose_group",
+  "suggested_account",
+  "cb_link",
+  "payment_entry",
+  "journal_entry",
+  "bank_transaction",
+  "cb_raw",
+  "source_file",
+  "raw_text"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_source",
+   "fieldtype": "Section Break",
+   "label": "Slip"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "BSLIP-.YYYY.-.#####",
+   "hidden": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "bank",
+   "fieldtype": "Data",
+   "label": "Bank",
+   "in_standard_filter": 1,
+   "description": "e.g. Riyad Bank, SNB, Alinma"
+  },
+  {
+   "fieldname": "channel",
+   "fieldtype": "Data",
+   "label": "Channel"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nExtracted\nReviewed\nPosted\nReconciled\nRejected",
+   "default": "Draft",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "extraction_method",
+   "fieldtype": "Select",
+   "label": "Extraction Method",
+   "options": "Manual\nPDF Text\nVision",
+   "default": "Manual"
+  },
+  {
+   "fieldname": "extraction_confidence",
+   "fieldtype": "Percent",
+   "label": "Extraction Confidence"
+  },
+  {
+   "fieldname": "cb_money",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "label": "Direction",
+   "options": "Outgoing\nIncoming",
+   "default": "Outgoing",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "default": "SAR"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "options": "currency",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "fee",
+   "fieldtype": "Currency",
+   "label": "Fee",
+   "options": "currency"
+  },
+  {
+   "fieldname": "vat",
+   "fieldtype": "Currency",
+   "label": "VAT",
+   "options": "currency"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "options": "currency",
+   "read_only": 1,
+   "description": "amount + fee + vat (computed)"
+  },
+  {
+   "fieldname": "converted_amount",
+   "fieldtype": "Currency",
+   "label": "Converted Amount"
+  },
+  {
+   "fieldname": "converted_currency",
+   "fieldtype": "Link",
+   "label": "Converted Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "conversion_rate",
+   "fieldtype": "Float",
+   "label": "Conversion Rate",
+   "precision": "6"
+  },
+  {
+   "fieldname": "cb_party",
+   "fieldtype": "Section Break",
+   "label": "Parties"
+  },
+  {
+   "fieldname": "source_account",
+   "fieldtype": "Data",
+   "label": "Source Account / IBAN",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "source_account_link",
+   "fieldtype": "Link",
+   "label": "Source Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "fieldname": "counterparty_name",
+   "fieldtype": "Data",
+   "label": "Counterparty Name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "counterparty_account",
+   "fieldtype": "Data",
+   "label": "Counterparty Account / IBAN"
+  },
+  {
+   "fieldname": "counterparty_bank",
+   "fieldtype": "Data",
+   "label": "Counterparty Bank"
+  },
+  {
+   "fieldname": "cb_dates",
+   "fieldtype": "Section Break",
+   "label": "Dates"
+  },
+  {
+   "fieldname": "value_date",
+   "fieldtype": "Date",
+   "label": "Value Date",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "processing_date",
+   "fieldtype": "Date",
+   "label": "Processing Date"
+  },
+  {
+   "fieldname": "cb_ref",
+   "fieldtype": "Section Break",
+   "label": "References (reconciliation key)"
+  },
+  {
+   "fieldname": "bank_reference",
+   "fieldtype": "Data",
+   "label": "Bank Reference",
+   "in_standard_filter": 1,
+   "description": "Primary unique reference used to auto-match the bank statement line."
+  },
+  {
+   "fieldname": "transaction_id",
+   "fieldtype": "Data",
+   "label": "Transaction ID"
+  },
+  {
+   "fieldname": "references_json",
+   "fieldtype": "Small Text",
+   "label": "All References (JSON)",
+   "description": "Every reference/identifier seen on the slip, for fallback matching."
+  },
+  {
+   "fieldname": "cb_class",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Data",
+   "label": "Purpose"
+  },
+  {
+   "fieldname": "purpose_group",
+   "fieldtype": "Data",
+   "label": "Purpose Group"
+  },
+  {
+   "fieldname": "suggested_account",
+   "fieldtype": "Link",
+   "label": "Suggested Account",
+   "options": "Account",
+   "description": "Expense/income account suggested from the slip purpose."
+  },
+  {
+   "fieldname": "cb_link",
+   "fieldtype": "Section Break",
+   "label": "Accounting Links"
+  },
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "journal_entry",
+   "fieldtype": "Link",
+   "label": "Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_transaction",
+   "fieldtype": "Link",
+   "label": "Bank Transaction",
+   "options": "Bank Transaction",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_raw",
+   "fieldtype": "Section Break",
+   "label": "Source",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "source_file",
+   "fieldtype": "Attach",
+   "label": "Source File"
+  },
+  {
+   "fieldname": "raw_text",
+   "fieldtype": "Long Text",
+   "label": "Raw Extracted Text"
+  },
+  {
+   "fieldname": "party_type",
+   "fieldtype": "Select",
+   "label": "Party Type",
+   "options": "\nSupplier\nCustomer",
+   "description": "Set when reviewing — drives the draft entry's party."
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Dynamic Link",
+   "label": "Party",
+   "options": "party_type"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description / Narration",
+   "description": "The slip's detail/narration/description text — read this to choose the account."
+  },
+  {
+   "fieldname": "direction_basis",
+   "fieldtype": "Data",
+   "label": "Direction Basis",
+   "read_only": 1,
+   "description": "Why the inward/outward direction was set."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-23 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Bank Slip",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
