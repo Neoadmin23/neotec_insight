@@ -7,6 +7,23 @@ from frappe import _
 
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _require_write(doctype: str) -> None:
     """Refuse a write from a user who lacks permission on the doctype.
 
@@ -25,6 +42,7 @@ def _require_write(doctype: str) -> None:
 
 @frappe.whitelist()
 def list_dashboards() -> list[dict]:
+    _require_read()
     return frappe.get_all(
         "Insight Dashboard",
         fields=["name", "dashboard_name", "slug", "description", "is_active", "modified"],
@@ -35,6 +53,7 @@ def list_dashboards() -> list[dict]:
 
 @frappe.whitelist()
 def get_dashboard(dashboard: str) -> dict:
+    _require_read()
     name = frappe.db.get_value("Insight Dashboard", {"slug": dashboard}, "name") or dashboard
     doc = frappe.get_doc("Insight Dashboard", name)
     return {
@@ -74,5 +93,6 @@ def save_dashboard(payload: str | dict) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def delete_dashboard(name: str) -> dict:
+    _require_read()
     frappe.delete_doc("Insight Dashboard", name)
     return {"deleted": True}

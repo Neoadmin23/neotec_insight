@@ -26,6 +26,23 @@ _STRIP_TAGS = ("script", "iframe", "object", "embed", "applet", "link", "meta", 
 _MAX_HTML_BYTES = 12 * 1024 * 1024
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _sanitise(html: str) -> str:
 	for tag in _STRIP_TAGS:
 		html = re.sub(
@@ -42,6 +59,7 @@ def _sanitise(html: str) -> str:
 def render_pdf(html: str, filename: str = "report", orientation: str = "Landscape",
                page_size: str = "A4"):
 	"""Render an Insight print document to PDF and return it as a download."""
+	_require_read()
 	if not html or not html.strip():
 		frappe.throw(_("Nothing to render."))
 	if len(html.encode("utf-8")) > _MAX_HTML_BYTES:

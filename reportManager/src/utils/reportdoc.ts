@@ -44,6 +44,10 @@ export interface DocCell {
   colSpan?: number;
   /** override colour, e.g. a loss in red. '#rrggbb'. */
   fg?: string;
+  /** v2.74.0 — absolute URL to the source document. Rendered as an anchor in
+   *  HTML, Print and PDF, and as a HYPERLINK formula in Excel. CSV keeps the
+   *  plain text and gains no link, because a CSV cell cannot carry one. */
+  link?: string;
 }
 
 export type RowKind = 'normal' | 'sec' | 'grp' | 'sub' | 'tot' | 'grand' | 'gap';
@@ -143,7 +147,9 @@ export function buildDocHtml(doc: ReportDoc, opts: { forScreen?: boolean } = {})
       ].filter(Boolean).join(';');
       return `<td${c.colSpan && c.colSpan > 1 ? ` colspan="${c.colSpan}"` : ''}`
         + `${isNum ? ' class="num"' : ''}${style ? ` style="${style}"` : ''}>`
-        + (isNum ? esc(cellText(c)) : bdi(cellText(c)))
+        + (c.link
+            ? `<a href="${esc(c.link)}" target="_blank" rel="noopener noreferrer" class="doclink">${bdi(cellText(c))}</a>`
+            : (isNum ? esc(cellText(c)) : bdi(cellText(c))))
         + '</td>';
     }).join('');
     return `<tr${cls ? ` class="${cls}"` : ''}>${tds}</tr>`;
@@ -498,7 +504,12 @@ export async function xlsxDoc(doc: ReportDoc) {
       const asNum = c.num && typeof raw === 'number' && isFinite(raw);
       if (asNum) cells.push(`<c r="${ref}" s="${s}"><v>${raw}</v></c>`);
       else if (raw !== '' && raw !== null && raw !== undefined) {
-        cells.push(`<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xesc(cellText(c))}</t></is></c>`);
+        if (c.link) {
+          const disp = cellText(c).replace(/"/g, '""');
+          cells.push(`<c r="${ref}" s="${s}"><f>HYPERLINK("${xesc(c.link)}","${xesc(disp)}")</f></c>`);
+        } else {
+          cells.push(`<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xesc(cellText(c))}</t></is></c>`);
+        }
       } else cells.push(`<c r="${ref}" s="${s}"/>`);
       if (c.colSpan && c.colSpan > 1) {
         for (let k = 1; k < c.colSpan; k++) cells.push(`<c r="${colRef(ci + k)}${rn}" s="${s}"/>`);

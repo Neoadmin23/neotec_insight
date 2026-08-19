@@ -23,6 +23,23 @@ from .health import _default_company
 from .vat import STANDARD_RATE, _vat_accounts
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _account_labels(names: list[str]) -> list[dict]:
     if not names:
         return []
@@ -346,6 +363,7 @@ def exclude_from_vat(company=None, account=None, restore=0):
     false positives one at a time without having to tag its whole chart in a
     single sitting.
     """
+    _require_read()
     from .classify import save_classification
     company = company or _default_company()
     if not account:

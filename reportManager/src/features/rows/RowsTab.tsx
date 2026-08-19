@@ -401,6 +401,29 @@ function RowEditor({ row, all, report, onChange, onRenameKey, onDelete, onMove }
         <label className="row-hidden-toggle" style={{ display:'inline-flex', alignItems:'center', gap:6, marginLeft:10, fontSize:12 }}><input type="checkbox" checked={!!row.hidden} onChange={(e) => onChange({ ...row, hidden: e.target.checked })} /> {t('Hide from display (still counts in totals)')}</label>
         <label><span className="flbl">Key</span><input value={row.key} disabled /></label>
         <label><span className="flbl">Kind</span><input value={row.kind} disabled /></label>
+        {/* v2.76.0 — visibility on any row kind. The case it exists for: with
+            credit-back on, an allocation leaves the company total unchanged, so
+            a consolidated run prints "before allocation" and "after allocation"
+            as the same figure. Correct, and it reads as a mistake.
+            Leaving this alone changes nothing — the per-kind default in
+            execution.py is what an untouched report already does. */}
+        {row.kind !== 'allocation' && (
+          <label><span className="flbl">Show</span>
+            <select value={(row as any).show_when || 'always'}
+              onChange={(e) => onChange({ ...row, show_when: e.target.value } as DefinitionRow)}>
+              <option value="always">Always</option>
+              <option value="cost_center">Only when a cost centre is selected — still counts in formulas</option>
+              <option value="cost_center_exclude">Only when a cost centre is selected — and excluded from formulas</option>
+            </select>
+            <span className="muted" style={{ fontSize: 11 }}>
+              {(row as any).show_when === 'cost_center_exclude'
+                ? 'When hidden, this row contributes 0 to every formula that references it — totals change.'
+                : (row as any).show_when === 'cost_center'
+                  ? 'Hidden rows still feed formulas — only the display is suppressed, totals are unchanged.'
+                  : 'Always shown, always counted.'}
+            </span>
+          </label>
+        )}
       </div>
 
       {/* v1.9.48 — T-Account classification. Shown only when the report's
@@ -1024,6 +1047,18 @@ function AllocationRowEditor({ row, onChange }: {
           <option value="">— select —</option>
           {rules.map((r) => <option key={r.name} value={r.name}>{r.title}</option>)}
         </select>
+        {/* An empty dropdown with no explanation reads as broken rather than
+            unconfigured, and the save then fails with a row key the user never
+            chose and cannot see. Say it here, where it can be acted on. */}
+        {rules.length === 0 && !err && (
+          <span className="row-warn">
+            No allocation rules exist yet. Create an <strong>Insight Allocation Rule</strong> in the
+            desk first — one per pool — then pick it here. This row cannot be saved until it names a rule.
+          </span>
+        )}
+        {rules.length > 0 && !(row as any).allocation_rule && (
+          <span className="row-warn">Pick a rule, or delete this row — the report will not save otherwise.</span>
+        )}
       </label>
       <label>
         <span className="flbl">Sign</span>
@@ -1037,7 +1072,8 @@ function AllocationRowEditor({ row, onChange }: {
         <span className="flbl">Show</span>
         <select value={(row as any).show_when || 'cost_center'}
           onChange={(e) => onChange({ ...row, show_when: e.target.value } as DefinitionRow)}>
-          <option value="cost_center">Only when a cost centre is selected</option>
+          <option value="cost_center">Only when a cost centre is selected — still counts in formulas</option>
+          <option value="cost_center_exclude">Only when a cost centre is selected — and excluded from formulas</option>
           <option value="always">Always</option>
         </select>
       </label>

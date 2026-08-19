@@ -2069,8 +2069,20 @@ function Matrix({
                   </tr>
                 );
               }
-              const bud = run.budget?.rows[idx];
-              const pys = run.priors.map((p) => p.rows[idx]);
+              // v2.79.1 — matched by KEY, not by array index.
+              //
+              // Index matching assumes the budget and prior-year row arrays are
+              // the same length as the display rows and in the same order. Any
+              // row handled on a different branch of the budget builder — the
+              // allocation rows added in v2.79.0 — shifted every row after it by
+              // one: the P&L showed January's budget in the February column,
+              // February's in March, and dropped December's entirely. Silent,
+              // because the figures were all plausible.
+              //
+              // Every other consumer of budget.rows already matches on key.
+              const bud = run.budget?.rows.find((r: any) => r.key === row.key)
+                          ?? run.budget?.rows[idx];
+              const pys = run.priors.map((p) => p.rows.find((r: any) => r.key === row.key) ?? p.rows[idx]);
               const isFormula = row.kind === 'formula';
               const isSource = row.kind === 'source';
               const isExpanded = expandedRows.has(row.key);
@@ -2109,7 +2121,42 @@ function Matrix({
                     )}
                     {isSource && (() => {
                       const meta = run.binding_meta?.[(row as any).flag];
-                      if (!meta || !meta.is_group) return null;
+                      if (!meta) return null;
+
+                      // v2.76.1 — a row with nothing bound sums to zero in
+                      // ~10ms and looks exactly like a row with genuinely no
+                      // activity. That indistinguishability is what made a
+                      // config gap read as "the report is broken." Flag it
+                      // here, at the row that's actually affected, whether
+                      // it was never mapped or the mapping was deleted —
+                      // for EVERY source row, not only group bindings.
+                      if (meta.resolved_count === 0) {
+                        const why = !meta.has_binding
+                          ? 'No accounts are assigned to this row.'
+                          : meta.missing_count > 0
+                            ? `The account${meta.missing_count === 1 ? '' : 's'} mapped to this row ` +
+                              `${meta.missing_count === 1 ? 'no longer exists' : 'no longer exist'} in the chart of accounts.`
+                            : 'The accounts mapped to this row resolve to nothing (an empty group, or the bound group was removed).';
+                        return (
+                          <span className="row-unbound-warn" title={`${why} This row will show 0.000 until it's remapped — that is a configuration gap, not a computed result. Open Map to fix.`}>
+                            <i className="ti ti-alert-triangle" aria-hidden /> {t('Unmapped')}
+                          </span>
+                        );
+                      }
+
+                      // Stale accounts that still count in resolved_count's
+                      // *history* but no longer contribute to the SQL query —
+                      // this row shows a number, just a quietly smaller one
+                      // than the mapping implies.
+                      const missingBadge = meta.missing_count > 0 && (
+                        <span className="row-unbound-warn row-unbound-warn--partial"
+                          title={`${meta.missing_count} previously-mapped account${meta.missing_count === 1 ? '' : 's'} no longer exist in the chart of accounts and no longer contribute to this row's total. Open Map to clean up the mapping.`}>
+                          <i className="ti ti-alert-triangle" aria-hidden /> {meta.missing_count}
+                        </span>
+                      );
+
+                      if (!meta.is_group) return missingBadge || null;
+
                       const tip =
                         `Live group binding — resolves to ${meta.resolved_count} account${meta.resolved_count === 1 ? '' : 's'} at run time` +
                         (meta.group_codes && meta.group_codes.length ? ` (under ${meta.group_codes.join(', ')})` : '') +
@@ -2119,12 +2166,15 @@ function Matrix({
                           meta.new_accounts.map((a) => a.code).join(', ') + (meta.new_truncated ? ' …' : '')
                         : '';
                       return (
-                        <span className="row-livegroup" title={tip}>
-                          <i className="ti ti-folder" aria-hidden /> {meta.resolved_count}
-                          {meta.new_count > 0 && (
-                            <span className="row-livegroup-new" title={newTip}>+{meta.new_count} new</span>
-                          )}
-                        </span>
+                        <>
+                          <span className="row-livegroup" title={tip}>
+                            <i className="ti ti-folder" aria-hidden /> {meta.resolved_count}
+                            {meta.new_count > 0 && (
+                              <span className="row-livegroup-new" title={newTip}>+{meta.new_count} new</span>
+                            )}
+                          </span>
+                          {missingBadge}
+                        </>
                       );
                     })()}
                   </td>

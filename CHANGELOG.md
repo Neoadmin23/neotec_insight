@@ -1,3 +1,293 @@
+## v2.84.0 — 2026-08-18
+
+### Added: an HR role that sees People and nothing else
+
+`Insight HR` (and ERPNext’s own `HR Manager` / `HR User`) now resolve to a new `hr` role tier. A user whose only Insight access is one of these sees the **People** workspace and no other tab — no P&L, no ledger, no VAT.
+
+**The tier is evaluated last among the named roles**, so anyone who also holds a finance role keeps that wider access rather than being narrowed to People by holding both. An HR Manager who is also an Accounts Manager is still an admin.
+
+**Hiding tabs is the affordance, not the protection.** `_check_hr_only()` is enforced inside `_require_read()`, the choke point every financial read in `report.py` already passes through — so a People-only user calling those endpoints directly is refused, not merely un-navigated to them. This matters because HR role bundles often carry GL Entry read, which would otherwise have let them straight into the ledger. The People endpoints live in `cfo.py` and do not pass through that guard, so they keep working.
+
+### Not included: the accruals actual/provision column
+
+The second request — an extra column showing accrual **actuals** beside the computed provision, with a configurable account per accrual — is **not in this release**.
+
+It needs new fields on `Insight AI Settings` (one account per accrual type: vacation, tickets, insurance, EOSB), a GL balance read per account, and a provision-vs-actual comparison in the People workspace. That is a real build, and the accruals figures feed the CFO brief and the P&L provisions. Shipping it half-verified at the end of a long session is the pattern that produced the v2.79.0 month-shift, so it is deferred deliberately rather than rushed.
+
+## v2.83.0 — 2026-08-18
+
+### Added: choose how ledger balances show their sign
+
+Ledger balances printed only as `39,767.49Dr` / `1,250.00Cr`. That is unambiguous but reads as bookkeeping notation, and finance teams and auditors outside ERPNext generally expect a minus or brackets.
+
+A **Balance shown as** control on the ledger toolbar offers five conventions:
+
+| Style | Credit balance renders as |
+|---|---|
+| Dr / Cr | `1,250.00Cr` |
+| Minus sign | `-1,250.00` |
+| Minus sign, in red | `-1,250.00` in red |
+| Brackets | `(1,250.00)` |
+| Brackets, in red | `(1,250.00)` in red |
+
+Applies to the **Accounts, Supplier and Customer** ledgers alike, and to opening balance, every transaction line, sub-totals and the report total — one helper feeds all eight places, so no view can disagree with another.
+
+**Debit stays positive in every style.** Only the credit side changes appearance. Flipping debits as well would make an Excel export sum to something different from the same export taken yesterday.
+
+Carries into every output. The red styles set a cell colour the shared writers already understand, so HTML, Print and PDF colour it, and Excel picks it up through the existing negative-number format. CSV keeps the plain text, since a CSV cell has no colour.
+
+The choice is remembered per browser rather than stored on the report: it is a reading preference, not a property of the data, and a preparer who reads brackets wants brackets on every ledger every day.
+
+## v2.82.0 — 2026-08-17
+
+### Added: hide a row from the arithmetic, not only from the display
+
+The **Show** control had two settings. `Only when a cost centre is selected` suppressed the display while the row’s value kept feeding every formula referencing it. There was no way to say "when this row is hidden, do not count it either".
+
+A third option now does: **Only when a cost centre is selected — and excluded from formulas**. When hidden, the row contributes 0 to every formula that names it, and totals change accordingly.
+
+Both behaviours are legitimate and the distinction matters:
+
+- `cost_center` — right for a before/after-allocation line. The reader should not see a duplicated figure consolidated, but net income must still compute from it.
+- `cost_center_exclude` — right for a line that only means anything for one cost centre. There, a hidden row silently inflating a total is the worst case, because the evidence for the total is invisible.
+
+The help text under the control now states which of the two is in force, rather than describing only the first.
+
+**Zeroed, not deleted.** An excluded row’s key stays in the formula context with a value of 0. Removing the key would make any formula naming it raise and take the whole report down; a zero contributes nothing and leaves every other row computable.
+
+**Nothing changes for existing reports.** `always`, `cost_center` and an absent value all behave exactly as before, and an unrecognised value falls back to the per-kind default rather than excluding a row from the totals — a typo must not quietly change a figure. `tests/test_visibility.py` asserts all four cases; 21 tests there, 93 across the suite.
+
+## v2.80.1 — 2026-08-17
+
+### Fixed: allocation row budget printed one month late (v2.79.0 regression)
+
+`_allocation_budget_monthly()` keyed its output by the raw **calendar** month (1–12) from `Insight Allocation Entry.period_month`. Every other row in a report keys by **FY-month position** (0–11, where 0 is the first month of the fiscal year).
+
+For a January-start company the two look alike — "month 1" and "position 1" read the same — but position 1 *is* February. January's budget printed under February, February's under March, and calendar December (12) fell outside the 0–11 range and **vanished entirely**. That last detail is what located the fault: a shift moves a figure, only an out-of-range key loses one.
+
+The actuals path was never affected. `_allocation_monthly()` has converted correctly since v2.62.1, which is why only the Budget column was wrong and the allocation report's own Budget YTD and Variance stayed right throughout.
+
+Fixed by converting through `fy_month_for_calendar_month()`, the inverse the actuals path already uses. `company` and `fy_start_month_override` are threaded through `_load_budget()` to its one call site; no other caller reads them.
+
+### Tests: the real function, not a copy of it
+
+`tests/test_allocation_budget_month.py` extracts and executes the **actual** `_allocation_budget_monthly` body by AST, with a stub `frappe` supplying the entries. Reverting the fix fails 10 of its 12 tests.
+
+This replaces an earlier test file that re-implemented the accumulation loop and asserted against the re-implementation. That file passed while the shipped code was broken — a mirror of a loop cannot fail when the original is wrong. It has been deleted rather than kept alongside, since a test that reports green regardless is worse than no test.
+
+Coverage: January-start (the case that shipped, easiest to misread by eye) and April-start (position and calendar month three apart, crossing a year boundary, so an off-by-a-constant conversion cannot pass); December not dropped, on both calendars; the reported February→March symptom reproduced verbatim; multiple cost centres summing within one position; empty and explicit-zero budgets.
+
+### Also: frontend version aligned
+
+`reportManager/package.json` read 2.80.0 against an app version of 2.80.1. Since v2.80.0 compares the two and warns when they differ, a correct deploy would have raised a false stale-bundle banner.
+
+## v2.80.0 — 2026-08-17
+
+### Added: the app now tells you when the screen is out of date
+
+The frontend bundle version and the installed Python version are read from different places and can disagree. Frappe's "Installed Apps" reports the Python version; the Insight header reports the JS bundle. A deploy that ships app code but serves a cached or stale asset bundle leaves an old UI on a new backend — and nothing compared the two.
+
+That is not theoretical. The v2.79.1 budget-column fix lives in `RunTab.tsx`, so it was inert on a site whose backend read v2.79.1 while the header still read v2.79.0. A fixed bug looked unfixed for a full round of testing, and the only way to notice was to compare two screenshots by eye.
+
+`navmenu.app_version` returns the installed Python version. The frontend compares it against `__APP_VERSION__`, baked in at build time, and when they differ shows a red banner across the top naming both versions and what to do.
+
+**Loud, and not dismissible.** A stale bundle silently reinstates bugs that are already fixed, so it must not be possible to read a figure without seeing the warning. The version chip in the header also turns red — the tooltip alone was not enough, since the person who needs the message is the one looking at a wrong number.
+
+The endpoint is deliberately unguarded: it carries no data, and a version banner has to render for whoever is looking at the broken screen, whatever their permissions.
+
+## v2.79.1 — 2026-08-17 — deploy immediately
+
+### Fixed: budget columns were shifted by one month
+
+The P&L printed January's budget in the February column, February's in March, and dropped December's entirely. January read 0.000.
+
+**Cause: budget rows were matched to display rows by ARRAY INDEX, not by key.** `run.budget?.rows[idx]` assumes the budget array is the same length and order as the display rows. The allocation rows added in v2.79.0 are built on a separate branch of the budget builder, so every row after them shifted by one. Prior-year columns were matched the same way and had the same fault.
+
+Both now match on `row.key`, which is what every other consumer of `budget.rows` already did.
+
+**This was invisible until one cell was edited.** Every month held 27,382, so a one-month shift looked identical to correct output. It surfaced only when a single February cell was changed to 27,000 and the figure appeared under March.
+
+`tests/test_allocation_budget.py` budgets twelve DISTINCT values and asserts each lands in its own month, reproduces the edited-February case, and documents that index matching would have been wrong. A fixture with identical months cannot catch a shift — which is precisely why this reached live data.
+
+### Check after deploying
+
+Any report read while v2.79.0 was installed may have been read with shifted budget columns. Re-run and confirm January carries a figure and December shows its own.
+
+## v2.79.0 — 2026-08-17
+
+### Fixed: allocation rows showed 0.000 in the P&L budget column
+
+v2.78.0 added a budget grid to the allocation rule, and the allocation report shows it correctly. The **P&L** did not: GMO Allocation and Sales & Marketing Allocation printed a budget of 0.000 against real actuals, so % Achieved was meaningless on exactly the two lines the budget had just been entered for.
+
+The two budgets are stored in different places, and that is deliberate. A Budget Book holds one cell per P&L row per month — it cannot express "27,382 to Financial & Admin and nothing to the other five," which is the grain an allocation is actually budgeted at. So the allocation budget lives on the rule, per cost centre per month, and the P&L now reads it from there for allocation rows instead of looking for a Budget Cell that was never going to exist.
+
+**Filtered to the same cost centre as the run.** With one cost centre selected the row shows that centre's budget; consolidated, every centre's budget sums — matching the actual, which consolidated shows the whole pool spread across all of them.
+
+A month with no budget stays blank rather than showing zero, preserving the same distinction the Budget Book makes between "budgeted nil" and "not budgeted". A missing rule or a pre-upgrade table yields no budget rather than raising: one broken rule must not take down a P&L.
+
+## v2.78.0 — 2026-08-17
+
+### Added: budget for cost-centre allocations
+
+An allocation report showed only what the engine derived. There was no budget to compare it against, so the allocation lines were the one part of the P&L with no Actual-vs-Budget.
+
+**Budget is entered by hand and never derived.** Confirmed against two live sheets: GMO budgets a flat 27,382 to every cost centre while its actuals — split by head count — come out at 22,900 / 14,313 / 5,725. Sales & Marketing budgets an identical figure across three cost centres each month while Audit carries a flat 10,000. No driver produces those numbers, because a budget is a decision that was signed off, not a calculation. Re-deriving it from the actual driver would produce a figure nobody agreed to, and it would move every time the driver moved — which is exactly what a budget must not do.
+
+- `budget_amount` on `Insight Allocation Entry`, stored for **every** basis. Unlike `driver_value` and `amount`, which are mutually exclusive, budget is an independent input: a head-count cost centre carries one too.
+- A third grid in Data entry covering every cost centre in the rule, kept separate from the two input tables because it is a different kind of number — those drive a calculation, this one is only ever compared against its result. Separate tables are what stop a budget being typed into a driver cell.
+- **Budget YTD** and **Variance** rows on the allocation report, per cost centre. Variance is positive when the allocation exceeds budget, since an allocation is a cost; roll-ups are computed server-side so screen and exports agree on rounding and sign.
+- Both rows render only when a budget has actually been entered. Two rows of zeros on a rule with no budget would read as "budget is nil", which is a different statement from "no budget was set".
+
+A row carrying only a budget is no longer treated as empty and deleted on save.
+
+## v2.77.0 — 2026-08-17 — security audit, clean sweep
+
+All 225 whitelisted endpoints enumerated by AST and classified. Final state: **213 guarded, 12 intentionally open, 0 unguarded.**
+
+### Three write-side gaps, fixed
+
+**`_set_clearance` wrote to a caller-named doctype.** The serious one. `confirm_match` takes `voucher_type` straight from the request and passes it to `frappe.db.set_value`, which performs no permission or doctype check at all — so any authenticated user could stamp a `clearance_date` onto any doctype having that column. Now allow-listed to Payment Entry, Journal Entry, Sales Invoice and Purchase Invoice, with a write check on the resolved doctype. An allow-list rather than a permission check alone: there is no legitimate fifth value.
+
+**`confirm_match` and `unmatch`** submit and mutate Bank Transactions; both now require write on Bank Transaction.
+
+**`stage_draft_payment_entry`** inserts its Payment Entry with `ignore_permissions=False`, so Frappe checks that — but it also mutates the Insight Bank Slip through `db_set`, which checks nothing. Both doctypes are now checked before any write.
+
+### 106 read endpoints guarded
+
+Every remaining financial read now calls `_require_read()`, which tests `GL Entry` read permission — inheriting ERPNext's own role configuration rather than inventing a second permission model. `@frappe.whitelist()` requires a login, not a role, so these were reachable over `/api/method/...` by any authenticated user, portal accounts included.
+
+### Twelve endpoints left open, deliberately
+
+`get_csrf`, `get_menu`, `get_brand`, `arabic_labels`, `company_branding`, `list_letter_heads`, `resolve_letterhead`, `list_models`, `list_ollama_models`, `list_quick_links`, `insight_get_access_profile`, `insight_has_group_access`.
+
+These are the CSRF handshake, shell chrome and print/AI configuration — none returns a financial figure, and guarding them would prevent the app from rendering at all for a user who is about to be told they have no access. `insight_get_access_profile` is the clearest case: it reports what the user is allowed to see, so gating it behind that same permission would hide the answer to its own question.
+
+### On the earlier report
+
+An earlier sweep reported 25, then 18 "missing permission checks." Most were pattern-matching artefacts: `frappe.cache().set_value` matching a `set_value` search, every `ignore_permissions=False` matching an `ignore_permissions` search, `frappe.only_for("System Manager")` missed by a guard-name list, and `frappe.delete_doc()` without a bypass — which Frappe already checks. The three above were the real ones.
+
+All suites green: 76 tests.
+
+## v2.76.2 — 2026-08-17
+
+### Fixed: two allocation rows for different pools showed identical bare 0.000s once any cost centre was picked, and the row loop could crash
+
+The "Show" control asked for on this version's allocation rows already exists on **every** row kind in Studio — source, formula, and section rows all carry it (the block guarded by `row.kind !== 'allocation'` in the row editor), allocation rows carry their own copy. Nothing to add there.
+
+The real defect was in how "a single cost centre is selected" gets applied to an allocation row specifically. Two allocation rows drawing from different Allocation Rules (e.g. GMO pool vs. Sales & Marketing pool) both default to *Only when a cost centre is selected*. Select any single cost centre and — regardless of whether that rule's pool has anything to do with the selected centre — both rows became visible, and a rule with nothing to allocate to that centre prints a bare `0.000` indistinguishable from a rule that genuinely has a zero that month. Two unrelated rows, same number, no way to tell which zero meant what.
+
+`_allocation_monthly` now returns `(monthly, applies)`, where `applies` is False only when a single cost centre is selected and that centre is neither a driver nor the credit-back target of that rule's pool. `is_row_hidden` takes this as `cc_applies` (default `True`, so every pre-2.76.2 call site behaves exactly as before) and uses it to *narrow* the already-hidden-unless-selected default for allocation rows only — it can turn a visible allocation row invisible when its pool doesn't touch the selected centre, never the reverse, and it never touches a row explicitly set to *Always* or a non-allocation row.
+
+This landed alongside an incomplete version of itself that would have crashed every single report run: `cc_applies` was only assigned inside the `allocation` and fallback `else` branches of the row loop, so a `source` or `formula` row raised `UnboundLocalError` before ever reaching `is_row_hidden` — and `is_row_hidden`'s own signature hadn't been updated to accept the extra argument at all, so even the allocation branch would have raised `TypeError`. Caught before release: `cc_applies = True` is now set once at the top of every row iteration, and `is_row_hidden` takes `cc_applies` as an explicit fourth parameter.
+
+`tests/test_visibility.py` gained a `TestCcApplies` class: an irrelevant pool hides even with a cost centre picked, a relevant one still shows, the old 3-argument call sites keep their exact old behaviour, `show_when='always'` is never touched by `cc_applies`, consolidated runs are unaffected, and non-allocation rows are unaffected even if a caller mistakenly passed `cc_applies=False` for one. 76 tests total, all green.
+
+## v2.76.1 — 2026-08-17
+
+### Fixed: an unmapped or deleted-account row rendered as a silent zero
+
+The root cause 2.76.0 already diagnosed in its own note below — "source rows bound to no accounts sum to zero, which renders every row at 0.000 in ~10ms" — was never actually fixed. A row with nothing bound was indistinguishable on screen from a row with genuine zero activity. On a consolidated run, several such rows together looked exactly like the reporting engine itself was broken.
+
+Three ways a row ends up unbound, all now surfaced instead of silent:
+
+- **Never mapped.** No Account Flag Mapping row exists for the flag at all. `flag_binding_meta` previously returned `{}` outright when the *report* had zero mapping rows, and simply omitted a flag with zero mapping rows even when other flags in the same report had some — either way, the row vanished from the response instead of reporting as unbound.
+- **Mapping deleted.** The row was mapped, then every Account Flag Mapping row under it was removed (reassigned elsewhere, or deleted by mistake).
+- **Account deleted.** A directly-bound account was removed from the chart of accounts. The mapping row still exists and still feeds the SQL `IN (...)`, it just can never match a GL entry again — the row quietly loses whatever that account used to contribute, with nothing on screen to say so.
+
+`flag_binding_meta` now takes the report's row definitions and reports on every source row's flag, not only ones with a surviving mapping record, and adds `has_binding` and `missing_accounts`/`missing_count` so the three cases above are distinguishable. The Run screen shows a warning badge — not the faded, hover-only style used for the informational live-group badge — on any source row that resolves to zero accounts, and a smaller badge on a row that still resolves but is carrying dead account references.
+
+Deliberately **not** changed: the SQL still includes dead account names in the `IN (...)` clause rather than silently dropping them. Dropping them changes which accounts a saved report reads without an edit to the report; surfacing the gap and leaving the fix to whoever owns the mapping is the safer half of this change to ship together with the visibility fix. `tests/test_flag_binding_meta.py` covers the three unbound paths and asserts the shape returned for "never mapped" and "report has zero mapping rows" is identical, so the frontend never needs to special-case which one happened.
+
+## v2.76.0 — 2026-08-06
+
+### Added: "Show only when a cost centre is selected", on any row
+
+Re-added deliberately, with the tests that were missing the first time.
+
+The case it exists for: with credit-back on, an allocation moves cost between cost centres and leaves the company total unchanged. Run consolidated, the allocation rows hide themselves and the report prints "Net Operating Income (Before Allocation)" and "Net income" as the same figure, with the allocation that explains the gap invisible between them. Arithmetically right, and it reads as a mistake.
+
+Set the before-allocation row to *Only when a cost centre is selected*: one clean figure consolidated, the full walk when a cost centre is chosen.
+
+**The default differs by kind, and that is the whole safety property.** Allocation rows default to `cost_center`, every other kind to `always`. An untouched report renders exactly as it did before upgrade. This shipped once with a shared default and blanked rows in reports nobody had edited — `tests/test_visibility.py` now asserts the untouched case for every row kind, consolidated and filtered.
+
+The decision moved into `is_row_hidden()`, taking plain values so it runs without a site. Writing that test immediately found a second fault: a non-string `show_when` in a stored definition raised `TypeError` and would have taken down the entire report run rather than one row. Now falls back to the per-kind default.
+
+Hidden rows still feed formulas; only the display is suppressed.
+
+### Note on 2.73.0–2.75.1
+
+The blank consolidated report seen on one site was **not** caused by this feature. A file-by-file audit against the working 2.72.0 build showed the P&L execution path byte-identical apart from comments. The cause was missing Account Flag Mapping records — source rows bound to no accounts sum to zero, which renders every row at 0.000 in ~10ms. 2.75.1 removed this feature on that mistaken diagnosis.
+
+## v2.75.1 — 2026-08-06 — REGRESSION FIX, deploy immediately
+
+### Fixed: rows vanished from consolidated runs
+
+The visibility check that hides allocation rows on a consolidated run had been hoisted OUT of the allocation branch, so it evaluated for every row kind. Any row carrying `show_when='cost_center'` disappeared from a consolidated report.
+
+Restored to the v2.65.3 structure: the check sits inside `kind == "allocation"` and nowhere else. Schema validation likewise only accepts `show_when` on allocation rows. Verified line-for-line against the original.
+
+The Studio control that offered "Show" on non-allocation rows is removed — it wrote the value that triggered the fault.
+
+**Affected builds: 2.74.0, 2.74.1 and 2.75.0.** 2.74.1 and 2.75.0 were byte-identical in this code; the 2.75.0 bump changed only the version string. Anyone on those three should move to 2.75.1.
+
+**After deploying, check any report where a row was set to "Only when a cost centre is selected" on a non-allocation row.** The setting is now ignored rather than honoured, so those rows reappear consolidated. If a report was edited to rely on it, that edit needs revisiting — the underlying need (suppressing a duplicated before/after-allocation line) is real and will be addressed deliberately, with tests, rather than as an untested change.
+
+## v2.75.0 — 2026-08-06
+
+### Added: any row can be hidden when running consolidated
+
+`show_when` was accepted on allocation rows only. It now applies to every row kind, editable from the row panel in Studio.
+
+The case that needs it: with Credit Back on, an allocation moves cost between cost centres and leaves the company total unchanged. Run consolidated, the allocation rows hide themselves and a report prints "Net Operating Income (Before Allocation)" and "Net income" as the same figure, with the allocation that explains the difference invisible between them. That is arithmetically right and reads as a mistake.
+
+Setting the before-allocation row to *Only when a cost centre is selected* gives one clean figure consolidated, and the full walk — before allocation, each pool, net income — when a single cost centre is chosen.
+
+**Defaults differ by kind, deliberately.** Allocation rows keep defaulting to `cost_center`, every other kind to `always`. A shared default would blank out rows in every existing report on upgrade.
+
+Hidden rows still feed formulas; only the display is suppressed. Suppression happens once in `execution.py`, so screen, Excel, CSV, PDF, Print and PNG all agree.
+
+## v2.74.1 — 2026-08-06
+
+### Fixed: "not configured yet" looked like "broken"
+
+Three places where an unconfigured allocation feature reported itself as a failure.
+
+**Row errors now name the row you can see.** `Allocation row 'alc_0yavc' must name an allocation rule` quoted an internal id the user never chose and cannot find in the editor. Errors now read `Allocation row 4 — "GMO recharge"` with the key kept in brackets for support. Applied to every row-level validation, not just allocation.
+
+The allocation message also says what to do: pick a rule, or delete the row — and if the list is empty, that no rule exists yet and one must be created first.
+
+**The Studio row editor warns when the rule list is empty.** An empty dropdown with no explanation reads as broken, and the save then failed with a 417 at the far end of the flow. The warning appears where it can be acted on, at the moment the row is added.
+
+**The allocation empty state links to the new-rule form.** Rules are deliberately never seeded — a pool and its driver are specific to one company's cost structure, and a guessed default would put invented numbers into management accounts — but telling someone to "create one in the desk" without a way there is a dead end.
+
+## v2.74.0 — 2026-08-06
+
+### Added: exclude documents from the ledger
+
+A **Documents** panel on every ledger tab. Exclude by document type (all credit notes) or by individual voucher number, and the opening balance, running balance, sub-totals and report total all recompute — the totals are the figures on screen, not the unfiltered ones.
+
+**Opening balances are filtered too, deliberately.** An exclusion that only hit the window would leave closing = a real opening plus a filtered movement, a figure that describes nothing. Both ends filtered gives a coherent "as if these documents did not exist" ledger that foots against itself.
+
+It does **not** foot against the account balance in ERPNext any more, and it cannot — that is inherent to removing documents, not a defect. The screen warns, and the exclusion list prints in the period line of every export. A statement that silently omits credit notes is the artefact that gets handed to an auditor and read as complete.
+
+The document-type list is read from the window **before** exclusions are applied. Reading it off the filtered rows would have made every exclusion irreversible: the type you just hid would vanish from the control that hid it.
+
+### Added: open the source document from the report
+
+The voucher number is a link on screen, in HTML/Print/PDF, and as an Excel `HYPERLINK` formula. Exported links are absolute, so a workbook stays clickable off the machine that produced it — a relative `/app` path resolves against the reader's browser, not the site. CSV keeps plain text, since a CSV cell cannot carry a link.
+
+### Added: columns from the source document, and a combined column
+
+Pick any field from any document type in the window — including custom fields, which is where site-specific narration usually lives — and it becomes a ledger column. Sales Invoice `note` is the case that prompted this. Fields are discovered from live DocType meta, so nothing needs registering.
+
+Fetching batches one query per document type, never per row, reusing the `_gl_descriptions` pattern this generalises. A quarter's ledger across a few doctypes would be unusable otherwise. A field that no longer exists degrades to a blank column rather than throwing.
+
+**Combine into one column** joins any set of columns with a separator you choose, skipping blanks so an empty field leaves no dangling separator. Both kinds are ordinary column definitions, so all five export formats pick them up with no export-side change — special-casing them per writer is how the formats drift apart.
+
+### Fixed: the Supplier tab offered a Customer filter
+
+Both party filters rendered in every mode. On the Supplier tab the Customer filter could only ever return nothing — the tab has already fixed the subject to suppliers, and its accounts are payable control accounts no customer posts to. Each party ledger now shows only its own filter.
+
 ## v2.73.0 — 2026-08-06
 
 ### Changed: deferral no longer forces a separate return box

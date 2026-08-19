@@ -39,6 +39,10 @@ def validate_report_definition_schema(definition: dict, report_type: str = "pnl"
             _err(f"Row {index} has invalid kind '{kind}'. Allowed: {sorted(ALLOWED_ROW_KINDS)}.")
         key = _require_str(row, "key", label=f"row {index}")
         _require_str(row, "label", label=f"row {index}")
+        # A row key like 'alc_0yavc' is an internal id the user never chose and
+        # cannot see in the editor. Errors quote the visible label and position
+        # so the offending row can actually be found; the key stays for support.
+        where = f"row {index} — “{row.get('label')}”"
         if key in seen_keys:
             _err(f"Duplicate row key '{key}'.")
         seen_keys.add(key)
@@ -46,28 +50,35 @@ def validate_report_definition_schema(definition: dict, report_type: str = "pnl"
         if kind == "source":
             accounts = row.get("accounts") or []
             if not isinstance(accounts, list):
-                _err(f"Source row '{key}' must have 'accounts' as a list.")
+                _err(f"Source {where} must have 'accounts' as a list. (key: {key})")
             for a in accounts:
                 if not isinstance(a, str) or not a.strip():
-                    _err(f"Source row '{key}' has an invalid account entry.")
+                    _err(f"Source {where} has an invalid account entry. (key: {key})")
             sign = row.get("sign", "normal")
             if sign not in ALLOWED_SIGN_MODES:
-                _err(f"Source row '{key}' has invalid sign '{sign}'.")
+                _err(f"Source {where} has invalid sign '{sign}'. (key: {key})")
 
         if kind == "formula":
             formula = _require_str(row, "formula", label=f"formula row '{key}'")
             validate_formula_expression(formula, available_row_keys=seen_keys, row_key=key)
 
+        # show_when is valid on any kind (v2.76.0). Absent means "use the
+        # per-kind default" — it is deliberately NOT defaulted here, so
+        # execution.py stays the single place that decides.
+        visible = row.get("show_when")
+        if visible is not None and visible not in {"cost_center", "cost_center_exclude", "always"}:
+            _err(f"{where} has invalid show_when '{visible}'. (key: {key})")
+
         if kind == "allocation":
             rule = row.get("allocation_rule")
             if not isinstance(rule, str) or not rule.strip():
-                _err(f"Allocation row '{key}' must name an allocation rule.")
+                _err(f"Allocation {where} has no allocation rule selected. "
+                     f"Pick one in the row editor, or delete the row. "
+                     f"If the list is empty, no Insight Allocation Rule exists yet for this company — "
+                     f"create one first, then add this row. (key: {key})")
             sign = row.get("sign", "normal")
             if sign not in ALLOWED_SIGN_MODES:
-                _err(f"Allocation row '{key}' has invalid sign '{sign}'.")
-            visible = row.get("show_when", "cost_center")
-            if visible not in {"cost_center", "always"}:
-                _err(f"Allocation row '{key}' has invalid show_when '{visible}'.")
+                _err(f"Allocation {where} has invalid sign '{sign}'. (key: {key})")
 
     comparison = definition.get("comparison")
     if comparison is not None:

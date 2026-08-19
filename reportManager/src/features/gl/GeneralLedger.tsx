@@ -35,9 +35,40 @@ const PARTY_DEFAULT_COLS = ['posting_date', 'voucher_no', 'account_label', 'rema
 
 export type LedgerMode = 'accounts' | 'supplier' | 'customer';
 
-function balLabel(raw: number, dec: number): string {
-  const v = Math.abs(raw);
-  return fmtD(v, dec) + (raw >= 0 ? 'Dr' : 'Cr');
+/** How a ledger balance shows its sign (v2.83.0).
+ *
+ *  Dr/Cr is unambiguous but reads as bookkeeping notation; finance teams and
+ *  auditors outside ERPNext usually expect a minus or brackets. The convention
+ *  is a presentation choice, not an accounting one — the underlying number is
+ *  identical — so it is a per-user setting rather than a report definition
+ *  field, and it applies to every ledger at once.
+ *
+ *  DEBIT STAYS POSITIVE in every style. Only the credit side changes
+ *  appearance. Flipping the sign of debits as well would make an Excel export
+ *  sum to something different from the same export taken yesterday. */
+export type BalanceStyle = 'drcr' | 'minus' | 'minus_red' | 'paren' | 'paren_red';
+
+export const BALANCE_STYLES: { value: BalanceStyle; label: string; sample: string }[] = [
+  { value: 'drcr',      label: 'Dr / Cr',              sample: '1,250.00Cr' },
+  { value: 'minus',     label: 'Minus sign',           sample: '-1,250.00' },
+  { value: 'minus_red', label: 'Minus sign, in red',   sample: '-1,250.00' },
+  { value: 'paren',     label: 'Brackets',             sample: '(1,250.00)' },
+  { value: 'paren_red', label: 'Brackets, in red',     sample: '(1,250.00)' },
+];
+
+function balText(raw: number, dec: number, style: BalanceStyle): string {
+  const v = fmtD(Math.abs(raw), dec);
+  if (raw >= 0) return style === 'drcr' ? v + 'Dr' : v;
+  switch (style) {
+    case 'minus': case 'minus_red': return '-' + v;
+    case 'paren': case 'paren_red': return '(' + v + ')';
+    default: return v + 'Cr';
+  }
+}
+
+/** True when this value should print red under the chosen style. */
+function balIsNeg(raw: number, style: BalanceStyle): boolean {
+  return raw < 0 && (style === 'minus_red' || style === 'paren_red');
 }
 
 interface AcctOpt { name: string; account_number?: string; account_name?: string; is_group?: number; company?: string; parent_account?: string; lft?: number; rgt?: number; root_type?: string; }
@@ -264,7 +295,59 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     );
   }
 
-  const colDefs = useMemo(() => ALL_COLUMNS.filter((c) => cols.includes(c.key)), [cols]);
+  // ── v2.74.0 — exclusions, source-document columns, combined column ──
+  const [exTypes, setExTypes] = useState<string[]>([]);
+  const [exVouchers, setExVouchers] = useState<string[]>([]);
+  const [docFields, setDocFields] = useState<Record<string, string[]>>({});
+  const [fieldOpts, setFieldOpts] = useState<Record<string, any[]>>({});
+  const [combine, setCombine] = useState<string[]>([]);
+  const [combineSep, setCombineSep] = useState(' · ');
+  const [combineLabel, setCombineLabel] = useState('Details');
+  const [showAdv, setShowAdv] = useState(false);
+  // Persisted per browser: a preparer who reads brackets wants brackets on
+  // every ledger, every day, not once per session.
+  const [balStyle, setBalStyle] = useState<BalanceStyle>(() => {
+    try { return (localStorage.getItem('ni-bal-style') as BalanceStyle) || 'drcr'; }
+    catch { return 'drcr'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('ni-bal-style', balStyle); } catch { /* private mode */ }
+  }, [balStyle]);
+
+  const vtypes: string[] = data?.filters?.voucher_types || [];
+
+  // Field lists are fetched only for doctypes actually present in the window,
+  // and only once the panel is opened — meta reads are not free and most runs
+  // never touch this.
+  useEffect(() => {
+    if (!showAdv || !vtypes.length) return;
+    const missing = vtypes.filter((v) => !fieldOpts[v]);
+    if (!missing.length) return;
+    api.voucherFieldOptions(missing)
+      .then((r: any) => setFieldOpts((prev) => ({ ...prev, ...(r || {}) })))
+      .catch(() => {});
+  }, [showAdv, vtypes.join('|')]);
+
+  // One dynamic column per picked source field, plus the combined column.
+  // They are ordinary column defs, so Excel, CSV, PDF, Print and PNG pick
+  // them up with no export-side change — the alternative, special-casing
+  // them per writer, is how the five formats drift apart.
+  const dynCols = useMemo(() => {
+    const out: { key: string; label: string; num?: boolean; doc?: boolean }[] = [];
+    Object.entries(docFields).forEach(([dt, fields]) => {
+      (fields || []).forEach((f) => {
+        const meta = (fieldOpts[dt] || []).find((x: any) => x.fieldname === f);
+        out.push({ key: `${dt}::${f}`, label: `${meta?.label || f}`, doc: true });
+      });
+    });
+    if (combine.length) out.push({ key: '__combined__', label: combineLabel || 'Combined', doc: true });
+    return out;
+  }, [docFields, fieldOpts, combine, combineLabel]);
+
+  const colDefs = useMemo(() => {
+    const base = ALL_COLUMNS.filter((c) => cols.includes(c.key));
+    return [...base, ...dynCols.filter((d) => d.key === '__combined__' || cols.includes(d.key))];
+  }, [cols, dynCols]);
 
   // v2.48.2 — the *name* of the company, not the link value. ERPNext's Company
   // docname is an identifier ("IRSAA Business Solution"); the registered name
@@ -305,6 +388,9 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
         group_by: isParty ? 'party' : groupBy,
         // Only pay for the description lookup when the column is on show.
         with_description: cols.includes('description') ? 1 : 0,
+        exclude_voucher_types: exTypes.length ? exTypes : null,
+        exclude_vouchers: exVouchers.length ? exVouchers : null,
+        doc_fields: Object.keys(docFields).length ? JSON.stringify(docFields) : null,
       });
       // load Arabic names for the accounts shown
       loadArabicLabels('Account', (r.accounts || []).map((b: any) => b.account));
@@ -316,11 +402,34 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     }
   }
 
+  /** Desk URL for the source document.
+   *  Built from voucher_type + voucher_no, which every GL row carries, so it
+   *  works for any doctype without a per-type mapping to maintain. */
+  function docUrl(tx: any): string {
+    const dt = String(tx.voucher_type || '').toLowerCase().replace(/\s+/g, '-');
+    return `/app/${dt}/${encodeURIComponent(tx.voucher_no || '')}`;
+  }
+
+  function docVal(tx: any, key: string): string {
+    const v = tx?.doc?.[key];
+    if (v === null || v === undefined || v === '') return '';
+    return String(v).replace(/<[^>]*>/g, '').trim();
+  }
+
   function cellVal(tx: any, key: string): string {
     if (key === 'debit') return tx.debit ? fmtD(tx.debit, decimals) : '';
     if (key === 'credit') return tx.credit ? fmtD(tx.credit, decimals) : '';
-    if (key === 'balance') return balLabel(tx.balance_raw, decimals);
+    if (key === 'balance') return balText(tx.balance_raw, decimals, balStyle);
     if (key === 'posting_date') return tx.posting_date || '';
+    // The combined column joins whatever the user picked, skipping blanks so a
+    // field that is empty on this document leaves no dangling separator.
+    if (key === '__combined__') {
+      return combine
+        .map((k) => (k.includes('::') ? docVal(tx, k) : cellVal(tx, k)))
+        .filter((x) => x !== '')
+        .join(combineSep);
+    }
+    if (key.includes('::')) return docVal(tx, key);
     return (tx[key] || '').toString();
   }
 
@@ -335,10 +444,16 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     // Raw number for Excel, formatted string for every other output.
     const cellFor = (tx: any, c: { key: string; num?: boolean }) => {
       const n = Number(tx[c.key]);
-      return c.num && isFinite(n)
-        ? { v: n, text: cellVal(tx, c.key), num: true as const }
-        : { v: cellVal(tx, c.key), num: c.num };
+      if (c.num && isFinite(n)) return { v: n, text: cellVal(tx, c.key), num: true as const };
+      // The voucher number carries an absolute link so Excel and PDF stay
+      // clickable off the machine that produced them — a relative /app path
+      // resolves against the reader's browser, not the site.
+      if (c.key === 'voucher_no' && tx.voucher_type && tx.voucher_no) {
+        return { v: cellVal(tx, c.key), num: c.num, link: origin + docUrl(tx) };
+      }
+      return { v: cellVal(tx, c.key), num: c.num };
     };
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
     data.accounts.forEach((b: any, idx: number) => {
       // Exports carry the same heading the screen shows — a party block is
@@ -351,7 +466,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
         kind: 'sub',
         cells: colDefs.map((c) => c.key === colDefs[0].key
           ? { v: t('Opening Balance'), bold: true }
-          : c.key === 'balance' ? { v: balLabel(b.opening_raw, decimals), num: true, bold: true }
+          : c.key === 'balance' ? { v: balText(b.opening_raw, decimals, balStyle), num: true, bold: true, fg: balIsNeg(b.opening_raw, balStyle) ? '#a02323' : undefined }
             : { v: '', num: c.num }),
       });
       for (const tx of b.transactions) {
@@ -364,7 +479,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
           ? { v: t('Sub Total'), bold: true }
           : c.key === 'debit' ? { v: Number(b.sub_total.debit) || 0, text: fmtD(b.sub_total.debit, decimals), num: true, bold: true }
             : c.key === 'credit' ? { v: Number(b.sub_total.credit) || 0, text: fmtD(b.sub_total.credit, decimals), num: true, bold: true }
-              : c.key === 'balance' ? { v: balLabel(b.closing_raw, decimals), num: true, bold: true }
+              : c.key === 'balance' ? { v: balText(b.closing_raw, decimals, balStyle), num: true, bold: true, fg: balIsNeg(b.closing_raw, balStyle) ? '#a02323' : undefined }
                 : { v: '', num: c.num }),
       });
     });
@@ -376,7 +491,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
         ? { v: t('REPORT TOTAL'), bold: true }
         : c.key === 'debit' ? { v: Number(rt.debit) || 0, text: fmtD(rt.debit, decimals), num: true, bold: true }
           : c.key === 'credit' ? { v: Number(rt.credit) || 0, text: fmtD(rt.credit, decimals), num: true, bold: true }
-            : c.key === 'balance' ? { v: balLabel(rt.balance_raw, decimals), num: true, bold: true }
+            : c.key === 'balance' ? { v: balText(rt.balance_raw, decimals, balStyle), num: true, bold: true, fg: balIsNeg(rt.balance_raw, balStyle) ? '#a02323' : undefined }
               : { v: '', num: c.num }),
     });
 
@@ -393,7 +508,14 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
         : undefined,
       company,
       companyLabel,
-      period: `${fromDate} → ${toDate}`,
+      period: `${fromDate} → ${toDate}`
+        + ((exTypes.length || exVouchers.length)
+            // On the face of the document, not in a footnote. A statement that
+            // silently omits credit notes is exactly the artefact that gets
+            // handed to an auditor and read as complete.
+            ? '  ·  ' + t('EXCLUDES') + ': '
+              + [...exTypes, ...exVouchers].join(', ')
+            : ''),
       columns: colDefs.map((c) => ({ label: t(c.label), num: c.num, width: c.key === 'remarks' ? 34 : undefined })),
       rows,
       fileBase: isParty ? (mode === 'customer' ? 'customer_ledger' : 'supplier_ledger') : 'general_ledger',
@@ -421,12 +543,31 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
               <option value={0}>0</option><option value={2}>2</option><option value={3}>3</option>
             </select>
           </label>
-          <label><span className="flbl">{t('Supplier')} {supplier.length ? `(${supplier.length})` : ''}</span>
-            <DimensionMultiSelect value={supplier} options={supplierOpts} onChange={setSupplier} placeholder={t('All')} />
+          {/* v2.83.0 — sign convention for balances. Presentation only: the
+              underlying figure is identical in every style, and debits stay
+              positive throughout, so an export still sums the way it did
+              before. Remembered per browser. */}
+          <label><span className="flbl">{t('Balance shown as')}</span>
+            <select value={balStyle} onChange={(e) => setBalStyle(e.target.value as BalanceStyle)}
+              title={t('How credit balances are displayed — applies to this and every other ledger')}>
+              {BALANCE_STYLES.map((b) => (
+                <option key={b.value} value={b.value}>{t(b.label)} — {b.sample}</option>
+              ))}
+            </select>
           </label>
-          <label><span className="flbl">{t('Customer')} {customer.length ? `(${customer.length})` : ''}</span>
-            <DimensionMultiSelect value={customer} options={customerOpts} onChange={setCustomer} placeholder={t('All')} />
-          </label>
+          {/* v2.74.0 — a party ledger shows only its own party filter. Both were
+              rendered in every mode, so the Supplier tab offered a Customer
+              filter that could only ever return nothing: the tab has already
+              fixed the subject to suppliers, and the accounts are payable
+              control accounts no customer posts to. */}
+          {mode !== 'customer' &&
+            <label><span className="flbl">{t('Supplier')} {supplier.length ? `(${supplier.length})` : ''}</span>
+              <DimensionMultiSelect value={supplier} options={supplierOpts} onChange={setSupplier} placeholder={t('All')} />
+            </label>}
+          {mode !== 'supplier' &&
+            <label><span className="flbl">{t('Customer')} {customer.length ? `(${customer.length})` : ''}</span>
+              <DimensionMultiSelect value={customer} options={customerOpts} onChange={setCustomer} placeholder={t('All')} />
+            </label>}
           <label><span className="flbl">{t('Cost Center')} {costCenter.length ? `(${costCenter.length})` : ''}</span>
             <DimensionMultiSelect value={costCenter} options={withBlank(dimOpts.cost_center || [])} onChange={setCostCenter} placeholder={t('All')} />
           </label>
@@ -575,6 +716,10 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
             getDoc={buildGlDoc}
           >
             <button onClick={() => setShowColPicker((v) => !v)}>{t('Fields')}</button>
+            <button onClick={() => setShowAdv((v) => !v)}
+              className={(exTypes.length || exVouchers.length || combine.length) ? 'is-on' : ''}>
+              {t('Documents')}{(exTypes.length || exVouchers.length) ? ' •' : ''}
+            </button>
           </ExportBar>
         </div>
 
@@ -589,6 +734,89 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
                   {t(c.label)}
                 </label>
               ))}
+            </div>
+          </div>
+        )}
+        {showAdv && (
+          <div className="gl-colpick gl-adv">
+            <div className="gl-adv-sec">
+              <span className="flbl">{t('Exclude document types')}</span>
+              <div className="gl-col-grid">
+                {vtypes.length === 0 && <span className="studio-hint">{t('Run the ledger to see which document types it contains.')}</span>}
+                {vtypes.map((v) => (
+                  <label key={v} className="gl-cbx">
+                    <input type="checkbox" checked={exTypes.includes(v)}
+                      onChange={(e) => setExTypes((cur) => e.target.checked ? [...cur, v] : cur.filter((x) => x !== v))} />
+                    {v}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="gl-adv-sec">
+              <span className="flbl">{t('Exclude individual documents')}</span>
+              <input className="gl-adv-input" placeholder={t('SRT-12-25-004, SRT-12-25-009 — comma separated')}
+                value={exVouchers.join(', ')}
+                onChange={(e) => setExVouchers(e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} />
+            </div>
+
+            {(exTypes.length > 0 || exVouchers.length > 0) &&
+              <div className="gl-adv-warn">
+                {t('Opening balances are filtered too, so this ledger foots against itself but no longer against the account balance in ERPNext. Every export says so on its face.')}
+              </div>}
+
+            <div className="gl-adv-sec">
+              <span className="flbl">{t('Columns from the source document')}</span>
+              {vtypes.filter((v) => !exTypes.includes(v)).map((dt) => (
+                <div key={dt} className="gl-adv-dt">
+                  <strong>{dt}</strong>
+                  <select value="" onChange={(e) => {
+                    const f = e.target.value; if (!f) return;
+                    setDocFields((cur) => ({ ...cur, [dt]: [...(cur[dt] || []), f] }));
+                    setCols((cur) => [...cur, `${dt}::${f}`]);
+                  }}>
+                    <option value="">{t('Add a field…')}</option>
+                    {(fieldOpts[dt] || [])
+                      .filter((f: any) => !(docFields[dt] || []).includes(f.fieldname))
+                      .map((f: any) => (
+                        <option key={f.fieldname} value={f.fieldname}>
+                          {f.label}{f.custom ? ' ★' : ''} — {f.fieldname}
+                        </option>
+                      ))}
+                  </select>
+                  <span className="gl-chips">
+                    {(docFields[dt] || []).map((f) => (
+                      <button key={f} className="gl-chip" onClick={() => {
+                        setDocFields((cur) => ({ ...cur, [dt]: (cur[dt] || []).filter((x) => x !== f) }));
+                        setCols((cur) => cur.filter((k) => k !== `${dt}::${f}`));
+                        setCombine((cur) => cur.filter((k) => k !== `${dt}::${f}`));
+                      }}>{(fieldOpts[dt] || []).find((o: any) => o.fieldname === f)?.label || f} ×</button>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="gl-adv-sec">
+              <span className="flbl">{t('Combine into one column')}</span>
+              <div className="gl-col-grid">
+                {[...ALL_COLUMNS.filter((c) => !c.num), ...dynCols.filter((d) => d.key !== '__combined__')].map((c) => (
+                  <label key={c.key} className="gl-cbx">
+                    <input type="checkbox" checked={combine.includes(c.key)}
+                      onChange={(e) => setCombine((cur) => e.target.checked ? [...cur, c.key] : cur.filter((x) => x !== c.key))} />
+                    {t(c.label)}
+                  </label>
+                ))}
+              </div>
+              {combine.length > 0 && (
+                <div className="gl-adv-row">
+                  <label><span className="flbl">{t('Heading')}</span>
+                    <input value={combineLabel} onChange={(e) => setCombineLabel(e.target.value)} /></label>
+                  <label><span className="flbl">{t('Separator')}</span>
+                    <input value={combineSep} onChange={(e) => setCombineSep(e.target.value)} /></label>
+                  <span className="studio-hint">{t('Empty fields are skipped, so no stray separators.')}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -620,13 +848,23 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
                   <tr className="gl-op">
                     {colDefs.map((c) => (
                       <td key={c.key} className={c.num ? 'num' : ''}>
-                        {c.key === colDefs[0].key ? t('Opening Balance') : c.key === 'balance' ? balLabel(b.opening_raw, decimals) : ''}
+                        {c.key === colDefs[0].key ? t('Opening Balance') : c.key === 'balance' ? balText(b.opening_raw, decimals, balStyle) : ''}
                       </td>
                     ))}
                   </tr>
                   {b.transactions.map((tx: any, i: number) => (
                     <tr key={i}>
-                      {colDefs.map((c) => <td key={c.key} className={c.num ? 'num' : ''}>{cellVal(tx, c.key)}</td>)}
+                      {colDefs.map((c) => (
+                        <td key={c.key} className={c.num ? 'num' : ''}>
+                          {c.key === 'balance'
+                            ? <span className={balIsNeg(tx.balance_raw, balStyle) ? 'gl-neg' : undefined}>
+                                {balText(tx.balance_raw, decimals, balStyle)}</span>
+                            : c.key === 'voucher_no' && tx.voucher_type && tx.voucher_no
+                            ? <a className="gl-doclink" href={docUrl(tx)} target="_blank" rel="noopener noreferrer"
+                                title={t('Open {0}').replace('{0}', tx.voucher_type)}>{tx.voucher_no}</a>
+                            : cellVal(tx, c.key)}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                   <tr className="gl-st">
@@ -635,7 +873,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
                         {c.key === colDefs[0].key ? t('Sub Total')
                           : c.key === 'debit' ? fmtD(b.sub_total.debit, decimals)
                           : c.key === 'credit' ? fmtD(b.sub_total.credit, decimals)
-                          : c.key === 'balance' ? balLabel(b.closing_raw, decimals) : ''}
+                          : c.key === 'balance' ? balText(b.closing_raw, decimals, balStyle) : ''}
                       </td>
                     ))}
                   </tr>
@@ -648,7 +886,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
                       {c.key === colDefs[0].key ? t('REPORT TOTAL')
                         : c.key === 'debit' ? fmtD(data.report_total.debit, decimals)
                         : c.key === 'credit' ? fmtD(data.report_total.credit, decimals)
-                        : c.key === 'balance' ? balLabel(data.report_total.balance_raw, decimals) : ''}
+                        : c.key === 'balance' ? balText(data.report_total.balance_raw, decimals, balStyle) : ''}
                     </td>
                   ))}
                 </tr>

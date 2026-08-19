@@ -12,6 +12,7 @@
   "basis",
   "driver_value",
   "amount",
+  "budget_amount",
   "manual_pool",
   "sb_audit",
   "source",
@@ -81,6 +82,13 @@
    "label": "Amount",
    "depends_on": "eval:doc.basis=='amount'",
    "description": "Entered directly for a cost centre that has no head count. Carved out of the pool before the remainder is spread."
+  },
+  {
+   "fieldname": "budget_amount",
+   "fieldtype": "Currency",
+   "label": "Budget Amount",
+   "options": "Company:company:default_currency",
+   "description": "Budgeted allocation for this cost centre and month. Entered by hand and never derived: the budget for an allocation is a decision, not a calculation, and re-deriving it from the actual driver would produce a figure nobody agreed to. Shown beside the derived actual so the two can be compared."
   },
   {
    "fieldname": "manual_pool",

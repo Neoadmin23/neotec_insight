@@ -16,6 +16,7 @@ from collections import defaultdict
 from typing import Any
 
 import frappe
+from frappe import _
 from frappe.utils import flt, getdate
 
 # Canonical column -> the header variants seen across exports.
@@ -40,6 +41,23 @@ _COLMAP = {
     "merchant_name": ["merchant name"],
     "batch_reference": ["batch reference number", "batch reference"],
 }
+
+
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
 
 
 def _num(v: Any) -> float:
@@ -255,6 +273,7 @@ def _file_path(file_url: str) -> str:
 def preview_statement(file_url: str) -> dict:
     """Parse a statement and return a review summary — no Bank Transactions are
     created. Handles both merchant settlement and current-account statements."""
+    _require_read()
     fmt, lines, acct_no = _read_statement_any(_file_path(file_url))
     if fmt == "account":
         summary = summarize_account(lines)
@@ -303,6 +322,7 @@ def import_statement(file_url: str, bank_account: str, level: str = "batch") -> 
     net amount (the figure that actually hits the bank). level='transaction':
     one per card transaction. Skips any whose reference already exists for this
     bank account (idempotent re-import)."""
+    _require_read()
     if not bank_account:
         frappe.throw("bank_account is required.")
     fmt, lines, _acct = _read_statement_any(_file_path(file_url))

@@ -24,6 +24,23 @@ _IBAN_RE = re.compile(r"\bSA\d{22}\b")
 _FEE_RE = re.compile(r"FEE\s*[:]?\s*([\d,]+\.\d+)\s*SAR.{0,40}?VAT\s*AMOUNT\s*([\d,]+\.\d+)", re.I | re.S)
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _fee_vat(bt: dict) -> tuple[float, float]:
     m = _FEE_RE.search(bt.get("description") or "")
     if m:
@@ -252,11 +269,22 @@ def find_matches(bank_account: str, from_date: str | None = None, to_date: str |
             "transaction_count": len(txns), "pass_counts": counts, "transactions": txns}
 
 
+# `voucher_type` arrives from the caller and `frappe.db.set_value` performs no
+# permission or doctype check at all — without this list a whitelisted endpoint
+# would write a clearance_date onto ANY doctype having that column, named by
+# whoever called it. There is no legitimate fifth value.
+_CLEARABLE = {"Payment Entry", "Journal Entry", "Sales Invoice", "Purchase Invoice"}
+
+
 def _set_clearance(voucher_type: str, voucher_name: str, date) -> None:
     """Write the bank statement's value date onto the voucher as its clearance
     date, so ERPNext and our report agree on when it cleared."""
     if not date:
         return
+    if voucher_type not in _CLEARABLE:
+        frappe.throw(_("{0} cannot carry a clearance date.").format(_(voucher_type)),
+                     frappe.PermissionError)
+    _require_write(voucher_type)
     try:
         if frappe.db.has_column(voucher_type, "clearance_date"):
             frappe.db.set_value(voucher_type, voucher_name, "clearance_date", date,
@@ -270,7 +298,12 @@ def _set_clearance(voucher_type: str, voucher_name: str, date) -> None:
 def confirm_match(bank_transaction: str, voucher_type: str, voucher_name: str,
                   allocated_amount: float | None = None) -> dict:
     """Reconcile one Bank Transaction with a chosen voucher. Submits the Bank
-    Transaction first if it was imported as a draft."""
+    Transaction first if it was imported as a draft.
+
+    v2.77.0 — guarded; it submits a Bank Transaction and stamps a clearance
+    date on a caller-named voucher.
+    """
+    _require_write("Bank Transaction")
     bt = frappe.get_doc("Bank Transaction", bank_transaction)
     if bt.docstatus == 0:
         bt.submit()
@@ -292,6 +325,7 @@ def confirm_match(bank_transaction: str, voucher_type: str, voucher_name: str,
 @frappe.whitelist()
 def unmatch(bank_transaction: str) -> dict:
     """Remove all allocations from a Bank Transaction (undo a confirm)."""
+    _require_write("Bank Transaction")
     bt = frappe.get_doc("Bank Transaction", bank_transaction)
     bt.payment_entries = []
     bt.save()
@@ -302,6 +336,7 @@ def unmatch(bank_transaction: str) -> dict:
 
 @frappe.whitelist()
 def get_reconcile_settings() -> dict:
+    _require_read()
     s = frappe.get_single("Insight AI Settings")
     return {
         "bank_charges_account": getattr(s, "bank_charges_account", None),
@@ -312,6 +347,7 @@ def get_reconcile_settings() -> dict:
 @frappe.whitelist()
 def set_reconcile_settings(bank_charges_account: str | None = None,
                            input_vat_account: str | None = None) -> dict:
+    _require_read()
     s = frappe.get_single("Insight AI Settings")
     if bank_charges_account is not None:
         s.bank_charges_account = bank_charges_account or None
@@ -328,6 +364,7 @@ def book_bank_charge(bank_transaction: str, bank_charges_account: str,
     """Create a Journal Entry that books a bank fee — charge to expense, VAT to
     recoverable input VAT, credit the bank — then reconcile the fee line to it.
     Propose-only elsewhere; this is an explicit user action."""
+    _require_read()
     bt = frappe.get_doc("Bank Transaction", bank_transaction)
     if bt.docstatus == 0:
         bt.submit(); bt.reload()
@@ -371,6 +408,7 @@ def book_bank_charge(bank_transaction: str, bank_charges_account: str,
 def backfill_clearance(bank_account: str) -> dict:
     """Stamp clearance_date (= bank value date) on vouchers already reconciled to
     this account's bank transactions but missing it."""
+    _require_read()
     bts = frappe.get_all(
         "Bank Transaction",
         filters={"bank_account": bank_account, "status": ["in", ["Reconciled", "Settled"]], "docstatus": 1},
@@ -389,6 +427,7 @@ def backfill_clearance(bank_account: str) -> dict:
 
 @frappe.whitelist()
 def list_reconciled(bank_account: str, limit: int = 100) -> dict:
+    _require_read()
     bts = frappe.get_all(
         "Bank Transaction",
         filters={"bank_account": bank_account, "status": ["in", ["Reconciled", "Settled"]],
@@ -414,6 +453,7 @@ def reconciliation_summary(bank_account: str, from_date: str | None = None,
                            to_date: str | None = None) -> dict:
     """Compact status for the CFO/CEO views: reconciled vs open, bank charges +
     recoverable VAT for the period, and the cleared-balance gap."""
+    _require_read()
     base = {"bank_account": bank_account, "docstatus": 1}
     if from_date and to_date:
         base["date"] = ["between", [from_date, to_date]]
@@ -451,6 +491,7 @@ def reconciliation_report(bank_account: str, from_date: str | None = None,
     """Document-style reconciliation report: every bank line with the voucher it
     was reconciled to, document numbers and dates (value date, document date,
     cleared date)."""
+    _require_read()
     company, gl_account = frappe.db.get_value("Bank Account", bank_account, ["company", "account"])
     filters = {"bank_account": bank_account, "docstatus": 1}
     if from_date and to_date:
@@ -509,6 +550,7 @@ def reconciliation_report(bank_account: str, from_date: str | None = None,
 
 @frappe.whitelist()
 def get_print_header() -> dict:
+    _require_read()
     s = frappe.get_single("Insight AI Settings")
     name = getattr(s, "print_org_name", None)
     if not name:
@@ -525,6 +567,7 @@ def get_print_header() -> dict:
 @frappe.whitelist()
 def set_print_header(org_name: str | None = None, org_address: str | None = None,
                      logo_url: str | None = None) -> dict:
+    _require_read()
     s = frappe.get_single("Insight AI Settings")
     if org_name is not None:
         s.print_org_name = org_name or None
@@ -602,6 +645,7 @@ def reconciliation_bridge(bank_account: str, as_of: str | None = None,
     items not yet in the books, to arrive at the expected bank statement balance.
     If the actual statement balance is given, returns the difference (≈0 when
     fully reconciled)."""
+    _require_read()
     as_of = as_of or nowdate()
     company, gl_account = frappe.db.get_value("Bank Account", bank_account, ["company", "account"])
     book = round(_gl_bal(company, gl_account, as_of), 2)

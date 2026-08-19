@@ -21,6 +21,23 @@ from .studio import _can_read, _child_parent, _coerce_filters
 _AGGS = {"sum", "avg", "min", "max", "count"}
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _load(slug):
     if not slug or not frappe.db.exists("Insight Dataset", slug):
         frappe.throw(_("Dataset not found."))
@@ -56,6 +73,7 @@ def _validated(doctype, cfg):
 
 @frappe.whitelist()
 def list_datasets():
+    _require_read()
     rows = frappe.get_all("Insight Dataset",
                           fields=["slug", "title", "base_doctype", "description", "modified"],
                           order_by="modified desc", limit_page_length=200)
@@ -97,6 +115,7 @@ def save_dataset(dataset=None):
 
 @frappe.whitelist()
 def load_dataset(slug=None):
+    _require_read()
     doc, cfg = _load(slug)
     if not _can_read(doc.base_doctype):
         frappe.throw(_("You don't have permission to read {0}.").format(doc.base_doctype))
@@ -123,6 +142,7 @@ def run_dataset(slug=None, dimension=None, measures=None, filters=None, limit=20
 
     Only measure keys and dimension fields DEFINED ON THE DATASET are honoured
     — this is what makes it a governed semantic layer rather than a raw query."""
+    _require_read()
     doc, cfg = _load(slug)
     doctype = doc.base_doctype
     if not _can_read(doctype):
@@ -178,6 +198,7 @@ def preview_dataset(base_doctype=None, config=None, dimension=None, limit=50):
     """Run an UNSAVED dataset definition — the wizard's live preview, so the
     user sees real numbers before committing the model. Same validation and
     permission path as run_dataset."""
+    _require_read()
     if not base_doctype or not _can_read(base_doctype):
         frappe.throw(_("Pick a base document you can read."))
     if isinstance(config, str):
@@ -216,6 +237,7 @@ def preview_dataset(base_doctype=None, config=None, dimension=None, limit=50):
 
 @frappe.whitelist()
 def list_schedules(report=None):
+    _require_read()
     flt_ = {"report": report} if report else {}
     return frappe.get_all("Insight Report Schedule", filters=flt_,
                           fields=["name", "report", "enabled", "frequency", "weekday",

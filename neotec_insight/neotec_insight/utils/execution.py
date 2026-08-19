@@ -97,6 +97,11 @@ def execute_report(
         kind = row.get("kind")
         key = row.get("key")
         monthly: dict[int, float] = {m: 0.0 for m in months}
+        # Default: this row's visibility is governed purely by show_when /
+        # single-cost-centre-selected, same as every kind before v2.76.1.
+        # Only the allocation branch below can set this False, when a single
+        # cost centre IS selected and this rule's pool does not touch it.
+        cc_applies = True
 
         if kind == "source":
             flag = row.get("flag") or row.get("label")
@@ -130,7 +135,7 @@ def execute_report(
             # The pool is taken from this report's own flag map, so the
             # allocation and the expense lines it spreads can never be
             # reading different accounts.
-            monthly = _allocation_monthly(
+            monthly, cc_applies = _allocation_monthly(
                 rule_name=row.get("allocation_rule"),
                 fiscal_year=fiscal_year,
                 months=months,
@@ -152,9 +157,7 @@ def execute_report(
             # hide it unless a single cost centre is selected; the value still
             # lands in `ctx`, so formulas referencing it keep working either
             # way and only the display is suppressed.
-            if (row.get("show_when", "cost_center") == "cost_center"
-                    and not _single_cost_center(cost_center)):
-                row = {**row, "hidden": 1}
+            #
         elif kind == "formula":
             formula = row.get("formula") or "0"
             for m in months:
@@ -167,10 +170,103 @@ def execute_report(
         else:
             ctx[key] = monthly
 
+        # ── Visibility (v2.76.0) ──────────────────────────────────────────
+        # Applies to EVERY row kind, not only allocation.
+        #
+        # The case that needs it: with credit-back on, an allocation moves cost
+        # between cost centres and leaves the company total unchanged. Run
+        # consolidated, the allocation rows hide themselves and the report
+        # prints "before allocation" and "after allocation" as the same figure,
+        # with the allocation that explains the gap invisible between them.
+        # Arithmetically right, reads as a mistake.
+        #
+        # THE DEFAULT DIFFERS BY KIND AND MUST. Allocation rows keep defaulting
+        # to 'cost_center' (a pool shown consolidated reads as a real charge and
+        # double-counts); every other kind defaults to 'always'. A shared
+        # default would blank rows in every existing report on upgrade — the
+        # exact failure this shipped with once before, so
+        # tests/test_visibility.py asserts an untouched report keeps all its
+        # rows consolidated.
+        #
+        # Hidden rows still land in `ctx`, so formulas referencing them keep
+        # working; only the display is suppressed.
+        #
+        # v2.76.1 — `cc_applies` additionally hides an allocation row when a
+        # single cost centre IS selected but that centre is not one this
+        # rule's pool touches at all (not a driver, not the credit target).
+        # Two unrelated allocation rows both defaulting to "cost_center"
+        # visibility used to print side by side as identical bare 0.000s —
+        # correct numbers, indistinguishable from each other and from a
+        # relevant row also reading zero that month. Only refines the
+        # already-hidden-unless-selected default; an explicit "Always" is
+        # left alone; deliberately unselected cost centres.
+        if is_row_hidden(row, kind, _single_cost_center(cost_center), cc_applies):
+            row = {**row, "hidden": 1}
+            # v2.81.0 — 'cost_center_exclude' additionally removes the row from
+            # the ARITHMETIC, not just the display.
+            #
+            # The distinction is real. 'cost_center' hides a line while its
+            # value keeps feeding every formula referencing it, which is right
+            # for a before/after-allocation line: the reader should not see a
+            # duplicated figure, but net income must still be computed from it.
+            # It is wrong for a line that only means something for one cost
+            # centre — there, a hidden row silently inflating a total is the
+            # worst of both, because the evidence for the total is invisible.
+            #
+            # Zeroing `ctx` rather than deleting the key on purpose: a formula
+            # naming a missing key raises and takes down the report, whereas a
+            # zero contributes nothing and leaves every other row computable.
+            if row.get("show_when") == "cost_center_exclude":
+                ctx[key] = {m: 0.0 for m in months}
+                monthly = {m: 0.0 for m in months}
+                row = {**row, "excluded_from_totals": 1}
+
         out.append({**row, "monthly": monthly})
 
     return {"rows": out, "months": months}
 
+
+
+def is_row_hidden(row: dict, kind: str, single_cost_center, cc_applies: bool = True) -> bool:
+    """Whether this row is suppressed for the current cost-centre selection.
+
+    Pulled out of the row loop so it can be tested without a site. It decides
+    what a reader of a management P&L does and does not see, and it has already
+    shipped wrong once — the check was applied to every kind with a shared
+    default, which blanked rows in existing reports.
+
+    An explicit `show_when` always wins. Absent, allocation rows default to
+    'cost_center' and every other kind to 'always', which is what makes an
+    untouched report render identically before and after upgrade.
+
+    `cc_applies` (v2.76.1, default True so every caller before this version
+    behaves exactly as before) only ever REFINES a row that is already
+    subject to the cost-centre rule — it can turn a visible allocation row
+    invisible when a single cost centre is selected but this rule's pool
+    doesn't touch it, never the reverse. An explicit "Always" is left alone
+    on purpose: `cc_applies` narrows the default, it does not override a
+    deliberate choice the row's owner made.
+    """
+    explicit = row.get("show_when")
+    # 'cost_center_exclude' hides on the same condition as 'cost_center'; it
+    # differs only in what happens to the value, which the caller handles.
+    if explicit == "cost_center_exclude":
+        explicit = "cost_center"
+    # Membership-tested as a string: an unhashable value in a stored definition
+    # (a list or dict, however it got there) would otherwise raise TypeError and
+    # take down the whole report run rather than this one row.
+    if not isinstance(explicit, str) or explicit not in {"cost_center", "always"}:
+        explicit = "cost_center" if kind == "allocation" else "always"
+    if explicit == "always":
+        return False
+    if not single_cost_center:
+        return True
+    # cc_applies is a signal computed only for allocation rows (see
+    # _allocation_monthly): whether THIS rule's pool touches the selected
+    # cost centre at all. It must never affect a source/formula row that a
+    # user explicitly set to 'cost_center' — that setting means exactly what
+    # it always meant, unrelated to any allocation rule.
+    return kind == "allocation" and not cc_applies
 
 
 def _single_cost_center(cost_center) -> str | None:
@@ -194,7 +290,7 @@ def _allocation_monthly(
     period_mode=None,
     period_from_date=None,
     period_to_date=None,
-) -> dict[int, float]:
+) -> tuple[dict[int, float], bool]:
     """Monthly allocation for one rule, from the point of view of the
     report's current cost centre filter.
 
@@ -202,17 +298,26 @@ def _allocation_monthly(
     the whole pool being spread — a consolidated statement should show the
     total under allocation, not a blank.
 
-    Never raises: a missing or misconfigured rule yields zeros, because a
-    P&L must still render when one supporting rule is broken.
+    Returns `(monthly, applies)`. `applies` is False only when a single cost
+    centre IS selected and that centre is not one this rule's pool actually
+    touches (not a driver cost centre and not the credit-back target) — the
+    case that made two unrelated allocation rows print the identical bare
+    0.000 side by side and read as the same figure rather than as "this pool
+    has nothing to do with the cost centre you picked." Consolidated (no
+    single cost centre) always applies: showing the whole pool is the point.
+
+    Never raises: a missing or misconfigured rule yields zeros with
+    `applies=True` — fail open, so a broken rule's row still surfaces
+    (logged separately) rather than silently vanishing from the statement.
     """
     zero = {m: 0.0 for m in months}
     if not rule_name:
-        return zero
+        return zero, True
     # While a pool is being read from this very report, allocation rows must
     # evaluate to zero — otherwise the pool would contain the allocations it
     # is meant to produce, and the report would recurse into itself.
     if frappe.flags.get("ni_allocation_pool_inflight"):
-        return zero
+        return zero, True
     try:
         from neotec_insight.neotec_insight.utils.allocation import (
             allocation_for_cost_center, compute,
@@ -271,9 +376,12 @@ def _allocation_monthly(
             by_year.setdefault(cy, []).append(cm)
 
         out = dict(zero)
+        applies = not cost_center  # consolidated always "applies"
         for cy, cal_months in by_year.items():
             res = compute(rule_name, co, cy,
                           pool_by_month=pool_by_month, months=sorted(set(cal_months)))
+            if cost_center and cost_center in (res.get("cost_centers") or []):
+                applies = True
             got = allocation_for_cost_center(res, cost_center)
             for idx, (idx_year, idx_month) in cal_of.items():
                 if idx_year == cy:
@@ -291,11 +399,11 @@ def _allocation_monthly(
                     blk = None
                 if blk:
                     out[idx] = float(blk.get("charged", 0.0))
-        return out
+        return out, applies
     except Exception as e:
         frappe.log_error(f"allocation row failed for {rule_name}: {e}",
                          "Neotec Insight: allocation")
-        return zero
+        return zero, True
 
 
 def _fetch_monthly_for_mappings(
@@ -684,7 +792,11 @@ def load_flag_to_accounts(report_name: str) -> dict[str, list[str]]:
     return out
 
 
-def flag_binding_meta(report_name: str, flag_to_accounts: dict[str, list[str]] | None = None) -> dict[str, dict]:
+def flag_binding_meta(
+    report_name: str,
+    flag_to_accounts: dict[str, list[str]] | None = None,
+    report_rows: list[dict] | None = None,
+) -> dict[str, dict]:
     """Per-flag binding metadata, so the report view can explain — at read time —
     why a row's number is what it is.
 
@@ -699,6 +811,24 @@ def flag_binding_meta(report_name: str, flag_to_accounts: dict[str, list[str]] |
                          NO stored snapshot — a resolved leaf is "new" when its
                          Account.creation is later than the earliest group-binding
                          mapping for that flag, and it wasn't bound directly.
+      - has_binding:     at least one Account Flag Mapping row exists for this
+                         flag (group or direct), whether or not it currently
+                         resolves to anything.
+      - missing_accounts / missing_count:
+                         directly-bound accounts that no longer exist in the
+                         chart of accounts (deleted or renamed out from under
+                         the mapping). These stay in `flag_to_accounts` — a
+                         name the SQL `IN` clause simply won't match — so the
+                         row quietly loses whatever they used to contribute,
+                         with nothing on screen to say so.
+
+    A row with resolved_count == 0 sums to zero in ~10ms and looks exactly
+    like a row with genuinely no activity — the two are indistinguishable on
+    the statement itself, which is what makes a missing mapping look like a
+    reporting engine bug rather than a configuration gap. `report_rows`
+    (every row from the definition) lets this function report on a flag that
+    has NO Account Flag Mapping at all, not only ones present in the mapping
+    table — the case that used to disappear entirely from this response.
 
     This is the read-time companion to the Map screen's bind-time badges: it makes
     the dynamic group behaviour visible on the statement itself, and surfaces leaves
@@ -707,6 +837,16 @@ def flag_binding_meta(report_name: str, flag_to_accounts: dict[str, list[str]] |
     if flag_to_accounts is None:
         flag_to_accounts = load_flag_to_accounts(report_name)
 
+    # Every flag a "source" row in the definition actually reads from — so a
+    # row with zero Account Flag Mapping rows still gets an entry below,
+    # instead of vanishing from this response the way it used to.
+    all_flags: set[str] = set()
+    for r in (report_rows or []):
+        if r.get("kind") == "source":
+            f = (r.get("flag") or r.get("label") or "").strip()
+            if f:
+                all_flags.add(f)
+
     maps = frappe.get_all(
         "Account Flag Mapping",
         filters={"report": report_name},
@@ -714,7 +854,10 @@ def flag_binding_meta(report_name: str, flag_to_accounts: dict[str, list[str]] |
         limit_page_length=0,
     )
     if not maps:
-        return {}
+        # No mapping rows at all — still report every source-row flag as
+        # unbound rather than returning nothing. A caller with no report_rows
+        # (older call sites) keeps the old behaviour of an empty dict.
+        return {f: _unbound_binding_meta() for f in all_flags}
 
     group_binding_accts: dict[str, list[str]] = {}
     earliest_group_creation: dict[str, str] = {}
@@ -751,7 +894,7 @@ def flag_binding_meta(report_name: str, flag_to_accounts: dict[str, list[str]] |
 
     MAX_NEW = 25
     out: dict[str, dict] = {}
-    flags = set(group_binding_accts) | set(direct_accts) | set(flag_to_accounts)
+    flags = set(group_binding_accts) | set(direct_accts) | set(flag_to_accounts) | all_flags
     for flag in flags:
         leaves = flag_to_accounts.get(flag, [])
         is_group = flag in group_binding_accts
@@ -766,6 +909,10 @@ def flag_binding_meta(report_name: str, flag_to_accounts: dict[str, list[str]] |
                 if info and str(info.get("creation") or "") > cutoff:
                     new_accounts.append({"code": _code(leaf), "name": info.get("account_name") or leaf})
         new_accounts.sort(key=lambda x: x["code"])
+        # Direct bindings that no longer resolve to a live Account — the
+        # mapping row still exists and still feeds the SQL `IN (...)`, it
+        # just can never match anything again. Silent otherwise.
+        missing = sorted(a for a in direct if a and a not in acct_info)
         out[flag] = {
             "is_group": is_group,
             "resolved_count": len(leaves),
@@ -774,8 +921,30 @@ def flag_binding_meta(report_name: str, flag_to_accounts: dict[str, list[str]] |
             "new_count": len(new_accounts),
             "new_accounts": new_accounts[:MAX_NEW],
             "new_truncated": len(new_accounts) > MAX_NEW,
+            "has_binding": bool(is_group or direct),
+            "missing_accounts": missing,
+            "missing_count": len(missing),
         }
     return out
+
+
+def _unbound_binding_meta() -> dict:
+    """Shape returned for a source-row flag with no Account Flag Mapping at
+    all. Kept in sync with the fields `flag_binding_meta` fills in above so
+    the frontend never has to special-case "no mapping rows in the report"
+    versus "mapping rows exist but resolve to nothing"."""
+    return {
+        "is_group": False,
+        "resolved_count": 0,
+        "direct_count": 0,
+        "group_codes": [],
+        "new_count": 0,
+        "new_accounts": [],
+        "new_truncated": False,
+        "has_binding": False,
+        "missing_accounts": [],
+        "missing_count": 0,
+    }
 
 
 def load_flag_mappings(report_name: str) -> dict[str, list[dict]]:

@@ -40,6 +40,23 @@ DEPRECIATION_KEYWORDS = [
 ]
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _default_company():
     return (frappe.defaults.get_user_default("Company")
             or frappe.defaults.get_global_default("company")
@@ -472,6 +489,7 @@ def financial_health(company=None, to_date=None, years=3, fiscal_year=None):
 @frappe.whitelist()
 def health_ai_analysis(company=None, fiscal_year=None, lang="en"):
     """Deeper, AI-written analysis grounded in the computed ratios."""
+    _require_read()
     company = company or _default_company()
     data = financial_health(company=company, fiscal_year=fiscal_year)
     ctx = {

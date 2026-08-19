@@ -67,6 +67,11 @@ def _require_read() -> None:
             _("You are not permitted to view financial reports."),
             frappe.PermissionError,
         )
+    # v2.84.0 — a People-only user may hold GL Entry read through an HR role
+    # bundle, which would otherwise let them straight into the ledger. The
+    # People endpoints live in cfo.py and do not pass through here, so they
+    # keep working.
+    _check_hr_only(allow=False)
 
 
 @frappe.whitelist()
@@ -145,6 +150,7 @@ def _safe_columns(table: str) -> set[str]:
 @frappe.whitelist()
 def list_companies() -> list[dict]:
     """Return all companies the user can see. Used by the Company dropdown."""
+    _require_read()
     try:
         if not frappe.db.exists("DocType", "Company"):
             return []
@@ -176,6 +182,7 @@ def list_cost_centers(company: str | None = None, search: str = "", limit: int =
     Only returns non-group (leaf) cost centers. Returns [] on any error so
     the frontend dropdown never gets a 500.
     """
+    _require_read()
     try:
         if not frappe.db.exists("DocType", "Cost Center"):
             return []
@@ -224,6 +231,7 @@ def list_cost_centers(company: str | None = None, search: str = "", limit: int =
 @frappe.whitelist()
 def list_projects(company: str | None = None, search: str = "", limit: int = 100, status: str | None = None) -> list[dict]:
     """Return Projects, filtered by company, search term, and status."""
+    _require_read()
     try:
         if not frappe.db.exists("DocType", "Project"):
             return []
@@ -280,6 +288,7 @@ def list_departments(company: str | None = None, search: str = "", limit: int = 
     and only filter by what actually exists. Everything wraps in a top-level
     try/except so a missing column or table never 500s the endpoint.
     """
+    _require_read()
     try:
         if not frappe.db.exists("DocType", "Department"):
             return []
@@ -338,6 +347,7 @@ def list_branches(search: str = "", limit: int = 100) -> list[dict]:
     Department, it varies by ERPNext version — the table may not exist on
     older benches. We probe columns and fall back gracefully.
     """
+    _require_read()
     try:
         if not frappe.db.exists("DocType", "Branch"):
             return []
@@ -378,6 +388,7 @@ def list_branches(search: str = "", limit: int = 100) -> list[dict]:
 @frappe.whitelist()
 def list_fiscal_years(limit: int = 12) -> list[dict]:
     """Return Fiscal Years from ERPNext, most-recent first."""
+    _require_read()
     try:
         if not frappe.db.exists("DocType", "Fiscal Year"):
             return []
@@ -424,6 +435,7 @@ def list_reports(include_disabled: int = 0) -> list[dict]:
     Sort order: default report first (so the frontend can use the first item
     as its default selection), then most recently modified.
     """
+    _require_read()
     filters = {}
     if not cint(include_disabled):
         filters["is_active"] = 1
@@ -455,6 +467,7 @@ def list_reports(include_disabled: int = 0) -> list[dict]:
 
 @frappe.whitelist()
 def get_report(report: str) -> dict:
+    _require_read()
     doc = _resolve_report_doc(report)
     return _serialize_report(doc)
 
@@ -672,7 +685,7 @@ def run_report_dimension_pivot(
         },
         "dimensions": dim_meta,
         "rows": out_rows,
-        "binding_meta": flag_binding_meta(doc.name, flag_to_accounts),
+        "binding_meta": flag_binding_meta(doc.name, flag_to_accounts, definition.get("rows", [])),
         "performance": {"execution_ms": int((time.perf_counter() - started) * 1000), "cache_hit": False},
     }
     frappe.cache().set_value(cache_key, payload, expires_in_sec=EXECUTION_CACHE_TTL_SECONDS)
@@ -847,6 +860,7 @@ def list_report_filter_options(company: str | None = None) -> dict:
     Bundled into a single endpoint so the frontend filter strip can populate
     in one round-trip rather than three.
     """
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import (
         list_accounting_dimensions, get_company_currency,
     )
@@ -964,6 +978,7 @@ def run_trial_balance_parties(
     Lazy-loaded: the frontend only calls this when the user clicks the +
     on a specific control account row.
     """
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import run_trial_balance_parties_engine
 
     doc = _resolve_report_doc(report)
@@ -1124,6 +1139,7 @@ def run_trial_balance_pivot(
     use_cache: int = 1,
 ) -> dict:
     """Trial Balance pivoted by dimension — one closing balance per dimension."""
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import run_trial_balance_pivot_engine
 
     doc = _resolve_report_doc(report)
@@ -1191,6 +1207,7 @@ def run_balance_sheet_pivot(
     use_cache: int = 1,
 ) -> dict:
     """Balance Sheet pivoted by dimension — one balance column per dimension."""
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import run_balance_sheet_pivot_engine
 
     doc = _resolve_report_doc(report)
@@ -1259,6 +1276,7 @@ def run_balance_sheet_combo_pivot(
     """Combo (two-dimension) Balance Sheet pivot — same account-tree structure
     as the dimension pivot, one column per (dim1 × dim2). Lets the Combo view
     reuse the Dimension view's renderer, Excel and Print."""
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import run_balance_sheet_combo_pivot_engine
 
     doc = _resolve_report_doc(report)
@@ -1502,6 +1520,7 @@ def run_pnl_statement_periods(
     Same accounts and the same tree as the single-column report; each account
     carries an amount per column instead of one figure.
     """
+    _require_read()
     started = time.perf_counter()
     cols = _pnl_period_slices(from_date, to_date, granularity)
     if not cols:
@@ -1599,6 +1618,7 @@ def run_pnl_statement_pivot(
 ) -> dict:
     """Dimension-pivot variant of the CoA P&L — account tree rows, one column
     per cost center / department / project."""
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import run_pnl_statement_pivot_engine
 
     doc = _resolve_report_doc(report)
@@ -1671,6 +1691,7 @@ def run_pnl_statement_combo_pivot(
     """Combo (two-dimension) P&L statement pivot. Same account-tree structure
     as the dimension pivot, with one column per (dim1 × dim2) combination, so
     the Combo view shares the Dimension view's renderer, Excel and Print."""
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import run_pnl_statement_combo_pivot_engine
 
     doc = _resolve_report_doc(report)
@@ -1824,6 +1845,7 @@ def run_report_row_drill(
             "performance": {execution_ms, cache_hit},
         }
     """
+    _require_read()
     doc = _resolve_report_doc(report)
     if not row_key:
         frappe.throw("row_key is required.")
@@ -2030,6 +2052,7 @@ def gl_drill_entries(
     reconciles with the figure on screen), a filter summary, and a deep link
     to ERPNext's General Ledger report with the same filters pre-applied.
     """
+    _require_read()
     from neotec_insight.neotec_insight.utils.fiscal_year import resolve_date_bounds
     from urllib.parse import urlencode
 
@@ -2245,6 +2268,7 @@ def export_configuration(sections=None):
 @frappe.whitelist()
 def config_section_counts():
     """Record count per Insight configuration area, for the backup selector."""
+    _require_read()
     out = {}
     for dt in _IMPORT_ORDER:
         try:
@@ -2351,6 +2375,94 @@ def import_configuration(payload=None, mode="replace"):
 
 
 # ── GL: document description + party grouping (v2.56.0) ─────────────────────
+
+
+_DOCFIELD_SKIP = {"Section Break", "Column Break", "Tab Break", "HTML", "Button",
+                  "Image", "Fold", "Heading", "Table", "Table MultiSelect",
+                  "Signature", "Password", "Attach Image"}
+
+
+@frappe.whitelist()
+def voucher_field_options(voucher_types=None):
+    """Fields that can be pulled from each source document onto ledger rows.
+
+    Discovered from the live DocType meta rather than hard-coded, so custom
+    fields — which is where site-specific narration usually lives — are offered
+    alongside the standard ones. Layout elements and child tables are dropped:
+    they carry no scalar value a ledger cell could hold.
+    """
+    types = _normalise_dim_param(voucher_types) or []
+    out = {}
+    for dt in types:
+        if not frappe.db.exists("DocType", dt) or not frappe.has_permission(dt, "read"):
+            continue
+        try:
+            meta = frappe.get_meta(dt)
+        except Exception:
+            continue
+        fields = []
+        for df in meta.fields:
+            if df.fieldtype in _DOCFIELD_SKIP or not df.fieldname:
+                continue
+            fields.append({"fieldname": df.fieldname,
+                           "label": df.label or df.fieldname,
+                           "fieldtype": df.fieldtype,
+                           "custom": bool(getattr(df, "is_custom_field", 0))})
+        fields.sort(key=lambda f: (not f["custom"], f["label"].lower()))
+        out[dt] = fields
+    return out
+
+
+def _gl_voucher_types(where: str, params: dict, from_date, to_date) -> list[str]:
+    """Distinct voucher types in the window, ignoring exclusions."""
+    try:
+        rows = frappe.db.sql(
+            f"""SELECT DISTINCT g.voucher_type AS vt FROM `tabGL Entry` g
+                WHERE {where} AND g.posting_date BETWEEN %(fd)s AND %(td)s""",
+            {**params, "fd": from_date, "td": to_date}, as_dict=True)
+    except Exception:
+        return []
+    return sorted({r["vt"] for r in rows if r.get("vt")})
+
+
+def _gl_doc_fields(tx_rows: list[dict], wanted: dict) -> dict[tuple, dict]:
+    """Requested source-document fields, keyed by (voucher_type, voucher_no).
+
+    One query per voucher type, never per row — the same batching as
+    `_gl_descriptions`, which this generalises. A ledger over a quarter can
+    carry thousands of rows across a handful of doctypes; per-row fetching
+    would make the feature unusable at exactly the sizes it is wanted for.
+
+    Fields that do not exist on the doctype are dropped rather than throwing:
+    a saved column set outliving a customisation should degrade to a blank
+    column, not break the report.
+    """
+    if not wanted:
+        return {}
+    by_type: dict[str, set] = {}
+    for r in tx_rows:
+        vt, vno = r.get("voucher_type"), r.get("voucher_no")
+        if vt and vno and vt in wanted:
+            by_type.setdefault(vt, set()).add(vno)
+
+    out: dict[tuple, dict] = {}
+    for vt, vnos in by_type.items():
+        names = [f for f in (wanted.get(vt) or []) if f]
+        if not names:
+            continue
+        try:
+            if not frappe.has_permission(vt, "read"):
+                continue
+            live = [f for f in names if frappe.db.has_column(vt, f)]
+            if not live:
+                continue
+            rows = frappe.get_all(vt, filters={"name": ["in", list(vnos)]},
+                                  fields=["name"] + live, limit_page_length=0)
+        except Exception:
+            continue
+        for row in rows:
+            out[(vt, row["name"])] = {f"{vt}::{f}": row.get(f) for f in live}
+    return out
 
 
 def _gl_descriptions(tx_rows: list[dict]) -> dict[tuple, str]:
@@ -2493,6 +2605,7 @@ def party_control_accounts(company=None, party_type="Supplier"):
     while leaving the picker available for sites with several control
     accounts (retention payable, related-party payable, and so on).
     """
+    _require_read()
     atype = "Receivable" if str(party_type or "").strip().lower() == "customer" else "Payable"
     company = company or frappe.defaults.get_user_default("Company") \
         or frappe.defaults.get_global_default("company") or None
@@ -2515,6 +2628,7 @@ def party_control_accounts(company=None, party_type="Supplier"):
 @frappe.whitelist()
 def list_parties(party_type="Supplier", search=None, company=None, limit=50):
     """Type-ahead source for the party ledger's Supplier/Customer picker."""
+    _require_read()
     dt = "Customer" if str(party_type or "").strip().lower() == "customer" else "Supplier"
     name_field = "customer_name" if dt == "Customer" else "supplier_name"
     filters = {}
@@ -2549,6 +2663,9 @@ def general_ledger(
     limit=0,
     group_by=None,
     with_description=0,
+    exclude_voucher_types=None,
+    exclude_vouchers=None,
+    doc_fields=None,
 ):
     """ERPNext-style grouped General Ledger.
 
@@ -2664,6 +2781,36 @@ def general_ledger(
                 params[f"p_{ptype}_{i}"] = v
     if party_ors:
         base_conds.append("(" + " OR ".join(party_ors) + ")")
+
+    # ── Exclusions (v2.74.0) — by voucher type, or by individual voucher.
+    #
+    # Applied to the OPENING balance as well as the window, deliberately. An
+    # exclusion that only hit the window would leave closing = a real opening
+    # plus a filtered movement, which is a figure that describes nothing. Both
+    # ends filtered gives a coherent "as if these documents did not exist"
+    # ledger that foots against itself.
+    #
+    # It does NOT foot against the account's true balance any more, and it
+    # cannot — that is inherent to excluding documents, not a defect. The
+    # response flags it so the screen and every export can say so.
+    ex_types = _normalise_dim_param(exclude_voucher_types) or []
+    ex_vouchers = _normalise_dim_param(exclude_vouchers) or []
+    # Kept before the exclusions are appended: the picker must offer every type
+    # the window CONTAINS, not every type that survived filtering. Reading the
+    # list off the filtered rows would make an exclusion irreversible — the type
+    # you just hid would disappear from the control that hid it.
+    where_before_exclusions = " AND ".join(base_conds)
+
+    if ex_types:
+        ph = ", ".join(f"%(xvt_{i})s" for i in range(len(ex_types)))
+        base_conds.append(f"g.voucher_type NOT IN ({ph})")
+        for i, v in enumerate(ex_types):
+            params[f"xvt_{i}"] = v
+    if ex_vouchers:
+        ph = ", ".join(f"%(xvn_{i})s" for i in range(len(ex_vouchers)))
+        base_conds.append(f"g.voucher_no NOT IN ({ph})")
+        for i, v in enumerate(ex_vouchers):
+            params[f"xvn_{i}"] = v
 
     base_where = " AND ".join(base_conds)
 
@@ -2862,6 +3009,21 @@ def general_ledger(
                 for tx in b["transactions"]:
                     tx["description"] = desc.get((tx.get("voucher_type"), tx.get("voucher_no")), "")
 
+    # ── Source-document fields (v2.74.0) — the same batching, generalised.
+    # Values land in tx["doc"] under "Doctype::fieldname" keys so two doctypes
+    # can contribute a field of the same name without colliding.
+    want = doc_fields
+    if isinstance(want, str):
+        try:
+            want = json.loads(want)
+        except Exception:
+            want = None
+    if isinstance(want, dict) and want:
+        docmap = _gl_doc_fields(tx_rows, want)
+        for b in blocks:
+            for tx in b["transactions"]:
+                tx["doc"] = docmap.get((tx.get("voucher_type"), tx.get("voucher_no")), {})
+
     # ── Grouping (v2.56.0). 'party' is the default when a supplier or
     # customer filter is active — that filter says the party is the subject
     # of the report, so it heads the block and the account moves into the
@@ -2889,6 +3051,16 @@ def general_ledger(
             "account_count": len(blocks),
             "group_by": gb,
             "has_party_filter": 1 if has_party_filter else 0,
+            # What the user excluded, echoed back so every export can print it.
+            # A ledger with documents removed must say so on its face — a
+            # printed statement that silently omits credit notes is the kind of
+            # artefact that gets handed to an auditor and misread.
+            "excluded_voucher_types": ex_types,
+            "excluded_vouchers": ex_vouchers,
+            "is_filtered": 1 if (ex_types or ex_vouchers) else 0,
+            # Voucher types actually present in the window, so the exclusion
+            # picker offers what this ledger contains rather than a generic list.
+            "voucher_types": _gl_voucher_types(where_before_exclusions, params, from_date, to_date),
         },
     }
 
@@ -3258,6 +3430,8 @@ def run_report(
             branch=branch,
             rows=definition.get("rows", []),
             prior_year_rows=priors[0]["rows"] if priors else None,
+            company=doc.company,
+            fy_start_month_override=fy_override,
         )
 
     # v1.9.59/v1.9.60 — pass company AND optional override so month labels
@@ -3311,7 +3485,7 @@ def run_report(
         "current": current,
         "priors": priors,
         "budget": budget,
-        "binding_meta": flag_binding_meta(doc.name, flag_to_accounts),
+        "binding_meta": flag_binding_meta(doc.name, flag_to_accounts, definition.get("rows", [])),
         "period_groups": period_groups["groups"],
         "performance": {"execution_ms": int((time.perf_counter() - started) * 1000), "cache_hit": False},
     }
@@ -3365,6 +3539,68 @@ def report_integrity(
     )
 
 
+def _allocation_budget_monthly(*, rule: str, fiscal_year: int, months: list[int],
+                               cost_center=None, company: str | None = None,
+                               fy_start_month_override: int | None = None) -> tuple[dict, dict]:
+    """Budget for one allocation row, from the rule's own entries.
+
+    Returns (monthly, has_cell). `has_cell` is True only where a budget was
+    actually entered, so a month with no budget shows blank rather than a zero —
+    the same distinction the Budget Book makes between "budgeted nil" and "not
+    budgeted".
+
+    `cost_center` may be a single name, a list, or None. None means consolidated
+    and sums every cost centre on the rule.
+
+    `months` is FY-month position (0..11), the same convention every other
+    row in this report uses — NOT the calendar month. `Insight Allocation
+    Entry.period_month` is a real calendar date, so every entry read here
+    must be converted from calendar month to FY position before it can be
+    used as a key into `monthly`/`has_cell`. Skipping that conversion (as an
+    earlier version of this function did) puts a calendar-January entry
+    under key 1 rather than key 0 for a January-start company — FY position 1
+    is February, so every entered month printed one column late on the
+    statement.
+    """
+    from neotec_insight.neotec_insight.utils.allocation import month_end, month_start
+    from neotec_insight.neotec_insight.utils.fiscal_year import fy_month_for_calendar_month
+
+    ccs = None
+    if isinstance(cost_center, str) and cost_center.strip():
+        ccs = [cost_center]
+    elif isinstance(cost_center, (list, tuple)) and cost_center:
+        ccs = [c for c in cost_center if c]
+
+    filters = {"rule": rule,
+               "period_month": ["between", [month_start(fiscal_year, 1),
+                                            month_end(fiscal_year, 12)]]}
+    if ccs:
+        filters["cost_center"] = ["in", ccs]
+
+    monthly = {m: 0.0 for m in months}
+    has_cell = {m: False for m in months}
+    try:
+        entries = frappe.get_all("Insight Allocation Entry", filters=filters,
+                                 fields=["period_month", "budget_amount"],
+                                 limit_page_length=0)
+    except Exception:
+        # A missing rule or a pre-upgrade table must not take down the whole
+        # P&L — the row simply carries no budget, same as any unbudgeted line.
+        return monthly, has_cell
+
+    for e in entries:
+        amt = flt(e.get("budget_amount"))
+        if not amt:
+            continue
+        pm = e["period_month"]
+        cal_month = pm.month if hasattr(pm, "month") else int(str(pm)[5:7])
+        m = fy_month_for_calendar_month(company, cal_month, fy_start_month_override)
+        if m in monthly:
+            monthly[m] = flt(monthly[m] + amt, 2)
+            has_cell[m] = True
+    return monthly, has_cell
+
+
 def _load_budget(
     *,
     report: str,
@@ -3378,6 +3614,8 @@ def _load_budget(
     project: str | None = None,
     department: str | None = None,
     branch: str | None = None,
+    company: str | None = None,
+    fy_start_month_override: int | None = None,
 ) -> dict:
     """Load the budget for a report by resolving a Budget Book.
 
@@ -3395,6 +3633,7 @@ def _load_budget(
     months = list(range(month_from, month_to + 1))
 
     report_doc = frappe.get_doc("Insight Report Definition", report)
+    company = company or report_doc.company
     primary_axis = (getattr(report_doc, "primary_budget_axis", None) or "none").strip()
 
     # Step 1/2: resolve the active book.
@@ -3481,6 +3720,27 @@ def _load_budget(
         # the formula has a cell at m. Conservative: if no source rows have
         # cells, the formula result is meaningless and we mark it empty.
         has_cell: dict[int, bool] = {m: False for m in months}
+
+        # ── Allocation rows (v2.79.0) ───────────────────────────────────────
+        # An allocation row's budget does NOT live in a Budget Book. It is
+        # entered per cost centre per month on the rule itself, because that is
+        # the grain the business budgets an allocation at — a single Budget Cell
+        # against the P&L line could not express "27,382 to Financial & Admin
+        # and nothing to the others."
+        #
+        # So it is read from Insight Allocation Entry and filtered to the SAME
+        # cost centre the run is filtered to. Consolidated, every cost centre's
+        # budget sums, which matches the actual: consolidated, the row shows the
+        # whole pool spread across all of them.
+        if kind == "allocation" and row.get("allocation_rule"):
+            monthly, has_cell = _allocation_budget_monthly(
+                rule=row["allocation_rule"], fiscal_year=fiscal_year,
+                months=months, cost_center=cost_center,
+                company=company, fy_start_month_override=fy_start_month_override)
+            ctx[key] = monthly
+            has_cell_by_key[key] = has_cell
+            out_rows.append({**row, "monthly": monthly, "has_cell": has_cell})
+            continue
 
         if kind == "source":
             stored = by_row.get(key, {})
@@ -3679,6 +3939,7 @@ def _resolve_book_doc(book: str):
 
 @frappe.whitelist()
 def list_account_mappings(report: str) -> list[dict]:
+    _require_read()
     doc = _resolve_report_doc(report)
     rows = frappe.get_all(
         "Account Flag Mapping",
@@ -3783,6 +4044,7 @@ def list_available_accounts(
       - Returns up to `limit` rows. Group accounts included by default for
         bulk-binding via expand_account_group.
     """
+    _require_read()
     doc = _resolve_report_doc(report)
     s = (search or "").strip()
     lim = cint(limit) or 50
@@ -3857,6 +4119,7 @@ def expand_account_group(account: str) -> list[dict]:
 
     Uses Frappe's nested-set columns (lft/rgt) for a single-query lookup.
     """
+    _require_read()
     parent = frappe.db.get_value(
         "Account", account, ["name", "is_group", "lft", "rgt", "company"], as_dict=True
     )
@@ -3997,6 +4260,7 @@ def account_tree(company=None):
     group/parent → child tree and to resolve a group selection to its leaf
     accounts (via the nested-set lft/rgt range). Ordered by lft so the caller can
     build the hierarchy directly."""
+    _require_read()
     company = company or _default_company()
     if not company:
         return []
@@ -4305,6 +4569,7 @@ def pl_hierarchy(
 @frappe.whitelist()
 def list_accounts_for_flag(report: str, flag: str) -> list[dict]:
     """Return the accounts currently mapped to a specific flag on this report."""
+    _require_read()
     doc = _resolve_report_doc(report)
     return frappe.get_all(
         "Account Flag Mapping",
@@ -4323,6 +4588,7 @@ def list_existing_flags(report: str) -> list[str]:
     existing Account Flag Mapping rows. Useful for populating the dropdown when
     a user adds an account manually.
     """
+    _require_read()
     doc = _resolve_report_doc(report)
     definition = json.loads(doc.definition_json or "{}")
     flags: set[str] = set()
@@ -4376,6 +4642,7 @@ def set_account_flag(report: str, account: str, flag: str | None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def autosuggest_mappings(report: str) -> dict:
+    _require_read()
     doc = _resolve_report_doc(report)
     created = autosuggest_unmapped_for_report(doc.name)
     _bump_cache_gen(doc.name)
@@ -4397,6 +4664,7 @@ def import_map_sheet(
     The file content is sent base64-encoded in the request body so it can be passed
     through the standard Frappe REST envelope without multipart handling.
     """
+    _require_read()
     doc = _resolve_report_doc(report)
     try:
         file_bytes = base64.b64decode(file_base64)
@@ -4494,11 +4762,13 @@ def import_report_structure_from_excel(
 
 @frappe.whitelist(methods=["POST"])
 def suggest_flag(code: str) -> dict:
+    _require_read()
     return {"flag": suggest_flag_for_code(code)}
 
 
 @frappe.whitelist()
 def list_mapping_rules() -> list[dict]:
+    _require_read()
     return frappe.get_all(
         "Insight Mapping Rule",
         fields=["name", "prefix", "flag", "priority", "is_active"],
@@ -4527,6 +4797,7 @@ def save_mapping_rule(name: str | None, prefix: str, flag: str, priority: int = 
 
 @frappe.whitelist(methods=["POST"])
 def delete_mapping_rule(name: str) -> dict:
+    _require_read()
     frappe.delete_doc("Insight Mapping Rule", name)
     return {"deleted": True}
 
@@ -4578,6 +4849,7 @@ def _execution_cache_key(**parts) -> str:
 @frappe.whitelist()
 def list_budget_books(report: str, fiscal_year: int | None = None) -> list[dict]:
     """List all budget books for a report (optionally one fiscal year)."""
+    _require_read()
     doc = _resolve_report_doc(report)
     filters: dict = {"report": doc.name}
     if fiscal_year is not None and str(fiscal_year).strip():
@@ -4605,6 +4877,7 @@ def list_budget_books(report: str, fiscal_year: int | None = None) -> list[dict]
 @frappe.whitelist()
 def get_budget_book(book: str) -> dict:
     """Return book metadata + every cell on it grouped by (row_key, month)."""
+    _require_read()
     book_doc = _resolve_book_doc(book)
     cells = frappe.get_all(
         "Insight Budget Cell",
@@ -4845,6 +5118,7 @@ def list_dashboards(report: str | None = None) -> list[dict]:
 
     Optionally filter by `report` (the report slug or DocType name).
     """
+    _require_read()
     me = frappe.session.user
     is_finance = bool(set(frappe.get_roles(me)) & {"System Manager", "Accounts Manager"})
 
@@ -4877,6 +5151,7 @@ def list_dashboards(report: str | None = None) -> list[dict]:
 @frappe.whitelist()
 def get_dashboard(dashboard: str) -> dict:
     """Return a dashboard's full content (tiles + filters)."""
+    _require_read()
     doc = _resolve_dashboard_doc(dashboard)
     if not doc.can_user_view():
         frappe.throw(f"You don't have permission to view dashboard '{doc.label}'.")
@@ -5719,6 +5994,7 @@ def list_variance_notes(report: str, fiscal_year: str | int) -> list[dict]:
     Used by the dashboard variance panel and the Management Pack export to
     decorate rows with the user's 'why' explanation.
     """
+    _require_read()
     fy = cint(fiscal_year)
     if not report or not fy:
         return []
@@ -5757,6 +6033,7 @@ def save_variance_note(
     Empty/whitespace commentary deletes the note — keeps storage clean and
     matches the UX: clearing the textarea removes the row's commentary entirely.
     """
+    _require_read()
     fy = cint(fiscal_year)
     if not report or not row_key or not fy:
         frappe.throw("report, row_key and fiscal_year are required.")
@@ -5826,6 +6103,7 @@ def get_rolling_12(
 
     Used by the dashboard's KPI sparklines when 'Rolling-12' is selected.
     """
+    _require_read()
     fy = cint(fiscal_year)
     if not fy:
         frappe.throw("fiscal_year is required.")
@@ -5979,7 +6257,7 @@ def insight_get_access_profile() -> dict:
     to render. Does not throw — returns a profile even for anonymous users.
 
     Returns:
-      role_tier:    'admin' | 'cfo' | 'ceo' | 'group_viewer' | 'basic'
+      role_tier:    'admin' | 'cfo' | 'ceo' | 'group_viewer' | 'hr' | 'basic'
       can_edit:     bool — can save/edit report definitions
       can_see_group: bool — Group tab visibility
     """
@@ -6000,14 +6278,48 @@ def insight_get_access_profile() -> dict:
         tier = "ceo"
     elif "Insight Group Viewer" in roles:
         tier = "group_viewer"
+    elif roles & _HR_ROLES:
+        # v2.84.0 — an HR user sees People and nothing else. Placed LAST among
+        # the named tiers on purpose: it is the most restrictive, so anyone who
+        # also holds a finance role keeps that wider access rather than being
+        # narrowed to People by holding both.
+        tier = "hr"
     else:
         tier = "basic"
     return {
         "role_tier": tier,
         "can_edit": bool(roles & _INSIGHT_EDIT_ROLES),
         "can_see_group": bool(roles & _GROUP_VIEW_ROLES),
+        # True only for a user whose ONLY Insight access is People. The UI hides
+        # every other workspace for these users; `_check_hr_only` enforces the
+        # same restriction server-side, because hiding a tab does not stop
+        # anyone calling the endpoint behind it.
+        "hr_only": tier == "hr",
         "user": frappe.session.user,
     }
+
+
+_HR_ROLES = {"Insight HR", "HR Manager", "HR User"}
+
+
+def _check_hr_only(*, allow: bool) -> None:
+    """Refuse a non-People request from a People-only user.
+
+    An HR user is given Insight to read headcount, payroll accruals and
+    end-of-service — not the P&L those figures roll into. Hiding the other tabs
+    in the UI is presentation; this is the part that actually holds, since a
+    hidden tab's endpoint is still one HTTP call away.
+    """
+    if allow or frappe.session.user == "Administrator":
+        return
+    roles = _user_roles()
+    if roles & (_INSIGHT_EDIT_ROLES | _GROUP_VIEW_ROLES | {"Insight CFO", "Insight CEO"}):
+        return
+    if roles & _HR_ROLES:
+        frappe.throw(
+            _("Your access is limited to the People workspace."),
+            frappe.PermissionError,
+        )
 
 
 def _check_group_view_access() -> None:
@@ -6047,6 +6359,7 @@ def list_group_companies() -> list[dict]:
     """Return all enabled companies in the bench, with their default currency.
     Used by the group-view multi-select picker on the dashboard.
     """
+    _require_read()
     _check_group_view_access()
     rows = frappe.get_all(
         "Company",
@@ -6393,6 +6706,7 @@ def get_sensitivity_scenario(
     Returns the same shape as get_liquidity, but with `projection.stress`
     and `projection.stressed_summary` populated.
     """
+    _require_read()
     base = get_liquidity(
         company=company,
         fiscal_year=fiscal_year,
@@ -6433,6 +6747,7 @@ def get_sensitivity_tornado(
       revenue_pct:     -5  (mild), -10 (moderate), -20 (severe)
       cost_pct:        +3  (mild), +7  (moderate), +12 (severe)
     """
+    _require_read()
     base = get_liquidity(
         company=company,
         fiscal_year=fiscal_year,
@@ -6521,6 +6836,7 @@ def get_fragility_radar(
     fiscal_year: str | int,
     top_n: int = 5,
 ) -> dict:
+    _require_read()  # v2.77.0 — returns customer revenue concentration
     """Compute the fragility/concentration radar for a company+fiscal year.
 
     Returns a dict with four sub-blocks (some may be empty if data isn't
@@ -7017,6 +7333,7 @@ def list_equity_components() -> list[dict]:
     """Public endpoint — used by the frontend to populate the component
     dropdown. Returns components in admin-configured display order.
     """
+    _require_read()
     return frappe.get_all(
         "Insight Equity Component",
         fields=["name as value", "name as label", "display_order", "is_seeded", "description"],
@@ -7030,6 +7347,7 @@ def list_equity_movement_types() -> list[dict]:
     dropdown. Includes the is_opening_balance flag so the UI can hint or
     auto-fill behaviour on a per-type basis.
     """
+    _require_read()
     return frappe.get_all(
         "Insight Equity Movement Type",
         fields=["name as value", "name as label", "display_order", "is_opening_balance", "default_sign", "is_seeded", "description"],
@@ -7057,6 +7375,7 @@ def get_equity_movement(
         is_opening_balance flag state (lets the UI show a clear warning if
         the admin's configuration is incomplete).
     """
+    _require_read()
     fy = cint(fiscal_year)
     if not company:
         frappe.throw("company is required.")
@@ -7341,6 +7660,7 @@ def list_accounting_dimensions() -> list[dict]:
     Frontend uses fieldname as the filter key and document_type as the
     DocType to read values from.
     """
+    _require_read()
     rows = _discover_accounting_dimensions_raw()
     out: list[dict] = []
     for r in rows:
@@ -7372,6 +7692,7 @@ def list_dimension_values(fieldname: str, search: str = "", limit: int = 100) ->
     Returns: list of {name, label}. Falls back to {name, name} if no
     obvious label column exists.
     """
+    _require_read()
     fieldname = (fieldname or "").strip()
     if not fieldname:
         return []
@@ -8161,6 +8482,7 @@ def run_combo_report(
             "performance": {execution_ms, cache_hit}
         }
     """
+    _require_read()
     doc = _resolve_report_doc(report)
     report_type = (getattr(doc, "report_type", "pnl") or "pnl").lower()
 
@@ -8390,6 +8712,7 @@ def run_trial_balance_multi_period(
             "performance": {...}
         }
     """
+    _require_read()
     from neotec_insight.neotec_insight.utils.balance_execution import (
         run_multi_period_balance, _load_chart_of_accounts,
     )
@@ -8624,6 +8947,7 @@ def run_balance_sheet_multi_period(
     use the more semantic endpoint name and we have one place to extend
     if BS-specific behaviour diverges later (e.g. unclosed-P&L roll-in).
     """
+    _require_read()
     return run_trial_balance_multi_period(
         report=report,
         company=company,

@@ -25,6 +25,23 @@ _STD_FIELDS = [
 ]
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _can_read(doctype: str) -> bool:
     try:
         if frappe.has_permission(doctype, "read"):
@@ -80,6 +97,7 @@ def list_sources(search=""):
     the line-level detail (items, quantities, rates) that parent-level reporting
     can't reach. Each is labelled with its parent and read-permission is checked
     against the parent DocType."""
+    _require_read()
     search = (search or "").strip()
     or_filters = None
     if search:
@@ -117,6 +135,7 @@ def list_sources(search=""):
 def field_values(doctype=None, field=None, search=""):
     """Distinct value suggestions for a filter field — Link targets or the
     actual values present, so users can pick instead of typing."""
+    _require_read()
     if not doctype or not field or not _can_read(doctype):
         return []
     meta = frappe.get_meta(doctype)
@@ -141,6 +160,7 @@ def field_values(doctype=None, field=None, search=""):
 @frappe.whitelist()
 def list_fields(doctype=None):
     """Reportable fields for a DocType, plus standard fields."""
+    _require_read()
     if not doctype or not _can_read(doctype):
         return []
     meta = frappe.get_meta(doctype)
@@ -230,6 +250,7 @@ def _coerce_filters(doctype, raw_filters):
 @frappe.whitelist()
 def list_link_fields(doctype=None):
     """Link fields on a DocType — the bridges to combine other documents."""
+    _require_read()
     if not doctype or not _can_read(doctype):
         return []
     meta = frappe.get_meta(doctype)
@@ -386,6 +407,7 @@ def run_query(config=None):
     Uses frappe.get_list (permission-safe) for the base doc and batched
     frappe.get_all lookups for each linked document.
     """
+    _require_read()
     if isinstance(config, str):
         config = json.loads(config or "{}")
     doctype = config.get("doctype")
@@ -576,6 +598,7 @@ def ai_build(doctype=None, prompt=None):
     (Insight AI Settings) and asks for STRICT JSON: {columns, filters, group_by,
     sort}. Returns the parsed config the builder can apply directly.
     """
+    _require_read()
     if not doctype or not prompt:
         frappe.throw(_("Pick a document and describe what you want."))
     fields = list_fields(doctype)
@@ -659,12 +682,14 @@ def save_report(report=None):
 
 @frappe.whitelist()
 def list_reports():
+    _require_read()
     return frappe.get_all("Studio Report", fields=["slug", "title", "description", "modified"],
                           order_by="modified desc", limit_page_length=200)
 
 
 @frappe.whitelist()
 def load_report(slug=None):
+    _require_read()
     if not slug or not frappe.db.exists("Studio Report", slug):
         frappe.throw(_("Report not found."))
     doc = frappe.get_doc("Studio Report", slug)
@@ -732,6 +757,7 @@ def time_intelligence(config=None):
 
     Field names are validated against the DocType meta before being embedded in
     aggregate expressions (no user text reaches SQL)."""
+    _require_read()
     if isinstance(config, str):
         config = json.loads(config or "{}")
     doctype = config.get("doctype")
@@ -826,6 +852,7 @@ def time_intelligence(config=None):
 
 @frappe.whitelist()
 def export_xlsx(config=None, title=None, letter_head=None):
+    _require_read()
     from datetime import date, datetime
 
     from openpyxl import Workbook

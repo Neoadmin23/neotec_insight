@@ -73,6 +73,23 @@ _NEVER_VAT_TYPES = {
 }
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _vat_accounts(company):
     """Output (Liability) and input (Asset) VAT control accounts.
 
@@ -520,6 +537,7 @@ def vat_box_drill(company=None, from_date=None, to_date=None, box=None):
     Uses the SAME per-invoice classifier as the summary totals, then filters to the
     requested box, so the drill list reconciles with the box figure. Boxes 6 and 12
     are the period totals and return every sales / purchase invoice respectively."""
+    _require_read()
     company = company or _default_company()
     if not (company and from_date and to_date and box):
         frappe.throw("company, from_date, to_date and box are required.")
@@ -619,6 +637,7 @@ def _apply_adjustments(invoices, doctype, company, from_date, to_date, fields):
 
 @frappe.whitelist()
 def list_vat_adjustments(company=None, from_date=None, to_date=None):
+    _require_read()
     company = company or _default_company()
     return frappe.get_all("Insight VAT Adjustment",
                           filters={"company": company, "from_date": from_date, "to_date": to_date},
@@ -672,6 +691,7 @@ def delete_vat_adjustment(name=None):
 @frappe.whitelist()
 def find_vouchers(company=None, voucher_type=None, query=None):
     """Invoice search for the adjustments panel."""
+    _require_read()
     company = company or _default_company()
     if voucher_type not in ("Sales Invoice", "Purchase Invoice"):
         return []

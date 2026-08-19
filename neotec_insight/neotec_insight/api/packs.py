@@ -132,13 +132,32 @@ SHEET_TYPES = [
 _TYPES = {t["type"]: t for t in SHEET_TYPES}
 
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 @frappe.whitelist()
 def list_sheet_types():
+    _require_read()
     return SHEET_TYPES
 
 
 @frappe.whitelist()
 def list_packs():
+    _require_read()
     return frappe.get_all("Insight Export Pack",
                           fields=["slug", "title", "description", "modified"],
                           order_by="modified desc", limit_page_length=100)
@@ -146,6 +165,7 @@ def list_packs():
 
 @frappe.whitelist()
 def load_pack(slug=None):
+    _require_read()
     if not slug or not frappe.db.exists("Insight Export Pack", slug):
         frappe.throw(_("Pack not found."))
     doc = frappe.get_doc("Insight Export Pack", slug)

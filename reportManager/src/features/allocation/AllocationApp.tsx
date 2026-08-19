@@ -43,13 +43,21 @@ interface RunResult {
   cost_centers: string[]; cost_center_labels: Record<string, string>;
   by_month: Record<string, MonthBlock>;
   ytd: Record<string, number>; ytd_pool: number; ytd_residual: number;
+  /** v2.78.0 — entered, never derived. `budget` is per month per cost centre;
+   *  the YTD and variance roll-ups are computed server-side so the screen and
+   *  every export agree on the rounding and the sign. Variance is positive
+   *  when the allocation exceeds budget — an allocation is a cost. */
+  budget?: Record<string, Record<string, number>>;
+  budget_ytd?: Record<string, number>;
+  budget_total?: number;
+  variance_ytd?: Record<string, number>;
   formula: string; formula_errors: number[]; credit_back: number; pool_source: string;
   roles: Record<string, Basis | 'mixed' | 'credit'>;
   mixed: string[];
 }
 
 type Basis = 'head_count' | 'amount';
-type Cells = Record<string, Record<string, { driver: number; amount: number }>>;
+type Cells = Record<string, Record<string, { driver: number; amount: number; budget?: number }>>;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -144,7 +152,24 @@ export function AllocationApp() {
     const field = (basis[cc] || 'head_count') === 'amount' ? 'amount' : 'driver';
     setCells((cur) => {
       const prev = cur[cc]?.[m];
-      const cell = { driver: prev?.driver ?? 0, amount: prev?.amount ?? 0, [field]: v };
+      const cell = { driver: prev?.driver ?? 0, amount: prev?.amount ?? 0,
+                     budget: prev?.budget ?? 0, [field]: v };
+      return { ...cur, [cc]: { ...(cur[cc] || {}), [m]: cell } };
+    });
+    setDirty(true);
+  }
+
+  /** v2.78.0 — budget is entered, never derived, and is independent of the
+   *  basis: a head-count cost centre carries one just as an amount one does.
+   *  Kept as its own setter rather than a `field` argument to setCell, because
+   *  driver and amount are mutually exclusive and budget is not — folding them
+   *  together is how a budget would end up overwriting a driver. */
+  function setBudget(cc: string, m: number, raw: string) {
+    const v = raw === '' ? 0 : Number(raw);
+    if (!isFinite(v)) return;
+    setCells((cur) => {
+      const prev = cur[cc]?.[m];
+      const cell = { driver: prev?.driver ?? 0, amount: prev?.amount ?? 0, budget: v };
       return { ...cur, [cc]: { ...(cur[cc] || {}), [m]: cell } };
     });
     setDirty(true);
@@ -170,7 +195,7 @@ export function AllocationApp() {
 
   function removeCostCenter(cc: string) {
     const hasData = Object.values(cells[cc] || {})
-      .some((v) => Number(v?.driver || 0) || Number(v?.amount || 0));
+      .some((v) => Number(v?.driver || 0) || Number(v?.amount || 0) || Number(v?.budget || 0));
     if (hasData && !confirm(t('Remove this cost centre and its entered values from the rule?'))) return;
     setGridCcs((c) => c.filter((x) => x !== cc));
     setCells((cur) => { const n = { ...cur }; delete n[cc]; return n; });
@@ -376,6 +401,12 @@ export function AllocationApp() {
         <div className="alloc-empty">
           <h3>{t('No allocation rules yet')}</h3>
           <p>{t('Create an Insight Allocation Rule in the desk — one per pool, e.g. GMO Allocation (driver: head count) and Sales & Marketing Allocation (driver: leads count). Point it at the account flag that holds the pool cost, then enter the driver values under Data entry.')}</p>
+          {/* Rules are deliberately never seeded: a pool and its driver are
+              specific to one company's cost structure, and a guessed default
+              would put invented numbers into management accounts. But "not set
+              up yet" should not look like "failed to load", so link the way in. */}
+          <p><a className="vs-btn" href="/app/insight-allocation-rule/new" target="_blank" rel="noopener noreferrer">
+            {t('Create an allocation rule')}</a></p>
         </div>
       )}
 
@@ -520,6 +551,52 @@ export function AllocationApp() {
               {t('Use × to take a cost centre off a table, or ⇄ to move it to the other one. Nothing is deleted until you press Save — Reload undoes it. A blank cell and a zero are different: blank contributes nothing, zero contributes a zero share.')}
             </p>
           </div>
+          {/* Budget — one table for every cost centre in the rule, regardless
+              of basis. Separate from the two input tables above because it is
+              a different KIND of number: those drive a calculation, this one is
+              only ever compared against its result. Keeping it here rather than
+              as extra columns is what stops a budget being typed into a driver
+              cell by accident. */}
+          <div className="alloc-table-block">
+            <div className="alloc-table-head">
+              <h4>{t('Budget')}</h4>
+              <span>{t('entered by hand and never derived — shown against the calculated allocation on the report')}</span>
+            </div>
+            <table className="alloc-grid">
+              <thead>
+                <tr>
+                  <th className="sticky-l">{t('Cost centre')}</th>
+                  {MONTHS.map((mm) => <th key={mm} className="num">{t(mm)}</th>)}
+                  <th className="num">{t('YTD')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!gridCcs.length && (
+                  <tr><td className="sticky-l alloc-none" colSpan={14}>
+                    {t('Add a cost centre above first.')}
+                  </td></tr>
+                )}
+                {gridCcs.map((cc) => {
+                  const tot = MONTHS.reduce((sum, _, i) =>
+                    sum + Number(cells[cc]?.[i + 1]?.budget || 0), 0);
+                  return (
+                    <tr key={cc}>
+                      <td className="sticky-l">{ccOptions.find((o) => o.name === cc)?.label || cc}</td>
+                      {MONTHS.map((_, i) => (
+                        <td key={i} className="num">
+                          <input type="number" step="any" className="alloc-in"
+                            value={cells[cc]?.[i + 1]?.budget ?? ''}
+                            onChange={(e) => setBudget(cc, i + 1, e.target.value)} />
+                        </td>
+                      ))}
+                      <td className="num alloc-rt">{fmtD(tot, 0)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
         </div>
       )}
     </div>
@@ -619,6 +696,39 @@ function AllocReport({ result, decimals, onEvidence }: {
                 {fmtD(ccs.reduce((s, cc) => s + (result.ytd[cc] || 0), 0), decimals)}
               </td>
             </tr>
+            {/* v2.78.0 — budget beside the derived actual, and the variance
+                between them. Rendered only when a budget has actually been
+                entered: two rows of zeros on every rule that has none would
+                read as "budget is nil", which is a different statement from
+                "no budget was set". */}
+            {!!result.budget_total && (
+              <>
+                <tr className="alloc-tot alloc-budget">
+                  <td className="sticky-l">{t('Budget YTD')}</td>
+                  <td className="num">—</td>
+                  {ccs.map((cc) => (
+                    <td key={cc} className="num">{fmtD(result.budget_ytd?.[cc] || 0, decimals)}</td>
+                  ))}
+                  <td className="num">{fmtD(result.budget_total || 0, decimals)}</td>
+                </tr>
+                <tr className="alloc-tot alloc-variance">
+                  <td className="sticky-l">{t('Variance')}</td>
+                  <td className="num">—</td>
+                  {ccs.map((cc) => {
+                    const v = result.variance_ytd?.[cc] || 0;
+                    return (
+                      <td key={cc} className={'num' + (v > 0.005 ? ' alloc-over' : '')}
+                        title={v > 0 ? t('Allocated more than budget') : t('Allocated less than budget')}>
+                        {fmtD(v, decimals)}
+                      </td>
+                    );
+                  })}
+                  <td className="num">
+                    {fmtD(ccs.reduce((s, cc) => s + (result.variance_ytd?.[cc] || 0), 0), decimals)}
+                  </td>
+                </tr>
+              </>
+            )}
             <tr className="alloc-sec"><td className="sticky-l" colSpan={ccs.length + 3}>{result.driver_label}</td></tr>
             {result.months.map((m) => {
               const b = result.by_month[String(m)];

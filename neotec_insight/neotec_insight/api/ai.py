@@ -181,6 +181,7 @@ def dimension_options(kind=None, company=None):
     Arabic field on that master (empty string if none). The front-end shows
     label_ar when Arabic is active, but always submits `name` for filtering.
     """
+    _require_read()
     dt = _DIM_DOCTYPE.get(kind)
     if not dt or not frappe.db.exists("DocType", dt):
         return []
@@ -590,6 +591,7 @@ def _trim(obj, limit=16000):
 def ask_ai(question=None, company=None, from_date=None, to_date=None, report=None, lang="en",
            context="", cost_center=None, project=None, department=None, branch=None):
     """Answer a question grounded in the live financial figures."""
+    _require_read()
     s = _settings()
     if not s.ai_enabled or not s.ai_endpoint:
         return {"text": _("Neotec AI is not configured. Enable it and set a reachable AI Endpoint in "

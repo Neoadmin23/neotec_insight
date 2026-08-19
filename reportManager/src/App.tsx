@@ -187,6 +187,20 @@ export default function App() {
   // v1.9.41 — CFO Briefing is the new default landing tab.
   // v1.9.47 — Reports is back to first tab and default landing (per user
   // request). CFO Briefing remains as a primary tab, second position.
+  // v2.80.0 — the frontend bundle and the installed Python app are read from
+  // different places and can disagree. A deploy that ships Python but serves a
+  // stale asset bundle leaves an old UI on a new backend, which silently
+  // reinstates bugs that were already fixed — it hid one for a full round of
+  // testing, because Frappe's "Installed Apps" shows the Python version while
+  // the header shows the bundle, and nothing compared the two.
+  const [backendVersion, setBackendVersion] = useState<string | null>(null);
+  useEffect(() => {
+    api.appVersion()
+      .then((r: any) => setBackendVersion(r?.backend || null))
+      .catch(() => {});
+  }, []);
+  const versionMismatch = !!backendVersion && backendVersion !== __APP_VERSION__;
+
   const [workspace, setWorkspace] = useState<Workspace>('reports');
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [currentReportName, setCurrentReportName] = useState<string>('');
@@ -243,6 +257,7 @@ export default function App() {
           roleTier: p?.role_tier || 'basic',
           canEdit: !!p?.can_edit,
           canSeeGroup: !!p?.can_see_group,
+          hrOnly: !!p?.hr_only,
           user: p?.user || '',
         });
       })
@@ -283,7 +298,13 @@ export default function App() {
           <div className="ni-mark" aria-hidden>N</div>
           <div>
             <div className="ni-kicker">Neotec</div>
-            <div className="ni-name">Insight <span className="ni-version" title="Frontend bundle version">v{__APP_VERSION__}</span>
+            <div className="ni-name">Insight <span
+              className={'ni-version' + (versionMismatch ? ' ni-version-stale' : '')}
+              title={versionMismatch
+                ? `This screen is running v${__APP_VERSION__}, but v${backendVersion} is installed on the server. `
+                  + 'Hard-refresh (Ctrl+Shift+R). If it persists, the deploy shipped the Python but not the built assets.'
+                : 'Frontend bundle version'}>
+              v{__APP_VERSION__}{versionMismatch ? ' ⚠' : ''}</span>
             {access.roleTier !== 'admin' && (
               <span className={'ni-role-pill ni-role-' + access.roleTier} title={'Your access level: ' + access.roleTier.toUpperCase()}>
                 {access.roleTier === 'cfo' ? 'CFO'
@@ -297,7 +318,15 @@ export default function App() {
         </div>
         <CompanyBrand />
         <nav className="ni-ws">
-          {sections.filter((sec) => !sec.needsGroup || hasGroupAccess).map((sec) => {
+          {sections
+            // v2.84.0 — a People-only user sees only People. Filtering here
+            // rather than per-section keeps one rule in one place; the backend
+            // refuses the other endpoints regardless.
+            .map((sec) => access.hrOnly
+              ? { ...sec, tabs: sec.tabs.filter((tb: any) => tb.ws === 'hr') }
+              : sec)
+            .filter((sec) => sec.tabs.length)
+            .filter((sec) => !sec.needsGroup || hasGroupAccess).map((sec) => {
             const tabs = sec.tabs.filter((tb) => !tb.needsGroup || hasGroupAccess);
             const isActive = tabs.some((tb) => tb.ws === workspace);
             return (
@@ -329,6 +358,20 @@ export default function App() {
           <BackToErpMenu />
         </nav>
       </header>
+
+      {/* A stale bundle silently reinstates bugs that are already fixed on the
+          server, and nothing on screen said so — this is stated plainly rather
+          than left in a tooltip, because the person who needs it is the one
+          looking at a wrong number. */}
+      {versionMismatch && (
+        <div className="ni-stale-banner" role="alert">
+          <strong>This screen is out of date.</strong>{' '}
+          You are viewing <code>v{__APP_VERSION__}</code>, but <code>v{backendVersion}</code> is
+          installed on the server. Figures and fixes from the newer version are not active here.
+          {' '}Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> to reload.
+          If it persists, the deploy shipped the app code but not the built assets.
+        </div>
+      )}
 
       {(() => {
         const sec = sections.find((x) => x.tabs.some((tb) => tb.ws === workspace));

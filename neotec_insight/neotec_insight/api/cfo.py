@@ -13,7 +13,25 @@ import json
 from typing import Any
 
 import frappe
+from frappe import _
 from frappe.utils import flt, getdate, nowdate, add_days, add_months, get_first_day, get_last_day
+
+
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
 
 
 def _company(company: str | None) -> str:
@@ -444,6 +462,7 @@ def _ollama_cfg():
 @frappe.whitelist()
 def morning_brief(company: str | None = None, as_of: str | None = None,
                   narrative: int = 1) -> dict:
+    _require_read()
     company = _company(company)
     as_of = as_of or nowdate()
     cash = _cash(company, as_of)
@@ -491,6 +510,7 @@ def hr_summary(company: str | None = None, as_of: str | None = None,
     """People & payroll view. Point-in-time snapshot (headcount, EOSB) plus a
     period-scoped salary comparison: defined (master) vs processed (actual),
     additional salary, and the variance."""
+    _require_read()
     company = _company(company)
     as_of = as_of or nowdate()
     s, e, months, lbl = _period_range(as_of, period)
@@ -568,6 +588,7 @@ def eosb_breakdown(company: str | None = None, as_of: str | None = None,
     """Slab-wise End-of-Service provision per Saudi Labour Law: ½ month per year
     for the first 5 years, 1 month per year thereafter, on each active
     employee's latest base wage."""
+    _require_read()
     company = _company(company)
     as_of = as_of or nowdate()
     wage = _emp_base_wage(company)
@@ -669,6 +690,7 @@ def _provisions(company, as_of, emps, wage):
 @frappe.whitelist()
 def provision_field_options(company: str | None = None) -> dict:
     """Numeric Employee fields and Salary Components, for the source pickers."""
+    _require_read()
     out = {"employee_fields": [], "components": []}
     try:
         meta = frappe.get_meta("Employee")
@@ -683,12 +705,14 @@ def provision_field_options(company: str | None = None) -> dict:
 
 @frappe.whitelist()
 def get_provision_config() -> dict:
+    _require_read()
     return _provision_config()
 
 
 @frappe.whitelist()
 def set_provision_config(vacation_days: int | None = None, ticket_source: str | None = None,
                          insurance_source: str | None = None) -> dict:
+    _require_read()
     s = frappe.get_single("Insight AI Settings")
     if vacation_days is not None:
         s.vacation_days_per_year = int(vacation_days or 0)

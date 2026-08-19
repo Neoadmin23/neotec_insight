@@ -3198,6 +3198,38 @@ tr:hover .row-livegroup { opacity: 1; }
   background: var(--warn-bg, #faeeda); color: var(--warn, #854f0b); font-weight: 600;
 }
 
+/* v2.76.1 — a row with nothing bound sums to zero exactly like a row with
+   genuine zero activity. This badge is deliberately NOT faded like
+   .row-livegroup: a mapping gap should stay visible without a hover, since
+   it's the thing that makes a consolidated report look broken. */
+.row-unbound-warn {
+  display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;
+  margin-left: 8px; font-size: 9.5px; line-height: 1; cursor: help; font-weight: 600;
+  padding: 2px 7px; border-radius: 9px;
+  background: rgba(163, 45, 45, 0.1); color: var(--danger);
+}
+.row-unbound-warn .ti { font-size: 10px; }
+
+/* Allocation budget rows (v2.78.0) */
+.alloc-budget td { color: var(--text-muted); font-style: italic; }
+.alloc-variance td { font-weight: 600; }
+.alloc-variance .alloc-over { color: var(--danger, #a32d2d); }
+
+/* Stale-bundle banner (v2.80.0) — deliberately loud and not dismissible.
+   A stale frontend makes fixed bugs reappear, so it must not be possible to
+   read a figure without seeing this. */
+.ni-stale-banner {
+  margin: 0; padding: 10px 18px; font-size: 13px; line-height: 1.5;
+  background: #FDECEA; border-bottom: 2px solid #B3261E; color: #7a1c14;
+}
+.ni-stale-banner code { background: rgba(0,0,0,.06); padding: 1px 6px; border-radius: 4px; font-weight: 700; }
+.ni-stale-banner kbd { background: #fff; border: 1px solid #d6b3ae; border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 5px; font-size: 11px; }
+.ni-version-stale { color: #B3261E !important; font-weight: 700; }
+.row-unbound-warn--partial {
+  background: var(--warn-bg, #faeeda); color: var(--warn, #854f0b);
+}
+
 /* ─── Integrity & Coverage panel (v1.9.97) ──────────────────────────────── */
 .integ-panel {
   margin: 10px 0 16px; border: 0.5px solid var(--border, #d9d6d0); border-radius: 10px;
@@ -3964,6 +3996,24 @@ tr:hover .row-livegroup { opacity: 1; }
 .lf-arrow { color: var(--text-faint); }
 .lf-meta { font-size: var(--text-2xs); color: var(--text-faint); white-space: nowrap; }
 .lf-note { padding: 6px 8px; font-size: var(--text-xs); color: var(--text-faint); font-style: italic; }
+
+/* GL Documents panel (v2.74.0) */
+.gl-adv { display: flex; flex-direction: column; gap: 14px; }
+.gl-adv-sec { display: flex; flex-direction: column; gap: 6px; }
+.gl-adv-input { width: 100%; max-width: 560px; }
+.gl-adv-warn { background: #FDECEA; border: 1px solid #F3C4BF; color: #B3261E; border-radius: var(--radius-sm); padding: 8px 10px; font-size: var(--text-sm); }
+.gl-adv-dt { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
+.gl-adv-dt strong { min-width: 130px; font-size: var(--text-sm); }
+.gl-adv-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+.gl-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.gl-chip { border: 1px solid var(--info-border); background: var(--info-bg); color: var(--info-text); border-radius: 999px; padding: 2px 10px; font-size: var(--text-xs); cursor: pointer; }
+.gl-doclink { color: var(--info-text, #185FA5); text-decoration: none; border-bottom: 1px dotted currentColor; }
+.row-warn { display: block; margin-top: 5px; font-size: var(--text-xs); line-height: 1.5; color: #B3261E; }
+.gl-doclink:hover { text-decoration: none; border-bottom-style: solid; }
+
+/* Negative ledger balances under the red sign styles (v2.83.0) */
+.gl-neg { color: var(--danger, #B3261E); }
+.doclink { color: #185FA5; text-decoration: none; }
 .cls-page { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; }
 .cls-page .cls-table-wrap { max-height: calc(100vh - 340px); }
 .cls-page .theme-h { margin-bottom: 4px; }

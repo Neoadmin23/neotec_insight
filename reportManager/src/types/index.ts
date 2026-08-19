@@ -94,9 +94,13 @@ export interface DefinitionRow {
    *  draws from. Its monthly values land in the formula context like any
    *  source row, so other rows can reference it by key. */
   allocation_rule?: string;
-  /** v2.62.1 — 'cost_center' (default) hides an allocation row unless the
-   *  report is run for a single cost centre; 'always' shows it regardless. */
-  show_when?: 'cost_center' | 'always';
+  /** v2.62.1 — 'cost_center' hides the row unless the report is run for a
+   *  single cost centre; 'always' shows it regardless.
+   *  v2.75.0 — valid on EVERY row kind. The default differs by kind and must:
+   *  allocation rows default to 'cost_center' (a pool shown consolidated reads
+   *  as a real charge and double-counts), every other kind defaults to
+   *  'always'. Hidden rows still feed formulas; only the display is suppressed. */
+  show_when?: 'cost_center' | 'cost_center_exclude' | 'always';
   sign?: 'normal' | 'invert';
   /** v1.9.6 — optional per-row dimension scope. When set, every account
    *  mapped to this row is filtered to dimension_type IN dimension_values. */
@@ -231,6 +235,16 @@ export interface FlagBindingMeta {
   new_count: number;
   new_accounts: Array<{ code: string; name: string }>;
   new_truncated: boolean;
+  /** v2.76.1 — at least one Account Flag Mapping row exists for this flag,
+   *  whether or not it currently resolves to any account. False means the
+   *  row was never mapped at all. */
+  has_binding: boolean;
+  /** v2.76.1 — directly-bound accounts that no longer exist in the chart of
+   *  accounts (deleted or renamed out from under the mapping). They still
+   *  sit in the mapping and still feed the SQL query; they just can never
+   *  match anything again. */
+  missing_accounts: string[];
+  missing_count: number;
 }
 
 // ─── Dimension Pivot view (v1.6) ─────────────────────────────────────────

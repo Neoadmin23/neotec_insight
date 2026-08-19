@@ -765,6 +765,8 @@ export const api = {
   }) => call<any>('report.pl_hierarchy', args),
 
   // General Ledger (v1.9.65 feature add) — grouped, ERP-style.
+  voucherFieldOptions: (voucherTypes: string[]) =>
+    call<any>('report.voucher_field_options', { voucher_types: JSON.stringify(voucherTypes) }),
   generalLedger: (args: {
     company?: string | null;
     accounts: string[];
@@ -783,6 +785,9 @@ export const api = {
     report?: string | null;
     group_by?: string | null;
     with_description?: number;
+    exclude_voucher_types?: string[] | null;
+    exclude_vouchers?: string[] | null;
+    doc_fields?: string | null;
   }) => {
     const serial = (v: string | string[] | null | undefined) =>
       Array.isArray(v) ? (v.length ? JSON.stringify(v) : null) : (v ?? null);
@@ -903,7 +908,7 @@ export const api = {
   insightHasGroupAccess: () =>
     call<{ has_access: boolean }>('report.insight_has_group_access'),
   insightGetAccessProfile: () =>
-    call<{ role_tier: 'admin' | 'cfo' | 'ceo' | 'group_viewer' | 'basic'; can_edit: boolean; can_see_group: boolean; user: string }>(
+    call<{ role_tier: 'admin' | 'cfo' | 'ceo' | 'group_viewer' | 'hr' | 'basic'; can_edit: boolean; can_see_group: boolean; hr_only?: boolean; user: string }>(
       'report.insight_get_access_profile'),
   listGroupCompanies: () =>
     call<Array<{ name: string; label: string; currency: string; is_group: number; parent_company: string }>>(
@@ -1078,6 +1083,7 @@ export const api = {
 
   // v2.55.0 — Brand Kit (print setup) persisted site-wide, and the company
   // identity block the shell header renders.
+  appVersion: () => call<any>('navmenu.app_version'),
   getBrand: () => call<Record<string, any>>('navmenu.get_brand'),
   saveBrand: (company: string, brand: any) =>
     call<any>('navmenu.save_brand', { company, brand: JSON.stringify(brand || {}) }, 'POST'),

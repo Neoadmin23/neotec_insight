@@ -22,6 +22,23 @@ from frappe.utils import flt, getdate
 
 # ---- config -----------------------------------------------------------------
 
+def _require_read() -> None:
+    """Refuse a financial read from a user with no ledger access.
+
+    `@frappe.whitelist()` requires a login, not a role, so without this these
+    endpoints were callable over `/api/method/...` by any authenticated user,
+    including portal users with no business seeing the ledger. Reading GL Entry
+    is the right test: ERPNext already restricts it to the accounts roles, so
+    this inherits the site's own configuration rather than inventing a second
+    permission model.
+    """
+    if not frappe.has_permission("GL Entry", "read"):
+        frappe.throw(
+            _("You are not permitted to view financial data."),
+            frappe.PermissionError,
+        )
+
+
 def _ollama_config() -> dict:
     """Ollama endpoint + models. Override via site_config.json or Insight AI
     Settings without code changes."""
@@ -520,7 +537,14 @@ def _resolve_supplier(name: str | None) -> str | None:
 @frappe.whitelist()
 def stage_draft_payment_entry(slip: str) -> dict:
     """Create a DRAFT (unsubmitted) Payment Entry from a staged slip, writing the
-    bank reference so reconciliation can later auto-match it. Never submits."""
+    bank reference so reconciliation can later auto-match it. Never submits.
+
+    v2.77.0 — guarded. The Payment Entry inserts with ignore_permissions=False
+    so Frappe checks that one, but this also mutates the Insight Bank Slip via
+    `db_set`, which checks nothing.
+    """
+    _require_write("Payment Entry")
+    _require_write("Insight Bank Slip")
     s = frappe.get_doc("Insight Bank Slip", slip)
     if s.payment_entry:
         return {"payment_entry": s.payment_entry, "already": True}
@@ -638,6 +662,7 @@ def search_parties(party_type: str, txt: str = "", limit: int = 20) -> list[dict
     """Rich supplier/customer search for the review dropdown — returns the full
     identifying detail (name, tax id, group, currency, contact) so the user can
     pick the right party with confidence rather than relying on a name match."""
+    _require_read()
     if party_type not in _PARTY_FIELDS:
         frappe.throw("party_type must be 'Supplier' or 'Customer'.")
     fields = _PARTY_FIELDS[party_type]
@@ -658,6 +683,7 @@ def search_parties(party_type: str, txt: str = "", limit: int = 20) -> list[dict
 @frappe.whitelist()
 def set_slip_party(slip: str, party_type: str, party: str) -> dict:
     """Persist the user's party choice on the staged slip before posting."""
+    _require_read()
     s = frappe.get_doc("Insight Bank Slip", slip)
     s.party_type = party_type
     s.party = party
@@ -703,6 +729,7 @@ def read_slip_into(file_url: str, target_doctype: str | None = None,
     (Payment Entry or Journal Entry). Also stages an Insight Bank Slip for the
     audit trail and the reconciliation reference. The form's client script
     applies the returned `field_map`; the user reviews and submits."""
+    _require_read()
     res = read_slip(file_url=file_url, company=company)
     data = res["data"]
     if target_doctype == "Journal Entry":
@@ -724,6 +751,7 @@ def read_slip_into(file_url: str, target_doctype: str | None = None,
 @frappe.whitelist()
 def list_slips(limit: int = 25, status: str | None = None) -> list[dict]:
     """Recent staged slips for the Insight Bank tab."""
+    _require_read()
     filters = {"status": status} if status else {}
     return frappe.get_list(
         "Insight Bank Slip",
@@ -742,6 +770,7 @@ def search_accounts(company: str, txt: str = "", root_type: str | None = None,
                     limit: int = 20) -> list[dict]:
     """Leaf GL accounts for the 'book against' dropdown. The user reads the slip
     description and picks the expense/income account."""
+    _require_read()
     filters = {"company": company, "is_group": 0}
     if root_type:
         filters["root_type"] = root_type
@@ -762,6 +791,7 @@ def search_accounts(company: str, txt: str = "", root_type: str | None = None,
 def search_bank_accounts(company: str = "", txt: str = "", limit: int = 20) -> list[dict]:
     """Bank Account records (with their GL account) for the source/paid-from
     dropdown. Company optional (statements don't carry one)."""
+    _require_read()
     filters = {"company": company} if company else {}
     or_filters = None
     if txt:
@@ -781,6 +811,7 @@ def search_bank_accounts(company: str = "", txt: str = "", limit: int = 20) -> l
 def set_slip_accounts(slip: str, bank_account: str | None = None,
                       account: str | None = None) -> dict:
     """Persist the user's account choices on the slip before staging."""
+    _require_read()
     s = frappe.get_doc("Insight Bank Slip", slip)
     if bank_account is not None:
         s.source_account_link = bank_account or None
@@ -794,6 +825,7 @@ def set_slip_accounts(slip: str, bank_account: str | None = None,
 @frappe.whitelist()
 def get_slip(slip: str) -> dict:
     """Full slip detail for the review panel (incl. description + raw text)."""
+    _require_read()
     s = frappe.get_doc("Insight Bank Slip", slip)
     return {
         "name": s.name, "company": s.company, "bank": s.bank, "direction": s.direction,
@@ -815,6 +847,7 @@ def get_slip(slip: str) -> dict:
 def set_slip_direction(slip: str, direction: str) -> dict:
     """Manual inward/outward correction (also useful when the company couldn't be
     auto-identified)."""
+    _require_read()
     if direction not in ("Incoming", "Outgoing"):
         frappe.throw("direction must be 'Incoming' or 'Outgoing'.")
     s = frappe.get_doc("Insight Bank Slip", slip)

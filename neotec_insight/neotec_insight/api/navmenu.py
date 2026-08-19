@@ -96,6 +96,28 @@ def _clean_brand(brand: dict) -> dict:
 
 
 @frappe.whitelist()
+def app_version():
+    """The INSTALLED python version of this app.
+
+    Exists so the frontend can compare it against `__APP_VERSION__`, which is
+    baked into the JS bundle at build time. The two are read from different
+    places and can disagree: a deploy that ships the Python but serves a cached
+    or stale asset bundle leaves an old UI talking to a new backend.
+
+    That disagreement is not theoretical — it hid a fixed bug for a full round
+    of testing, because Frappe's own "Installed Apps" reports the Python
+    version while the screen reports the bundle, and nothing compared them.
+    Deliberately unguarded: it carries no data, and a version banner must
+    render for whoever is looking at the broken screen.
+    """
+    try:
+        import neotec_insight
+        return {"backend": getattr(neotec_insight, "__version__", None)}
+    except Exception:
+        return {"backend": None}
+
+
+@frappe.whitelist()
 def get_brand():
     """Saved Brand Kit, as {company_or_'default': {...}}. Empty when unset."""
     try:

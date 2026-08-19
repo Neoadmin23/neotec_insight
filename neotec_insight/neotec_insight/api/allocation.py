@@ -81,7 +81,8 @@ def get_grid(rule, year, company=None):
         "Insight Allocation Entry",
         filters={"rule": rule,
                  "period_month": ["between", [month_start(year, 1), month_end(year, 12)]]},
-        fields=["name", "cost_center", "period_month", "basis", "driver_value", "amount", "manual_pool"],
+        fields=["name", "cost_center", "period_month", "basis", "driver_value", "amount",
+                "budget_amount", "manual_pool"],
         limit_page_length=0,
     )
     cells: dict[str, dict] = {}
@@ -93,6 +94,7 @@ def get_grid(rule, year, company=None):
         cells.setdefault(r["cost_center"], {})[m] = {
             "driver": flt(r.get("driver_value")),
             "amount": flt(r.get("amount")),
+            "budget": flt(r.get("budget_amount")),
         }
         basis_by_cc[r["cost_center"]] = r.get("basis") or "head_count"
         if r.get("manual_pool"):
@@ -175,9 +177,14 @@ def save_grid(rule, year, company=None, cells=None, manual_pool=None, basis=None
             # figure being pasted back in as an input.
             driver = flt((vals or {}).get("driver")) if cc_basis == "head_count" else 0.0
             amount = flt((vals or {}).get("amount")) if cc_basis == "amount" else 0.0
+            # Budget is stored for EVERY basis, unlike driver/amount which are
+            # mutually exclusive. It is an independent input — what the business
+            # agreed to spend — not an alternative way of expressing the driver,
+            # so a head-count cost centre carries one too.
+            budget = flt((vals or {}).get("budget"))
             pool = flt(manual_pool.get(str(m), manual_pool.get(m, 0)))
             key = (cc, m)
-            blank = not driver and not amount and not pool
+            blank = not driver and not amount and not pool and not budget
             if blank:
                 if key in existing:
                     frappe.delete_doc("Insight Allocation Entry", existing[key],
@@ -195,6 +202,7 @@ def save_grid(rule, year, company=None, cells=None, manual_pool=None, basis=None
             e.basis = cc_basis
             e.driver_value = driver
             e.amount = amount
+            e.budget_amount = budget
             e.manual_pool = pool
             e.save()
             written += 1
@@ -361,6 +369,42 @@ def run(rule, year, company=None):
     res["ytd"] = ytd
     res["ytd_pool"] = flt(sum(res["by_month"][m]["pool"] for m in res["months"]), 2)
     res["ytd_residual"] = flt(sum(res["by_month"][m]["residual"] for m in res["months"]), 2)
+
+    # ── Budget (v2.78.0) ────────────────────────────────────────────────────
+    # Read straight from the stored entries and NEVER derived. A budget for an
+    # allocation is a decision someone signed off; re-deriving it from the
+    # actual driver would produce a figure nobody agreed to, and it would move
+    # every time the driver moved — which is exactly what a budget must not do.
+    #
+    # Carried alongside the computed actuals rather than inside `by_month`, so
+    # the split between "derived" and "entered" stays legible: everything in
+    # `by_month` is calculated, everything here was typed by a person.
+    budget: dict[int, dict[str, float]] = {m: {} for m in res["months"]}
+    budget_ytd: dict[str, float] = {cc: 0.0 for cc in res["cost_centers"]}
+    for r in frappe.get_all(
+            "Insight Allocation Entry",
+            filters={"rule": rule,
+                     "period_month": ["between", [month_start(year, 1), month_end(year, 12)]]},
+            fields=["cost_center", "period_month", "budget_amount"],
+            limit_page_length=0):
+        b = flt(r.get("budget_amount"))
+        if not b:
+            continue
+        pm = r["period_month"]
+        m = pm.month if hasattr(pm, "month") else int(str(pm)[5:7])
+        cc = r["cost_center"]
+        if m in budget:
+            budget[m][cc] = flt(budget[m].get(cc, 0.0) + b, 2)
+        budget_ytd[cc] = flt(budget_ytd.get(cc, 0.0) + b, 2)
+    res["budget"] = budget
+    res["budget_ytd"] = budget_ytd
+    res["budget_total"] = flt(sum(budget_ytd.values()), 2)
+
+    # Variance, computed here so screen and every export agree on the sign.
+    # Actual over budget is POSITIVE — an allocation is a cost, so spending
+    # more than budgeted reads as a positive overrun rather than a negative.
+    res["variance_ytd"] = {cc: flt(ytd.get(cc, 0.0) - budget_ytd.get(cc, 0.0), 2)
+                           for cc in res["cost_centers"]}
     return res
 
 
