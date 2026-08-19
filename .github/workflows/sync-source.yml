@@ -1,0 +1,88 @@
+name: Sync Neotec Insight Source
+
+on:
+  # Allows manual run from GitHub Actions
+  workflow_dispatch:
+
+  # Automatically check source every hour
+  schedule:
+    - cron: "0 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: neotec-insight-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # -------------------------------------------------------
+      # 1. Checkout Destination
+      # -------------------------------------------------------
+      - name: Checkout destination repository
+        uses: actions/checkout@v6
+        with:
+          repository: Neoadmin23/neotec_insight
+          ref: main
+          path: destination
+          fetch-depth: 0
+
+      # -------------------------------------------------------
+      # 2. Checkout Source
+      # -------------------------------------------------------
+      - name: Checkout source repository
+        uses: actions/checkout@v6
+        with:
+          repository: jamunachi08/neotec_insight
+          ref: main
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      # -------------------------------------------------------
+      # 3. Preserve this sync workflow
+      # -------------------------------------------------------
+      - name: Preserve sync workflow
+        run: |
+          cp destination/.github/workflows/sync-source.yml /tmp/sync-source.yml
+
+      # -------------------------------------------------------
+      # 4. Synchronize source -> destination
+      # -------------------------------------------------------
+      - name: Synchronize files
+        run: |
+          rsync -av --delete \
+            --exclude='.git/' \
+            source/ destination/
+
+      # -------------------------------------------------------
+      # 5. Restore sync workflow
+      # -------------------------------------------------------
+      - name: Restore sync workflow
+        run: |
+          mkdir -p destination/.github/workflows
+          cp /tmp/sync-source.yml destination/.github/workflows/sync-source.yml
+
+      # -------------------------------------------------------
+      # 6. Commit only when something changed
+      # -------------------------------------------------------
+      - name: Commit synchronized changes
+        working-directory: destination
+        run: |
+          git config user.name "Neotec Sync Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Destination already matches source."
+            exit 0
+          fi
+
+          git commit -m "chore: sync from jamunachi08/neotec_insight"
+          git push origin main
