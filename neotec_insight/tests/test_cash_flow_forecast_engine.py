@@ -212,7 +212,150 @@ class TestAttributeBindingMonthlyCashLegRule(unittest.TestCase):
         self.assertEqual(monthly[5], 0.0)
 
 
-class TestBalanceCarry(unittest.TestCase):
+class TestClassifyVoucherLeg(unittest.TestCase):
+    """The KSA inter-bank-transfer-with-fee case: three legs (source bank
+    credit, destination bank debit, Bank Charges expense debit for the
+    SARIE fee). Requiring EVERY other leg to be cash (the original
+    implementation) misses this — the fee leg breaks that condition — and
+    the transfer money then counts twice: once leaving the source bank,
+    once arriving at the destination, as if it were two real, unrelated
+    cash movements."""
+
+    def setUp(self):
+        self.eng = _load_engine()
+        self.cash_accounts = ["Riyadh Bank - CO", "ANB - CO"]
+
+    def test_plain_two_leg_transfer_is_excluded(self):
+        is_bank_leg, is_transfer = self.eng.classify_voucher_leg(
+            "Riyadh Bank - CO", {"ANB - CO"}, self.cash_accounts)
+        self.assertTrue(is_bank_leg)
+        self.assertTrue(is_transfer)
+
+    def test_three_leg_transfer_with_fee_source_bank_leg_is_still_excluded(self):
+        """The exact bug this fix closes: a third, non-cash fee leg must not
+        prevent the two cash legs from being recognised as a transfer."""
+        other_legs = {"ANB - CO", "Bank Charges - CO"}
+        is_bank_leg, is_transfer = self.eng.classify_voucher_leg(
+            "Riyadh Bank - CO", other_legs, self.cash_accounts)
+        self.assertTrue(is_bank_leg)
+        self.assertTrue(is_transfer, "source bank leg must be recognised as a transfer "
+                                      "even with a third, non-cash fee leg present")
+
+    def test_three_leg_transfer_with_fee_destination_bank_leg_is_also_excluded(self):
+        other_legs = {"Riyadh Bank - CO", "Bank Charges - CO"}
+        is_bank_leg, is_transfer = self.eng.classify_voucher_leg(
+            "ANB - CO", other_legs, self.cash_accounts)
+        self.assertTrue(is_bank_leg)
+        self.assertTrue(is_transfer)
+
+    def test_the_fee_leg_itself_is_never_treated_as_a_transfer(self):
+        """The fee is real spend — it must count if bound to a Bank Charges
+        line, never excluded by the transfer rule (which only ever applies
+        to a leg that is ITSELF a cash account)."""
+        other_legs = {"Riyadh Bank - CO", "ANB - CO"}
+        is_bank_leg, is_transfer = self.eng.classify_voucher_leg(
+            "Bank Charges - CO", other_legs, self.cash_accounts)
+        self.assertTrue(is_bank_leg, "the fee leg did move cash (via the other two legs) "
+                                     "so it must pass the bank-leg check")
+        self.assertFalse(is_transfer, "the fee account itself is not cash, so it can "
+                                      "never be classified as a transfer leg")
+
+    def test_a_normal_customer_collection_is_not_a_transfer(self):
+        """One cash leg + one Receivables leg — must not be mistaken for a
+        transfer just because the cash leg exists."""
+        is_bank_leg, is_transfer = self.eng.classify_voucher_leg(
+            "Riyadh Bank - CO", {"Trade Receivables - CO"}, self.cash_accounts)
+        self.assertTrue(is_bank_leg)
+        self.assertFalse(is_transfer)
+
+    def test_a_pure_accrual_with_no_cash_leg_is_neither(self):
+        is_bank_leg, is_transfer = self.eng.classify_voucher_leg(
+            "Rent Expense - CO", {"Accounts Payable - CO"}, self.cash_accounts)
+        self.assertFalse(is_bank_leg)
+        self.assertFalse(is_transfer)
+
+
+
+class TestBuildTransferLog(unittest.TestCase):
+    """Surfacing what classify_voucher_leg excludes — "how do we control
+    internal transfers" answered by making them visible, not just removed."""
+
+    def setUp(self):
+        self.eng = _load_engine()
+
+    def test_plain_transfer_shows_no_fee(self):
+        rows = [
+            {"voucher_type": "Journal Entry", "voucher_no": "JE-1", "account": "Riyadh Bank - CO",
+             "posting_date": _Date(3), "debit": 0, "credit": 50000},
+            {"voucher_type": "Journal Entry", "voucher_no": "JE-1", "account": "ANB - CO",
+             "posting_date": _Date(3), "debit": 50000, "credit": 0},
+        ]
+        log = self.eng.build_transfer_log(rows, 1, list(range(12)))
+        self.assertEqual(len(log), 1)
+        self.assertEqual(log[0]["amount_sent"], 50000.0)
+        self.assertEqual(log[0]["amount_received"], 50000.0)
+        self.assertEqual(log[0]["fee"], 0.0)
+
+    def test_ksa_transfer_with_fee_shows_the_fee(self):
+        """The three-leg case: destination receives less than the source
+        sent, by exactly the SARIE fee — surfaced as its own field, not
+        silently folded into either amount."""
+        rows = [
+            {"voucher_type": "Journal Entry", "voucher_no": "JE-2", "account": "Riyadh Bank - CO",
+             "posting_date": _Date(5), "debit": 0, "credit": 100000},
+            {"voucher_type": "Journal Entry", "voucher_no": "JE-2", "account": "ANB - CO",
+             "posting_date": _Date(5), "debit": 99975, "credit": 0},
+        ]
+        log = self.eng.build_transfer_log(rows, 1, list(range(12)))
+        self.assertEqual(log[0]["amount_sent"], 100000.0)
+        self.assertEqual(log[0]["amount_received"], 99975.0)
+        self.assertEqual(log[0]["fee"], 25.0)
+
+    def test_from_and_to_accounts_are_identified(self):
+        rows = [
+            {"voucher_type": "Journal Entry", "voucher_no": "JE-3", "account": "Riyadh Bank - CO",
+             "posting_date": _Date(1), "debit": 0, "credit": 20000},
+            {"voucher_type": "Journal Entry", "voucher_no": "JE-3", "account": "ANB - CO",
+             "posting_date": _Date(1), "debit": 20000, "credit": 0},
+        ]
+        log = self.eng.build_transfer_log(rows, 1, list(range(12)))
+        self.assertEqual(log[0]["from_accounts"], ["Riyadh Bank - CO"])
+        self.assertEqual(log[0]["to_accounts"], ["ANB - CO"])
+
+
+class TestBankBreakdownMonthly(unittest.TestCase):
+    """Backs 'click a number, see which bank accounts fed it'."""
+
+    def setUp(self):
+        self.eng = _load_engine()
+
+    def test_single_bank_attribution(self):
+        rows = [{"voucher_type": "Payment Entry", "voucher_no": "PE-1",
+                 "posting_date": _Date(2), "debit": 5000, "credit": 0}]
+        key = ("Payment Entry", "PE-1")
+        breakdown = self.eng.bank_breakdown_monthly(
+            rows, "Net", {key}, set(), set(), {key: ["Riyadh Bank - CO"]}, 1, list(range(12)))
+        self.assertEqual(breakdown[1]["Riyadh Bank - CO"], 5000.0)
+
+    def test_split_payment_shares_evenly_across_banks(self):
+        rows = [{"voucher_type": "Payment Entry", "voucher_no": "PE-2",
+                 "posting_date": _Date(3), "debit": 4000, "credit": 0}]
+        key = ("Payment Entry", "PE-2")
+        breakdown = self.eng.bank_breakdown_monthly(
+            rows, "Net", {key}, set(), set(), {key: ["Riyadh Bank - CO", "ANB - CO"]}, 1, list(range(12)))
+        self.assertEqual(breakdown[2]["Riyadh Bank - CO"], 2000.0)
+        self.assertEqual(breakdown[2]["ANB - CO"], 2000.0)
+
+    def test_excluded_rows_contribute_nothing(self):
+        rows = [{"voucher_type": "Journal Entry", "voucher_no": "JE-X",
+                 "posting_date": _Date(4), "debit": 9000, "credit": 0}]
+        key = ("Journal Entry", "JE-X")
+        breakdown = self.eng.bank_breakdown_monthly(
+            rows, "Net", {key}, {key}, set(), {key: ["Riyadh Bank - CO"]}, 1, list(range(12)))
+        self.assertEqual(breakdown[3], {})
+
+
+
     """The one genuinely new engine capability — a rollforward, tested with
     the same January-start / April-start pair as everything else, since
     that's exactly where a silent off-by-one would hide."""

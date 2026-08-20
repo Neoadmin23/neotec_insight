@@ -855,6 +855,15 @@ export const api = {
       { fiscal_year: fiscalYear, cells: JSON.stringify(cells || {}), company: company || null }, 'POST'),
   cashFlowForecastRun: (fiscalYear: number, company?: string | null) =>
     call<any>('cash_flow_forecast.run', { fiscal_year: fiscalYear, company: company || null }),
+  cashFlowForecastRunFiltered: (fiscalYear: number, company?: string | null, bankAccounts?: string[] | null) =>
+    call<any>('cash_flow_forecast.run', {
+      fiscal_year: fiscalYear, company: company || null,
+      bank_accounts: bankAccounts && bankAccounts.length ? JSON.stringify(bankAccounts) : null,
+    }),
+  cashFlowForecastCompanies: () => call<{ name: string; default_currency: string }[]>('cash_flow_forecast.list_companies'),
+  cashFlowForecastBankAccounts: (company?: string | null) =>
+    call<{ name: string; account_name: string; account_type: string }[]>(
+      'cash_flow_forecast.list_bank_accounts', { company: company || null }),
 
   // v2.57.0 — party ledgers
   partyControlAccounts: (company: string | null, party_type: string) =>

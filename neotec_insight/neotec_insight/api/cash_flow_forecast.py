@@ -28,11 +28,16 @@ from neotec_insight.neotec_insight.utils.cash_flow_forecast import (
     attribute_binding_monthly,
     attribute_overrides_monthly,
     balance_carry,
+    bank_breakdown_monthly,
+    build_transfer_log,
     calendar_to_fy_position,
+    fetch_all_transfer_legs,
     fetch_bank_leg_and_transfer_vouchers,
     fetch_binding_gl_rows,
+    fetch_voucher_cash_legs,
     fy_position_to_calendar,
     fy_position_to_calendar_year,
+    list_bank_accounts_for_ui,
     reconciliation_residual,
     resolve_cash_accounts,
 )
@@ -49,6 +54,25 @@ def _require_read():
 def _require_write():
     if not frappe.has_permission("Insight Cash Flow Line", "write"):
         frappe.throw(_("Not permitted."), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def list_companies():
+    """Backs the company dropdown — auto-select when there's exactly one,
+    a real dropdown when there's more than one, per the customer's request
+    rather than the free-text field this shipped with in v2.86.0."""
+    _require_read()
+    return frappe.get_all("Company", fields=["name", "default_currency"],
+                          order_by="name asc", limit_page_length=0)
+
+
+@frappe.whitelist()
+def list_bank_accounts(company: str | None = None):
+    """Backs the bank-account multi-select. Default is 'select all' — this
+    endpoint just lists what's available; run() only narrows when
+    bank_accounts is explicitly passed."""
+    _require_read()
+    return list_bank_accounts_for_ui(company)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -205,12 +229,17 @@ def _fy_start_month(company: str | None) -> int:
 
 
 @frappe.whitelist()
-def run(fiscal_year: int, company: str | None = None):
+def run(fiscal_year: int, company: str | None = None, bank_accounts: str | list | None = None):
+    """bank_accounts: optional list of specific Bank/Cash account names to
+    restrict to — default (None or empty) is every cash account for the
+    company, matching the "select all by default, narrow to one bank when
+    the user wants" behaviour."""
     _require_read()
     fy = int(fiscal_year)
     fy_start_month = _fy_start_month(company)
     months = list(range(12))
-    cash_accounts = resolve_cash_accounts(company)
+    restrict = json.loads(bank_accounts) if isinstance(bank_accounts, str) else bank_accounts
+    cash_accounts = resolve_cash_accounts(company, restrict_to=restrict or None)
 
     lines = frappe.get_all("Insight Cash Flow Line", filters={"is_active": 1},
                            order_by="section asc, sort_key asc",
@@ -247,12 +276,18 @@ def run(fiscal_year: int, company: str | None = None):
     cash_in_total = {m: 0.0 for m in months}
     cash_out_total = {m: 0.0 for m in months}
 
+    # Fetched once for the whole run, reused per binding below — which bank
+    # account(s) are the cash leg of every voucher in the period. Backs the
+    # "click a number, see which bank accounts fed it" drill-down.
+    voucher_cash_legs = fetch_voucher_cash_legs(company, from_date, to_date, cash_accounts)
+
     for line in lines:
         bindings = frappe.get_all(
             "Insight Cash Flow Line Binding", filters={"parent": line["name"]},
             fields=["account", "direction_mode", "cost_center", "project", "party_type", "party"],
             limit_page_length=0)
         monthly = {m: 0.0 for m in months}
+        by_bank: dict[int, dict[str, float]] = {m: {} for m in months}
         for b in bindings:
             gl_rows = fetch_binding_gl_rows(b, company, from_date, to_date)
             bank_leg, transfer = fetch_bank_leg_and_transfer_vouchers(
@@ -262,6 +297,12 @@ def run(fiscal_year: int, company: str | None = None):
                 override_vouchers, fy_start_month, months)
             for m in months:
                 monthly[m] = flt(monthly[m] + per_binding[m], 2)
+            binding_bank_breakdown = bank_breakdown_monthly(
+                gl_rows, b.get("direction_mode") or "Net", bank_leg, transfer,
+                override_vouchers, voucher_cash_legs, fy_start_month, months)
+            for m in months:
+                for bank, amt in binding_bank_breakdown[m].items():
+                    by_bank[m][bank] = flt(by_bank[m].get(bank, 0.0) + amt, 2)
         for m, amt in override_monthly.get(line["name"], {}).items():
             monthly[m] = flt(monthly[m] + amt, 2)
 
@@ -275,7 +316,7 @@ def run(fiscal_year: int, company: str | None = None):
         result_lines.append({
             "line": line["name"], "label": line["label"], "direction": line["direction"],
             "section": line["section"], "actual": monthly, "budget": budget_monthly,
-            "binding_count": len(bindings),
+            "binding_count": len(bindings), "by_bank": by_bank,
         })
         target = cash_in_total if line["direction"] == "Cash In" else cash_out_total
         for m in months:
@@ -308,13 +349,22 @@ def run(fiscal_year: int, company: str | None = None):
         actual_delta = flt(bal_end - bal_start, 2)
         residuals[m] = reconciliation_residual(actual_delta, cash_in_total[m], cash_out_total[m])
 
+    # Internal transfers — surfaced, not silently excluded. Answers "how do
+    # we control internal bank transfers": here, visibly, with the fee (the
+    # KSA SARIE case) broken out as its own figure rather than folded into
+    # either the source or destination amount.
+    transfer_legs = fetch_all_transfer_legs(company, from_date, to_date, cash_accounts)
+    transfer_log = build_transfer_log(transfer_legs, fy_start_month, months)
+
     return {
         "fiscal_year": fy, "fy_start_month": fy_start_month, "company": company,
+        "cash_accounts": cash_accounts,
         "lines": result_lines,
         "cash_in_total": cash_in_total, "cash_out_total": cash_out_total,
         "rollforward": rollforward, "residuals": residuals,
         "residual_tolerance_pct": flt(settings.residual_tolerance_pct or 0.5),
         "month_labels": [MONTH_LABELS[fy_position_to_calendar(m, fy_start_month) - 1] for m in months],
+        "transfers": transfer_log,
     }
 
 

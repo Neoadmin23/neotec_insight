@@ -203,20 +203,220 @@ def reconciliation_residual(
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Internal transfers — surfaced, never silently vanished. classify_voucher_leg
+# already excludes a transfer leg from any binding's Actual; this section is
+# what lets a user actually SEE the transfers that got excluded, per the
+# same "never absorbed silently" principle as the reconciliation residual.
+# ─────────────────────────────────────────────────────────────────────────
+
+def build_transfer_log(
+    raw_transfer_rows: list[dict],
+    fy_start_month: int,
+    months: list[int],
+) -> list[dict]:
+    """Pure. raw_transfer_rows: one row per (voucher, cash-account leg) where
+    that leg was classified as a transfer — each a dict with voucher_type,
+    voucher_no, account, posting_date, debit, credit. Groups the two (or
+    more, if a transfer somehow touches more than two cash accounts) legs of
+    each voucher into one entry: from_account (the credit/source leg),
+    to_account (the debit/destination leg), amount moved, and — the KSA
+    case — a fee, if the voucher's total cash legs don't net to zero (the
+    destination received less than the source sent)."""
+    by_voucher: dict[tuple[str, str], list[dict]] = {}
+    for row in raw_transfer_rows:
+        key = (row["voucher_type"], row["voucher_no"])
+        by_voucher.setdefault(key, []).append(row)
+
+    log = []
+    for (vtype, vno), legs in by_voucher.items():
+        credit_legs = [l for l in legs if flt(l.get("credit")) > flt(l.get("debit"))]
+        debit_legs = [l for l in legs if flt(l.get("debit")) > flt(l.get("credit"))]
+        sent = flt(sum(flt(l["credit"]) - flt(l["debit"]) for l in credit_legs), 2)
+        received = flt(sum(flt(l["debit"]) - flt(l["credit"]) for l in debit_legs), 2)
+        fee = flt(sent - received, 2)
+        pd = legs[0].get("posting_date")
+        cal_month = pd.month if hasattr(pd, "month") else getdate(pd).month
+        pos = calendar_to_fy_position(cal_month, fy_start_month)
+        log.append({
+            "voucher_type": vtype, "voucher_no": vno,
+            "from_accounts": [l["account"] for l in credit_legs],
+            "to_accounts": [l["account"] for l in debit_legs],
+            "amount_sent": sent, "amount_received": received, "fee": fee,
+            "fy_position": pos if pos in months else None,
+        })
+    return log
+
+
+def bank_breakdown_monthly(
+    gl_rows: list[dict],
+    direction_mode: str,
+    bank_leg_vouchers: set[tuple[str, str]],
+    transfer_vouchers: set[tuple[str, str]],
+    override_vouchers: set[tuple[str, str]],
+    voucher_cash_legs: dict[tuple[str, str], list[str]],
+    fy_start_month: int,
+    months: list[int],
+) -> dict[int, dict[str, float]]:
+    """Pure. Same filtering as attribute_binding_monthly, but keyed by
+    (fy_position -> {bank_account: amount}) instead of a single summed
+    figure — this is what backs "click a number, see which bank accounts
+    fed it." voucher_cash_legs: {(voucher_type, voucher_no): [bank account
+    names that were this voucher's cash leg]} — a voucher can have more than
+    one (a split payment across two banks), in which case its amount is
+    attributed evenly across them; exact per-bank amounts aren't knowable
+    from the non-cash leg's row alone when the cash side is split."""
+    out: dict[int, dict[str, float]] = {m: {} for m in months}
+    for row in gl_rows:
+        key = (row.get("voucher_type"), row.get("voucher_no"))
+        if key in transfer_vouchers or key in override_vouchers or key not in bank_leg_vouchers:
+            continue
+        debit = flt(row.get("debit"))
+        credit = flt(row.get("credit"))
+        net = debit - credit
+        if direction_mode == "Debit Only":
+            if debit <= credit:
+                continue
+            amt = net
+        elif direction_mode == "Credit Only":
+            if credit <= debit:
+                continue
+            amt = -net
+        else:
+            amt = net
+        pd = row.get("posting_date")
+        cal_month = pd.month if hasattr(pd, "month") else getdate(pd).month
+        pos = calendar_to_fy_position(cal_month, fy_start_month)
+        if pos not in out:
+            continue
+        banks = voucher_cash_legs.get(key) or ["(unattributed)"]
+        share = flt(amt / len(banks), 2)
+        for b in banks:
+            out[pos][b] = flt(out[pos].get(b, 0.0) + share, 2)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # DB-facing wrappers — thin, not independently unit-tested (same convention
 # as the rest of this app: the pure functions above carry the test burden).
 # ─────────────────────────────────────────────────────────────────────────
 
-def resolve_cash_accounts(company: str | None) -> list[str]:
+def resolve_cash_accounts(company: str | None, restrict_to: list[str] | None = None) -> list[str]:
     """This module's OWN definition of 'which accounts are cash' — not
     api/cashflow.py's _cash_accounts(). Two independent definitions is an
     accepted cost of full isolation (see module docstring); if the two ever
     need to agree exactly, that is a product decision to revisit, not a bug
-    to silently patch around here."""
+    to silently patch around here.
+
+    `restrict_to`: when given, narrows to this specific subset (still
+    validated against the real Bank/Cash account list, so a stale or
+    mistyped name in a saved filter can't silently expand scope to
+    'everything' by matching nothing and falling through) — the "By default,
+    select all; when the user wants, they can see one particular bank"
+    behaviour."""
     filters = {"account_type": ["in", ["Bank", "Cash"]], "is_group": 0}
     if company:
         filters["company"] = company
-    return frappe.get_all("Account", filters=filters, pluck="name")
+    all_cash = frappe.get_all("Account", filters=filters, pluck="name")
+    if restrict_to:
+        wanted = set(restrict_to)
+        return [a for a in all_cash if a in wanted]
+    return all_cash
+
+
+def list_bank_accounts_for_ui(company: str | None) -> list[dict]:
+    """Account name + display label, for the bank-account multi-select.
+    Kept separate from resolve_cash_accounts (which only ever needs bare
+    names for filtering) so the UI-facing shape doesn't leak into the
+    filtering logic."""
+    filters = {"account_type": ["in", ["Bank", "Cash"]], "is_group": 0}
+    if company:
+        filters["company"] = company
+    return frappe.get_all("Account", filters=filters,
+                          fields=["name", "account_name", "account_type"],
+                          order_by="account_type asc, account_name asc")
+
+
+def classify_voucher_leg(account: str, other_leg_accounts: set[str], cash_accounts: list[str]) -> tuple[bool, bool]:
+    """Pure — given one voucher's OTHER leg accounts (not including `account`
+    itself), decide whether this leg (a) ever moved cash at all (either
+    `account` IS itself a cash account, in which case this row is the cash
+    leg by definition, or some OTHER leg hit a cash account), and (b) is
+    itself part of an internal transfer between two cash accounts, not a
+    real cash flow line item.
+
+    Returns (is_bank_leg, is_transfer).
+
+    Most lines bind to an Expense, Payable, Receivable, or other Liability
+    account — not the bank account itself — so is_bank_leg usually depends
+    on an OTHER leg being cash. But nothing stops a line from binding
+    directly to a bank/cash account (e.g. a 'Cash on Hand movements' line),
+    and for that row the cash movement IS this leg, regardless of what the
+    other leg is — checking only the other legs would wrongly exclude it as
+    a pure accrual with no bank leg at all.
+
+    A transfer is any leg where `account` is a cash account AND at least one
+    OTHER leg is also a cash account — not only when EVERY other leg is. A
+    KSA inter-bank transfer routinely carries a third leg (the SARIE /
+    transfer fee, posted to a Bank Charges expense account); requiring every
+    other leg to be cash would miss that case, and the transfer money would
+    then get counted twice — once leaving the source bank, once arriving at
+    the destination — as if it were two unrelated real cash movements. The
+    fee leg is untouched by this rule: when the fee account's OWN binding is
+    classified, `account` (the fee account) isn't itself a cash account, so
+    is_transfer is always False for it, and it's correctly counted as real
+    spend if bound to a Bank Charges line."""
+    cash_set = set(cash_accounts)
+    account_is_cash = account in cash_set
+    is_bank_leg = account_is_cash or bool(other_leg_accounts & cash_set)
+    is_transfer = account_is_cash and bool(other_leg_accounts & cash_set)
+    return is_bank_leg, is_transfer
+
+
+def fetch_all_transfer_legs(company: str | None, from_date, to_date, cash_accounts: list[str]) -> list[dict]:
+    """Every GL Entry leg, across the whole cash-accounts set, belonging to
+    a voucher that touches 2+ DISTINCT cash accounts — i.e. every leg of
+    every internal transfer in the period, source and destination together,
+    for build_transfer_log to pair up. One query for the whole run, not
+    per-binding, unlike fetch_bank_leg_and_transfer_vouchers below."""
+    if not cash_accounts:
+        return []
+    filters = {"account": ["in", cash_accounts], "posting_date": ["between", [from_date, to_date]],
+               "is_cancelled": 0}
+    if company:
+        filters["company"] = company
+    rows = frappe.get_all("GL Entry", filters=filters,
+                          fields=["voucher_type", "voucher_no", "account", "posting_date", "debit", "credit"],
+                          limit_page_length=0)
+    by_voucher: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        by_voucher.setdefault((r["voucher_type"], r["voucher_no"]), []).append(r)
+    out = []
+    for legs in by_voucher.values():
+        if len({l["account"] for l in legs}) >= 2:
+            out.extend(legs)
+    return out
+
+
+def fetch_voucher_cash_legs(company: str | None, from_date, to_date,
+                            cash_accounts: list[str]) -> dict[tuple[str, str], list[str]]:
+    """{(voucher_type, voucher_no): [cash account names that are legs of
+    this voucher]} for the whole period — one query, reused for every
+    binding's bank-breakdown rather than re-fetched per binding."""
+    if not cash_accounts:
+        return {}
+    filters = {"account": ["in", cash_accounts], "posting_date": ["between", [from_date, to_date]],
+               "is_cancelled": 0}
+    if company:
+        filters["company"] = company
+    rows = frappe.get_all("GL Entry", filters=filters,
+                          fields=["voucher_type", "voucher_no", "account"], limit_page_length=0)
+    out: dict[tuple[str, str], list[str]] = {}
+    for r in rows:
+        key = (r["voucher_type"], r["voucher_no"])
+        bucket = out.setdefault(key, [])
+        if r["account"] not in bucket:
+            bucket.append(r["account"])
+    return out
 
 
 def fetch_bank_leg_and_transfer_vouchers(
@@ -224,8 +424,9 @@ def fetch_bank_leg_and_transfer_vouchers(
 ) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
     """For every voucher touching `account` in the period, find whether any
     OTHER leg of that same voucher hit a cash account (-> bank_leg), and
-    whether `account` itself is also a cash account while every other leg is
-    too (-> transfer, an internal move between bank accounts)."""
+    whether `account` itself is also a cash account with at least one other
+    cash leg (-> transfer). Classification itself is `classify_voucher_leg`
+    above; this function only fetches."""
     if not cash_accounts:
         return set(), set()
     filters = {
@@ -240,7 +441,6 @@ def fetch_bank_leg_and_transfer_vouchers(
                               limit_page_length=0)
     bank_leg: set[tuple[str, str]] = set()
     transfer: set[tuple[str, str]] = set()
-    account_is_cash = account in cash_accounts
     for v in vouchers:
         key = (v["voucher_type"], v["voucher_no"])
         legs = frappe.get_all(
@@ -249,9 +449,10 @@ def fetch_bank_leg_and_transfer_vouchers(
             fields=["account"], limit_page_length=0,
         )
         other_leg_accounts = {l["account"] for l in legs if l["account"] != account}
-        if other_leg_accounts & set(cash_accounts):
+        is_bank_leg, is_transfer = classify_voucher_leg(account, other_leg_accounts, cash_accounts)
+        if is_bank_leg:
             bank_leg.add(key)
-        if account_is_cash and other_leg_accounts and other_leg_accounts <= set(cash_accounts):
+        if is_transfer:
             transfer.add(key)
     return bank_leg, transfer
 

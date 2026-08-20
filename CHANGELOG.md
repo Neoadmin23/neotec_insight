@@ -1,3 +1,20 @@
+## v2.86.1 — 2026-08-21
+
+### Fixed: internal transfers with a bank fee were double-counted as real cash movements
+
+Found while answering a direct question about how the feature handles internal transfers between banks. A KSA inter-bank transfer routinely carries a third leg — the SARIE fee, posted to a Bank Charges expense account, alongside the source-bank credit and destination-bank debit. The original transfer-exclusion rule required *every* other leg on the voucher to be a cash account; the fee leg broke that condition, so the transfer went unrecognised and the same money was counted twice — once leaving the source bank, once arriving at the destination — as if it were two unrelated real cash movements, while the fee itself would still correctly count as real spend if bound to a Bank Charges line.
+
+Refactored the exclusion logic into a standalone, testable `classify_voucher_leg()`: a leg is now excluded as a transfer the moment *any* other leg is also a cash account, not only when every other leg is. Found a second, related gap while writing the tests for this: a line bound directly to a bank account (rather than to an Expense/Payable/Receivable account, the usual case) wasn't being recognised as ever touching cash at all, because the original check only ever looked at *other* legs — fixed so a leg on a cash account is always recognised as a real cash movement regardless of what else the voucher touches.
+
+### Added, per direct customer feedback
+
+- **Company as a dropdown**, sourced from the Company master — auto-selects when there's exactly one company, otherwise a real dropdown. Replaces the free-text field this shipped with in v2.86.0.
+- **Bank account multi-select**, default "all," narrows to one or more specific banks — backed by a new `resolve_cash_accounts(..., restrict_to=...)` parameter, validated against the real Bank/Cash account list so a stale or mistyped name can't silently expand scope.
+- **Internal transfers surfaced, not silently vanished** — a new panel lists every detected transfer for the period, with the KSA fee broken out as its own figure rather than folded into either the source or destination amount. Same "never absorbed silently" principle as the reconciliation residual, applied to the other place this feature quietly excludes something.
+- **Click a number, see which bank accounts fed it** — every Actual cell is now a drill-down into its per-bank-account breakdown, for split payments and for auditing which specific bank a figure came from.
+
+`tests/test_cash_flow_forecast_engine.py` gained `TestClassifyVoucherLeg` (6 tests, including the exact 3-leg KSA scenario), `TestBuildTransferLog` (3 tests, including the fee-detection case), and `TestBankBreakdownMonthly` (3 tests, including a split-payment case). 35 engine tests, 128 total, all green. Frontend typechecks clean against the existing baseline and builds cleanly.
+
 ## v2.86.0 — 2026-08-21
 
 ### Added: Cash Flow Forecast — direct-method, fully separate from the existing Cash Flow

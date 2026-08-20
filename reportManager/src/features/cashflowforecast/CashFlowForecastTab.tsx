@@ -48,6 +48,18 @@ type RunLine = {
   actual: Record<number, number>;
   budget: Record<number, number>;
   binding_count: number;
+  by_bank: Record<number, Record<string, number>>;
+};
+
+type Transfer = {
+  voucher_type: string;
+  voucher_no: string;
+  from_accounts: string[];
+  to_accounts: string[];
+  amount_sent: number;
+  amount_received: number;
+  fee: number;
+  fy_position: number | null;
 };
 
 type RunResult = {
@@ -60,7 +72,12 @@ type RunResult = {
   residuals: Record<number, number>;
   residual_tolerance_pct: number;
   month_labels: string[];
+  cash_accounts: string[];
+  transfers: Transfer[];
 };
+
+type BankAccount = { name: string; account_name: string; account_type: string };
+type Company = { name: string; default_currency: string };
 
 function fmt(n: number | undefined): string {
   const v = n || 0;
@@ -72,33 +89,58 @@ function fmt(n: number | undefined): string {
 export function CashFlowForecastTab() {
   const [view, setView] = useState<'statement' | 'setup'>('statement');
   const [fiscalYear, setFiscalYear] = useState<number>(new Date().getFullYear());
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [company, setCompany] = useState<string | null>(null);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [selectedBanks, setSelectedBanks] = useState<string[]>([]); // empty = all
   const [run, setRun] = useState<RunResult | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Line | null>(null);
+  const [drill, setDrill] = useState<{ line: RunLine; monthIdx: number } | null>(null);
+  const [showTransfers, setShowTransfers] = useState(false);
 
   const loadLines = useCallback(async () => {
     const rows = await api.cashFlowForecastLines(false);
     setLines(rows || []);
   }, []);
 
+  const loadCompanies = useCallback(async () => {
+    const rows = await api.cashFlowForecastCompanies();
+    setCompanies(rows || []);
+    // Per the customer's request: auto-select when there's exactly one
+    // company, leave the dropdown for the user to choose when there's more.
+    if (rows && rows.length === 1) setCompany(rows[0].name);
+  }, []);
+
+  const loadBankAccounts = useCallback(async () => {
+    const rows = await api.cashFlowForecastBankAccounts(company);
+    setBankAccounts(rows || []);
+    // Company changed — the previous bank selection may no longer apply.
+    setSelectedBanks([]);
+  }, [company]);
+
   const loadRun = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await api.cashFlowForecastRun(fiscalYear, company);
+      const r = await api.cashFlowForecastRunFiltered(fiscalYear, company, selectedBanks);
       setRun(r);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
       setLoading(false);
     }
-  }, [fiscalYear, company]);
+  }, [fiscalYear, company, selectedBanks]);
 
-  useEffect(() => { loadLines(); }, [loadLines]);
+  useEffect(() => { loadLines(); loadCompanies(); }, [loadLines, loadCompanies]);
+  useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
   useEffect(() => { if (view === 'statement') loadRun(); }, [view, loadRun]);
+
+  function toggleBank(name: string) {
+    setSelectedBanks((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]);
+  }
 
   const sections = useMemo(() => {
     if (!run) return [];
@@ -174,8 +216,37 @@ export function CashFlowForecastTab() {
           <div className="cff-toolbar">
             <input type="number" className="cff-input" value={fiscalYear}
               onChange={(e) => setFiscalYear(parseInt(e.target.value, 10) || fiscalYear)} />
-            <input type="text" className="cff-input" placeholder={t('Company (optional)')}
-              value={company || ''} onChange={(e) => setCompany(e.target.value || null)} />
+            {companies.length <= 1 ? (
+              <span className="cff-company-fixed">{company || (companies[0] && companies[0].name) || t('(no company)')}</span>
+            ) : (
+              <select className="cff-input" value={company || ''} onChange={(e) => setCompany(e.target.value || null)}>
+                <option value="">{t('— select company —')}</option>
+                {companies.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
+            )}
+
+            <div className="cff-bank-picker">
+              <button className="cff-btn-sm" onClick={() => setDrill(null)} disabled>
+                {selectedBanks.length === 0
+                  ? `${t('All banks')} (${bankAccounts.length})`
+                  : `${selectedBanks.length} ${t('of')} ${bankAccounts.length} ${t('banks')}`}
+              </button>
+              <div className="cff-bank-list">
+                <label className="cff-bank-item">
+                  <input type="checkbox" checked={selectedBanks.length === 0}
+                    onChange={() => setSelectedBanks([])} />
+                  <strong>{t('All banks')}</strong>
+                </label>
+                {bankAccounts.map((b) => (
+                  <label className="cff-bank-item" key={b.name}>
+                    <input type="checkbox" checked={selectedBanks.includes(b.name)}
+                      onChange={() => toggleBank(b.name)} />
+                    {b.account_name} <span className="cff-bank-type">{b.account_type}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <button className="cff-btn-primary" onClick={loadRun} disabled={loading}>
               {loading ? t('Running…') : t('Run')}
             </button>
@@ -185,6 +256,46 @@ export function CashFlowForecastTab() {
 
           {run && (
             <>
+              {run.transfers.length > 0 && (
+                <div className="cff-transfers-bar">
+                  <button className="cff-btn-sm" onClick={() => setShowTransfers((s) => !s)}>
+                    {showTransfers ? t('Hide') : t('Show')} {t('internal transfers')} ({run.transfers.length})
+                  </button>
+                  {!showTransfers && (
+                    <span className="cff-transfers-hint">
+                      {t('Excluded from every line above — money that moved bank to bank, not out of the business.')}
+                    </span>
+                  )}
+                </div>
+              )}
+              {showTransfers && (
+                <div className="cff-transfers-panel">
+                  <table className="cff-transfers-tbl">
+                    <thead>
+                      <tr>
+                        <th>{t('Voucher')}</th><th>{t('From')}</th><th>{t('To')}</th>
+                        <th>{t('Sent')}</th><th>{t('Received')}</th><th>{t('Fee')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {run.transfers.map((tr, i) => (
+                        <tr key={i}>
+                          <td>{tr.voucher_type} {tr.voucher_no}</td>
+                          <td>{tr.from_accounts.join(', ')}</td>
+                          <td>{tr.to_accounts.join(', ')}</td>
+                          <td>{fmt(tr.amount_sent)}</td>
+                          <td>{fmt(tr.amount_received)}</td>
+                          <td className={tr.fee > 0 ? 'cff-fee-flag' : ''}>{fmt(tr.fee)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="cff-recon-note">
+                    {t('KSA transfers routinely carry a SARIE fee — the destination bank receives less than the source bank sent. That gap is shown here, and also flows through as real spend on whichever line is bound to the Bank Charges account, if any is.')}
+                  </div>
+                </div>
+              )}
+
               <div className="cff-tbl-scroll">
                 <table className="cff-tbl">
                   <thead>
@@ -223,7 +334,11 @@ export function CashFlowForecastTab() {
                             {run.month_labels.map((_, i) => (
                               <Fragment key={i}>
                                 <td className="cff-b">{fmt(r.budget[i])}</td>
-                                <td>{fmt(r.actual[i])}</td>
+                                <td className={r.actual[i] ? 'cff-drillable' : ''}
+                                  title={r.actual[i] ? t('Click to see which bank accounts fed this figure') : undefined}
+                                  onClick={() => r.actual[i] && setDrill({ line: r, monthIdx: i })}>
+                                  {fmt(r.actual[i])}
+                                </td>
                               </Fragment>
                             ))}
                           </tr>
@@ -263,6 +378,41 @@ export function CashFlowForecastTab() {
               <div className="cff-recon-note">
                 {t('Reconciliation residual per month — the classified lines above checked against the actual bank ledger movement, independently. Zero means every binding accounts for itself; nonzero means a line is missing, overlapping, or a transfer was misclassified.')}
               </div>
+
+              {drill && (
+                <div className="cff-drill-overlay" onClick={() => setDrill(null)}>
+                  <div className="cff-drill-panel" onClick={(e) => e.stopPropagation()}>
+                    <div className="cff-drill-hdr">
+                      <div>
+                        <strong>{drill.line.label}</strong> — {run.month_labels[drill.monthIdx]}
+                        <div className="cff-drill-sub">{t('Which bank accounts fed this figure')}</div>
+                      </div>
+                      <button className="cff-btn-x" onClick={() => setDrill(null)}>×</button>
+                    </div>
+                    <table className="cff-drill-tbl">
+                      <tbody>
+                        {Object.entries(drill.line.by_bank[drill.monthIdx] || {}).length === 0 && (
+                          <tr><td className="cff-drill-empty">{t('No bank breakdown available for this cell.')}</td></tr>
+                        )}
+                        {Object.entries(drill.line.by_bank[drill.monthIdx] || {})
+                          .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                          .map(([bank, amt]) => (
+                            <tr key={bank}>
+                              <td>{bank}</td>
+                              <td className="cff-drill-amt">{fmt(amt)}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td>{t('Total')}</td>
+                          <td className="cff-drill-amt">{fmt(drill.line.actual[drill.monthIdx])}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
