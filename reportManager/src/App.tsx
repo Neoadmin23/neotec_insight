@@ -12,6 +12,7 @@ const ClassificationTab = lazy(() => import('./features/health/ClassificationTab
 const VatSettings = lazy(() => import('./features/vat/VatSettings'));
 const VatReturn = lazy(() => import('./features/vat/VatReturn'));
 const CashFlowTab = lazy(() => import('./features/cashflow/CashFlowTab'));
+const CashFlowForecastTab = lazy(() => import('./features/cashflowforecast/CashFlowForecastTab').then(m => ({ default: m.CashFlowForecastTab })));
 const ZakatTab = lazy(() => import('./features/zakat/ZakatTab'));
 const ExportPacks = lazy(() => import('./features/packs/ExportPacks'));
 const AgeingTab = lazy(() => import('./features/ageing/AgeingTab'));
@@ -84,6 +85,14 @@ const DEFAULT_SECTIONS: NavSection[] = [
       { ws: 'bank', label: 'Bank', title: 'Bank slip reader & reconciliation' },
       { ws: 'hr', label: 'People', title: 'People, payroll, accruals & end-of-service' },
     ] },
+  // v2.86.0 — own top-level section, deliberately, not a tab under Reports
+  // next to the existing indirect 'Cash Flow'. Direct-method budget-vs-
+  // actual forecast, own doctypes and API module — see
+  // Cash_Flow_Phase2_Spec.md for why this is a separate feature rather than
+  // a mode on the existing one.
+  { key: 'cash_flow_forecast', label: 'Cash Flow Forecast',
+    title: 'Direct-method cash flow — named categories, Budget entered by hand against Actual from GL cash-leg activity, monthly bank-balance rollforward',
+    tabs: [{ ws: 'cashflowforecast', label: 'Cash Flow Forecast' }] },
 ];
 
 /** Merge the saved layout with the built-in catalog: saved order wins, tabs
@@ -471,6 +480,11 @@ export default function App() {
         {workspace === 'cashflow' && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
             <CashFlowTab />
+          </Suspense>
+        )}
+        {workspace === 'cashflowforecast' && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
+            <CashFlowForecastTab />
           </Suspense>
         )}
         {workspace === 'visuals' && (

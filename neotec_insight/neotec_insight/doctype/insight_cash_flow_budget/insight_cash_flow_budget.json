@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "creation": "2026-08-21 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "hash",
+ "field_order": [
+  "line",
+  "period_month",
+  "budget_amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "line",
+   "fieldtype": "Link",
+   "options": "Insight Cash Flow Line",
+   "label": "Line",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "period_month",
+   "fieldtype": "Date",
+   "label": "Month",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1,
+   "description": "First day of the calendar month this budget applies to."
+  },
+  {
+   "fieldname": "budget_amount",
+   "fieldtype": "Currency",
+   "options": "Company:company:default_currency",
+   "label": "Budget Amount",
+   "description": "Entered by hand and never derived \u2014 same contract as the allocation Budget grid: a blank cell and a zero are different, blank contributes nothing to totals, zero contributes a real zero."
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-21 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Cash Flow Budget",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "period_month",
+ "sort_order": "ASC"
+}

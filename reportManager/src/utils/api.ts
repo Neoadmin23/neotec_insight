@@ -831,6 +831,31 @@ export const api = {
   allocationRun: (rule: string, year: number, company?: string | null) =>
     call<any>('allocation.run', { rule, year, company: company || null }),
 
+  // v2.86.0 — Cash Flow Forecast. Fully separate feature, own module —
+  // NOT grouped under allocationXxx naming even though the call<> pattern
+  // is identical, so nobody skimming this file mistakes it for part of
+  // the allocation feature.
+  cashFlowForecastLines: (includeInactive?: boolean) =>
+    call<any[]>('cash_flow_forecast.list_lines', { include_inactive: includeInactive ? 1 : 0 }),
+  cashFlowForecastSaveLine: (line: any) =>
+    call<any>('cash_flow_forecast.save_line', { line: JSON.stringify(line) }, 'POST'),
+  cashFlowForecastDeleteLine: (name: string) =>
+    call<any>('cash_flow_forecast.delete_line', { name }, 'POST'),
+  cashFlowForecastOverrides: (line?: string | null) =>
+    call<any[]>('cash_flow_forecast.list_overrides', { line: line || null }),
+  cashFlowForecastSaveOverride: (line: string, voucherType: string, voucherNo: string, note: string) =>
+    call<any>('cash_flow_forecast.save_override',
+      { line, voucher_type: voucherType, voucher_no: voucherNo, note }, 'POST'),
+  cashFlowForecastDeleteOverride: (name: string) =>
+    call<any>('cash_flow_forecast.delete_override', { name }, 'POST'),
+  cashFlowForecastBudgetGrid: (fiscalYear: number, company?: string | null) =>
+    call<any>('cash_flow_forecast.get_budget_grid', { fiscal_year: fiscalYear, company: company || null }),
+  cashFlowForecastSaveBudgetGrid: (fiscalYear: number, cells: any, company?: string | null) =>
+    call<any>('cash_flow_forecast.save_budget_grid',
+      { fiscal_year: fiscalYear, cells: JSON.stringify(cells || {}), company: company || null }, 'POST'),
+  cashFlowForecastRun: (fiscalYear: number, company?: string | null) =>
+    call<any>('cash_flow_forecast.run', { fiscal_year: fiscalYear, company: company || null }),
+
   // v2.57.0 — party ledgers
   partyControlAccounts: (company: string | null, party_type: string) =>
     call<{ name: string; label: string }[]>('report.party_control_accounts', { company, party_type }),

@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "creation": "2026-08-21 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "issingle": 1,
+ "field_order": [
+  "company",
+  "opening_balance_mode",
+  "opening_balance_override",
+  "residual_tolerance_pct"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "label": "Default Company"
+  },
+  {
+   "fieldname": "opening_balance_mode",
+   "fieldtype": "Select",
+   "options": "From Ledger\nManual Override",
+   "default": "From Ledger",
+   "label": "FY Opening Balance Source",
+   "description": "From Ledger: read from the company's actual Bank/Cash GL balance as of the fiscal year start \u2014 the statement then reconciles by construction. Manual Override: use the value below instead, for the first year of use before ledger history exists."
+  },
+  {
+   "fieldname": "opening_balance_override",
+   "fieldtype": "Currency",
+   "options": "Company:company:default_currency",
+   "label": "Manual Opening Balance",
+   "depends_on": "eval:doc.opening_balance_mode=='Manual Override'"
+  },
+  {
+   "fieldname": "residual_tolerance_pct",
+   "fieldtype": "Percent",
+   "label": "Residual Warning Threshold",
+   "default": "0.5",
+   "description": "A reconciliation residual larger than this share of the period's total bank turnover is flagged on the statement rather than shown as an ordinary line \u2014 the signal that a line is missing, overlapping, or mis-bound."
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-21 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Cash Flow Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ]
+}

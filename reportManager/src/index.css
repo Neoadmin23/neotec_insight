@@ -4379,3 +4379,94 @@ tr:hover .row-livegroup { opacity: 1; }
 .pivot-matrix .gran-quarter { background: var(--surface-2); }
 .pivot-matrix .gran-half { background: #f1efea; }
 .pivot-matrix .gran-total { background: var(--info-bg, #edeff7); font-weight: 600; }
+
+/* ── Cash Flow Forecast (v2.86.0) — own isolated feature ──────────────
+ * Prefixed .cff- throughout, deliberately, so nothing here can collide
+ * with or be mistaken for classes belonging to the P&L/report engine or
+ * the existing .cf- (indirect Cash Flow) styles above. Reuses the app's
+ * shared design tokens (--surface, --border, --pos, --neg, --budget-bg,
+ * etc.) — a new palette would look like a bolted-on tool, and the whole
+ * point of a separate feature is that it still belongs in this app. */
+.cff-wrap { padding: 20px 28px 60px; }
+.cff-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 4px; }
+.cff-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+.cff-sub { font-size: 12px; color: var(--text-muted); }
+.cff-iso-badge {
+  display: inline-flex; align-items: center; font-size: 10px; font-weight: 700;
+  color: var(--accent, #5b3fa0); background: rgba(91,63,160,0.07);
+  border: 1px solid rgba(91,63,160,0.25); padding: 3px 9px; border-radius: 20px;
+  text-transform: uppercase; letter-spacing: 0.03em; cursor: help;
+}
+
+.cff-view-toggle { display: flex; gap: 6px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px); padding: 3px; width: fit-content; margin: 16px 0 18px; }
+.cff-view-toggle button { border: none; background: transparent; padding: 7px 16px; font-size: 12.5px;
+  font-weight: 600; color: var(--text-muted); border-radius: 4px; cursor: pointer; font-family: inherit; }
+.cff-view-toggle button.active { background: var(--surface-3, #ebe7dd); color: var(--text); }
+
+.cff-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.cff-input { border: 1px solid var(--border); background: var(--surface); border-radius: 6px;
+  padding: 7px 10px; font-size: 12px; font-family: inherit; color: var(--text); }
+.cff-btn-primary { border: 1px solid var(--border-strong); background: var(--surface); padding: 7px 14px;
+  font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; color: var(--text); }
+.cff-btn-sm { border: 1px solid var(--border); background: var(--surface); padding: 5px 10px;
+  font-size: 11.5px; font-weight: 600; border-radius: 5px; cursor: pointer; color: var(--text); }
+.cff-btn-danger { border: 1px solid rgba(163,45,45,0.3); background: var(--neg-bg); color: var(--neg);
+  padding: 7px 14px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+.cff-btn-x { border: none; background: transparent; color: var(--text-faint); cursor: pointer; font-size: 15px; line-height: 1; }
+.cff-error { padding: 10px 14px; background: var(--neg-bg); border: 1px solid rgba(163,45,45,0.3);
+  border-radius: 6px; color: var(--neg); font-size: 12px; margin-bottom: 12px; }
+
+.cff-tbl-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.cff-tbl { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.cff-tbl th, .cff-tbl td { padding: 6px 9px; white-space: nowrap; text-align: right; font-size: 11.5px; }
+.cff-tbl .cff-rowlbl { text-align: left; white-space: normal; position: sticky; left: 0; background: var(--surface);
+  z-index: 2; border-right: 1px solid var(--border); min-width: 220px; }
+.cff-tbl thead th { position: sticky; top: 0; background: var(--surface); z-index: 3; border-bottom: 1px solid var(--border); }
+.cff-ba-row th { font-size: 9.5px; font-weight: 500; color: var(--text-faint); text-transform: uppercase;
+  letter-spacing: 0.03em; border-bottom: 1px solid var(--border-strong); }
+.cff-ba-row th.cff-b, .cff-tbl td.cff-b { background: var(--budget-bg); }
+.cff-section-hdr td { background: var(--surface-2); font-weight: 700; font-size: 11px; padding-top: 11px;
+  padding-bottom: 6px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.cff-item td { border-bottom: 1px solid rgba(0,0,0,0.045); }
+.cff-item:hover td { background: rgba(0,0,0,0.015); }
+.cff-total td { border-top: 1.5px solid var(--border-strong); border-bottom: 1px solid var(--border-strong);
+  font-weight: 700; background: var(--surface-2); }
+.cff-warn-badge { font-size: 9px; font-weight: 700; color: var(--neg); background: var(--neg-bg);
+  padding: 1px 6px; border-radius: 8px; margin-left: 6px; text-transform: uppercase; }
+
+.cff-recon-strip { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; }
+.cff-recon { flex: 1; min-width: 70px; text-align: center; padding: 8px 6px; border-radius: 6px; font-size: 11px; }
+.cff-recon.ok { background: var(--pos-bg); border: 1px solid rgba(15,110,86,0.25); }
+.cff-recon.warn { background: var(--neg-bg); border: 1px solid rgba(163,45,45,0.3); }
+.cff-recon-m { font-size: 9.5px; color: var(--text-faint); text-transform: uppercase; }
+.cff-recon-v { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cff-recon-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; max-width: 900px; }
+
+.cff-setup-cols { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
+.cff-setup-list { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.cff-setup-list-hdr { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.cff-line-row { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 5px;
+  font-size: 12px; cursor: pointer; }
+.cff-line-row:hover { background: var(--surface-2); }
+.cff-line-row.active { background: var(--budget-bg); font-weight: 600; }
+.cff-dir-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 5px; }
+.cff-dir-tag.out { color: var(--neg); background: var(--neg-bg); }
+.cff-dir-tag.in { color: var(--pos); background: var(--pos-bg); }
+.cff-warn-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn, #854f0b); margin-left: auto; }
+
+.cff-setup-editor { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.cff-setup-empty { color: var(--text-faint); font-size: 12.5px; padding: 30px; text-align: center; }
+.cff-lc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.cff-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted); }
+.cff-field input, .cff-field select { border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px;
+  font-size: 12px; font-family: inherit; color: var(--text); }
+.cff-bindings-hdr { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 8px;
+  font-size: 12px; font-weight: 600; }
+.cff-bind-tbl { width: 100%; border-collapse: collapse; }
+.cff-bind-tbl th { text-align: left; font-size: 10px; color: var(--text-faint); text-transform: uppercase;
+  padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.cff-bind-tbl td { padding: 4px 6px; border-bottom: 1px solid rgba(0,0,0,0.04); }
+.cff-bind-tbl input, .cff-bind-tbl select { width: 100%; border: 1px solid var(--border); border-radius: 4px;
+  padding: 5px 6px; font-size: 11.5px; font-family: inherit; }
+.cff-lc-actions { display: flex; gap: 8px; margin-top: 16px; }

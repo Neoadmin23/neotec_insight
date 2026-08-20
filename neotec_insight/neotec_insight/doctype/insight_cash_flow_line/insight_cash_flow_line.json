@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "creation": "2026-08-21 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "hash",
+ "field_order": [
+  "label",
+  "direction",
+  "section",
+  "sort_key",
+  "is_active",
+  "sb_bindings",
+  "bindings",
+  "sb_dimension",
+  "dimension_field",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "label": "Label",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1,
+   "description": "Printed on the statement exactly as entered here, e.g. 'GOSI Payment'."
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "label": "Direction",
+   "options": "Cash Out\nCash In",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Which side of the statement this line prints on. A single account can back a Cash Out line and a Cash In line separately \u2014 see each binding's Direction Mode, not this field, for how the two are told apart."
+  },
+  {
+   "fieldname": "section",
+   "fieldtype": "Data",
+   "label": "Section",
+   "description": "Groups lines under a shared header on the statement, e.g. 'Operating', 'Financing'. Free text on purpose \u2014 this is a print grouping, not a coded taxonomy."
+  },
+  {
+   "fieldname": "sort_key",
+   "fieldtype": "Int",
+   "label": "Sort Key",
+   "default": "0",
+   "description": "Print order within its section. Lower first."
+  },
+  {
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active",
+   "default": "1",
+   "description": "Inactive lines are kept (their history stays on past runs) but excluded from new runs and from the Line Setup list."
+  },
+  {
+   "fieldname": "sb_bindings",
+   "fieldtype": "Section Break",
+   "label": "Account Bindings"
+  },
+  {
+   "fieldname": "bindings",
+   "fieldtype": "Table",
+   "options": "Insight Cash Flow Line Binding",
+   "label": "Bindings",
+   "description": "One or more accounts (any root type) this line reads from. A line with zero bindings never errors \u2014 it simply contributes nothing, the same 'blank vs zero' distinction the rest of the app uses \u2014 but it also never appears in the reconciliation as a source of residual, which makes an accidentally-unbound line easy to miss. Check Line Setup's binding count, not just the statement, before trusting a run."
+  },
+  {
+   "fieldname": "sb_dimension",
+   "fieldtype": "Section Break",
+   "label": "Cash In dimension"
+  },
+  {
+   "fieldname": "dimension_field",
+   "fieldtype": "Select",
+   "label": "Dimension field",
+   "options": "\nCost Center\nProject",
+   "depends_on": "eval:doc.direction=='Cash In'",
+   "description": "Cash In lines are usually distinguished by cost centre or project on a SHARED receivables account, not by a dedicated account per line \u2014 set which GL Entry field carries that distinction here, then set the matching value on each binding row below."
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-21 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Cash Flow Line",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "sort_key",
+ "sort_order": "ASC"
+}

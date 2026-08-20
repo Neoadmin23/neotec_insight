@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "creation": "2026-08-21 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "hash",
+ "field_order": [
+  "line",
+  "voucher_type",
+  "voucher_no",
+  "note",
+  "created_by_user",
+  "created_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "line",
+   "fieldtype": "Link",
+   "options": "Insight Cash Flow Line",
+   "label": "Line",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "voucher_type",
+   "fieldtype": "Link",
+   "options": "DocType",
+   "label": "Voucher Type",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "voucher_no",
+   "fieldtype": "Dynamic Link",
+   "options": "voucher_type",
+   "label": "Voucher No",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Why this can't be a binding rule",
+   "description": "The last resort, for a transaction Tier-1 filters genuinely can't separate from others on the same account \u2014 same direction, same party, same cost centre, distinguishable only by a human knowing what it actually was. Required so the override still means something to someone else in six months."
+  },
+  {
+   "fieldname": "created_by_user",
+   "fieldtype": "Data",
+   "label": "Created By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created_on",
+   "fieldtype": "Datetime",
+   "label": "Created On",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-21 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Cash Flow Override",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}

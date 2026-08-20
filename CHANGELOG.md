@@ -1,3 +1,23 @@
+## v2.86.0 — 2026-08-21
+
+### Added: Cash Flow Forecast — direct-method, fully separate from the existing Cash Flow
+
+New top-level nav section, own button, deliberately not a tab under Reports beside the existing indirect Cash Flow statement. Per the customer's explicit instruction: own doctypes, own API module (`api/cash_flow_forecast.py`), own engine (`utils/cash_flow_forecast.py`), own frontend folder (`features/cashflowforecast/`) — no import from `api/report.py`, `utils/execution.py`, `utils/allocation.py`, or `utils/fiscal_year.py` anywhere in this feature. See `Cash_Flow_Build_Plan.md` and `Cash_Flow_Phase2_Spec.md` for the full design history.
+
+**New doctypes**: `Insight Cash Flow Line` (the line definition — label, direction, section, Cash In dimension field), `Insight Cash Flow Line Binding` (child table — account of any root type, direction mode, cost centre/project, party), `Insight Cash Flow Override` (Tier 2 manual voucher tagging, for the transactions a binding genuinely cannot separate — required to carry a note explaining why), `Insight Cash Flow Budget` (manual entry, same blank-vs-zero contract as the allocation Budget grid), `Insight Cash Flow Settings` (opening balance source and residual tolerance).
+
+**The attribution model, three tiers**: (1) direct binding — account, optionally narrowed by direction mode (Net / Debit Only / Credit Only, the mechanism that lets two lines read the *same* liability account as a loan settlement and a loan draw without netting them together), cost centre/project (how department-based Cash In lines read a shared receivables account), or party (for named-individual lines sharing one account); (2) manual override, for the residue no binding rule can separate; (3) whatever neither tier claims is a visible reconciliation residual, never silently absorbed.
+
+**Deliberate isolation cost, stated rather than hidden**: the calendar-month ↔ FY-position conversion is reimplemented standalone in `utils/cash_flow_forecast.py` rather than importing `fiscal_year.py`'s — a second implementation of the same idea, and an accepted risk of full separation. Mitigated the only way that's ever worked in this codebase: the exact January-start / April-start fixture pair that caught the original allocation-budget bug, run independently against this module's own conversion.
+
+**Two real bugs caught while building, before either shipped**:
+- The reconciliation residual was originally wired to compare the derived rollforward against itself — tautologically zero by construction, silently defeating the one check this feature exists to provide. Caught on a second read of the code, not by a test (there wasn't one yet for the orchestration layer). Fixed to check against an independently-fetched ledger balance at each month's boundary.
+- Budget grid save/load and the FY-run's date range both assumed every month of a fiscal year sits in one calendar year — true for a January-start company, false for any other. Same bug shape as the original month-shift, one level up: right month, wrong year. A budget entered against "March" for an April-start company's FY2026 would have silently saved under 2026 instead of 2027. Caught before shipping by `TestFyPositionToCalendarYear`, which walks a full April-start year against hand-verified (year, month) pairs.
+
+`tests/test_cash_flow_forecast_engine.py` — 23 tests covering the calendar/FY-position/calendar-year conversions (both fixture companies), the direction-mode split (debit-only vs credit-only vs net, and specifically that a credit row cannot leak into a debit-only line), the cash-leg rule (accrual exclusion, bank-to-bank transfer exclusion, override-claimed voucher exclusion), balance-carry, and the reconciliation residual (zero when reconciled, signed correctly for both a missing line and a double-counted one). 116 tests total, all green.
+
+**Not yet covered**: the API orchestration layer (`api/cash_flow_forecast.py`'s `run()`) has no end-to-end test — the pure engine functions carry the test burden here the same way they do elsewhere in this app, but `run()`'s Frappe wiring needs a live site to exercise properly, the same gap noted for the v2.77.0 permission sweep. Needs validating against a real bench before this reaches customer data.
+
 ## v2.85.0 — 2026-08-19
 
 ### Fixed: hidden rows printed on the consolidated P&L

@@ -1,4 +1,4 @@
-export type Workspace = 'reports' | 'visuals' | 'dashboard' | 'group' | 'briefing' | 'general_ledger' | 'ageing' | 'studio' | 'health' | 'classification' | 'vat' | 'vat_settings' | 'zakat' | 'packs' | 'gst' | 'cashflow' | 'bank' | 'hr' | 'allocation';
+export type Workspace = 'reports' | 'visuals' | 'dashboard' | 'group' | 'briefing' | 'general_ledger' | 'ageing' | 'studio' | 'health' | 'classification' | 'vat' | 'vat_settings' | 'zakat' | 'packs' | 'gst' | 'cashflow' | 'bank' | 'hr' | 'allocation' | 'cashflowforecast';
 export type RowKind = 'section' | 'source' | 'formula' | 'allocation';
 export type ComparisonMode = 'actuals_only' | 'vs_budget';
 export type Granularity =
