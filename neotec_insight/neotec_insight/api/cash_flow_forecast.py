@@ -40,6 +40,7 @@ from neotec_insight.neotec_insight.utils.cash_flow_forecast import (
     list_bank_accounts_for_ui,
     reconciliation_residual,
     resolve_cash_accounts,
+    resolve_company_fy_start_month,
 )
 
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -153,7 +154,7 @@ def get_budget_grid(fiscal_year: int, company: str | None = None):
     which CALENDAR YEAR each cell's date actually falls in."""
     _require_read()
     fy = int(fiscal_year)
-    fy_start_month = _fy_start_month(company)
+    fy_start_month = resolve_company_fy_start_month(company)
     year_for_month = {}
     for cal_m in range(1, 13):
         pos = calendar_to_fy_position(cal_m, fy_start_month)
@@ -187,7 +188,7 @@ def save_budget_grid(fiscal_year: int, cells: str | dict, company: str | None = 
     budget month-shift, one level up: right month, wrong year."""
     _require_write()
     fy = int(fiscal_year)
-    fy_start_month = _fy_start_month(company)
+    fy_start_month = resolve_company_fy_start_month(company)
     data = json.loads(cells) if isinstance(cells, str) else cells
     for line, months in data.items():
         if not frappe.db.exists("Insight Cash Flow Line", line):
@@ -215,17 +216,6 @@ def save_budget_grid(fiscal_year: int, cells: str | dict, company: str | None = 
 # Run — the statement itself
 # ─────────────────────────────────────────────────────────────────────────
 
-def _fy_start_month(company: str | None) -> int:
-    """This module's own resolution — deliberately not importing
-    fiscal_year.py's get_company_fy_start_month. Falls back to January if
-    the company has no fiscal year configured, same fallback direction as
-    the rest of the app."""
-    if company:
-        fy = frappe.db.get_value(
-            "Fiscal Year", {"company": company}, ["year_start_date"], order_by="year_start_date desc")
-        if fy:
-            return getdate(fy).month
-    return 1
 
 
 @frappe.whitelist()
@@ -236,7 +226,7 @@ def run(fiscal_year: int, company: str | None = None, bank_accounts: str | list 
     the user wants" behaviour."""
     _require_read()
     fy = int(fiscal_year)
-    fy_start_month = _fy_start_month(company)
+    fy_start_month = resolve_company_fy_start_month(company)
     months = list(range(12))
     restrict = json.loads(bank_accounts) if isinstance(bank_accounts, str) else bank_accounts
     cash_accounts = resolve_cash_accounts(company, restrict_to=restrict or None)

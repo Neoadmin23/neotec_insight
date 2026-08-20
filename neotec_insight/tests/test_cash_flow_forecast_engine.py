@@ -23,9 +23,12 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[1]  # .../neotec_insight/neotec_insight
 
 
-def _load_engine():
+def _load_engine(get_value_impl=None):
     """Import utils/cash_flow_forecast.py with a minimal fake frappe, the
-    same pattern used throughout this app's test suite."""
+    same pattern used throughout this app's test suite. get_value_impl, if
+    given, backs frappe.get_value — lets a test simulate either a real
+    return value or the exact 'unknown column' failure this module hit in
+    production (v2.86.0's Fiscal Year.company, v2.86.2's Company.year_start_date)."""
     fake_frappe = types.ModuleType("frappe")
     fake_utils = types.ModuleType("frappe.utils")
     fake_utils.flt = lambda v, precision=None: (
@@ -33,6 +36,8 @@ def _load_engine():
     )
     fake_utils.getdate = lambda v: v
     fake_frappe.utils = fake_utils
+    if get_value_impl is not None:
+        fake_frappe.get_value = get_value_impl
     sys.modules["frappe"] = fake_frappe
     sys.modules["frappe.utils"] = fake_utils
 
@@ -212,6 +217,79 @@ class TestAttributeBindingMonthlyCashLegRule(unittest.TestCase):
         self.assertEqual(monthly[5], 0.0)
 
 
+class TestParseFyStartMonth(unittest.TestCase):
+    """The production bug: v2.86.0/v2.86.1 queried a `company` column on the
+    Fiscal Year doctype that doesn't exist, and raised 'Unknown column
+    company in WHERE' the first time it ran against a real site. Nothing in
+    this test file caught it, because the broken code lived entirely in the
+    DB-facing half of the function — this is the pure half, split out
+    specifically so the parsing logic (which is where a second bug could
+    still hide) has real coverage, even though the DB query itself still
+    doesn't."""
+
+    def setUp(self):
+        self.eng = _load_engine()
+
+    def test_none_defaults_to_january(self):
+        self.assertEqual(self.eng.parse_fy_start_month(None), 1)
+
+    def test_missing_defaults_to_january(self):
+        self.assertEqual(self.eng.parse_fy_start_month(""), 1)
+
+    def test_date_object(self):
+        self.assertEqual(self.eng.parse_fy_start_month(_Date(4)), 4)
+
+    def test_iso_string(self):
+        self.assertEqual(self.eng.parse_fy_start_month("2026-04-01"), 4)
+
+    def test_iso_string_with_time_component(self):
+        self.assertEqual(self.eng.parse_fy_start_month("2026-04-01 00:00:00"), 4)
+
+    def test_malformed_string_defaults_to_january_not_a_crash(self):
+        """A malformed or unexpected value here must not take down the
+        whole report run — same defensive posture as the rest of this
+        module's DB-facing wrappers."""
+        self.assertEqual(self.eng.parse_fy_start_month("not-a-date"), 1)
+
+    def test_out_of_range_month_defaults_to_january(self):
+        self.assertEqual(self.eng.parse_fy_start_month(_Date(13)), 1)
+        self.assertEqual(self.eng.parse_fy_start_month(_Date(0)), 1)
+
+
+
+class TestResolveCompanyFyStartMonth(unittest.TestCase):
+    """The DB-facing half of the v2.86.2/v2.86.3 production bugs: two
+    separate 'Unknown column ... in ...' OperationalErrors, on two
+    different queries, on the same real site — first Fiscal Year.company
+    (fixed in v2.86.2), then Company.year_start_date itself (this file's
+    reason to exist). fiscal_year.py's own get_company_fy_start_month
+    absorbs the identical failure silently and falls back to January; this
+    function must now do exactly the same, not propagate a 500."""
+
+    def test_no_company_returns_january_without_querying(self):
+        eng = _load_engine(get_value_impl=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("must not query when company is falsy")))
+        self.assertEqual(eng.resolve_company_fy_start_month(None), 1)
+        self.assertEqual(eng.resolve_company_fy_start_month(""), 1)
+
+    def test_normal_value_is_parsed(self):
+        eng = _load_engine(get_value_impl=lambda *a, **k: _Date(4))
+        self.assertEqual(eng.resolve_company_fy_start_month("Acme"), 4)
+
+    def test_unknown_column_error_falls_back_to_january_not_a_500(self):
+        """The exact production failure: the query itself raises, because
+        the column this site's schema was assumed to have doesn't exist."""
+        def raise_unknown_column(*a, **k):
+            raise Exception("(1054, \"Unknown column 'year_start_date' in 'SELECT'\")")
+        eng = _load_engine(get_value_impl=raise_unknown_column)
+        self.assertEqual(eng.resolve_company_fy_start_month("IRSAA Business Solution"), 1)
+
+    def test_any_other_query_failure_also_falls_back_rather_than_propagating(self):
+        eng = _load_engine(get_value_impl=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        self.assertEqual(eng.resolve_company_fy_start_month("Acme"), 1)
+
+
+
 class TestClassifyVoucherLeg(unittest.TestCase):
     """The KSA inter-bank-transfer-with-fee case: three legs (source bank
     credit, destination bank debit, Bank Charges expense debit for the
@@ -356,6 +434,7 @@ class TestBankBreakdownMonthly(unittest.TestCase):
 
 
 
+class TestBalanceCarry(unittest.TestCase):
     """The one genuinely new engine capability — a rollforward, tested with
     the same January-start / April-start pair as everything else, since
     that's exactly where a silent off-by-one would hide."""

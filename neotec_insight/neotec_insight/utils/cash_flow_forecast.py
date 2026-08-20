@@ -23,6 +23,7 @@ Three-tier attribution, in order:
 
 from __future__ import annotations
 
+import datetime
 from typing import Any
 
 import frappe
@@ -299,6 +300,60 @@ def bank_breakdown_monthly(
 # DB-facing wrappers — thin, not independently unit-tested (same convention
 # as the rest of this app: the pure functions above carry the test burden).
 # ─────────────────────────────────────────────────────────────────────────
+
+def parse_fy_start_month(year_start_date) -> int:
+    """Pure. Given a Company.year_start_date value (a date/datetime object,
+    an ISO string, or None/missing), extract the calendar month (1-12) the
+    company's fiscal year starts on, defaulting to January if missing or
+    unparseable.
+
+    This is the parsing half of resolve_company_fy_start_month below, split
+    out specifically so it's testable without a DB — the whole-function
+    version (querying Company.year_start_date) is what actually shipped
+    wrong in v2.86.0/v2.86.1: an earlier version queried a `company` column
+    on the Fiscal Year doctype that doesn't exist, and raised
+    'Unknown column company in WHERE' the first time it ran against a real
+    site. The unit suite never caught it because nothing in
+    tests/test_cash_flow_forecast_engine.py touched frappe.db.get_value at
+    all — every test used the pure functions, which is exactly why THIS
+    function exists now: so the part of this logic that can be pure, is."""
+    if not year_start_date:
+        return 1
+    try:
+        if isinstance(year_start_date, str):
+            year_start_date = datetime.date.fromisoformat(year_start_date[:10])
+        m = int(year_start_date.month)
+        return m if 1 <= m <= 12 else 1
+    except Exception:
+        return 1
+
+
+def resolve_company_fy_start_month(company: str | None) -> int:
+    """DB-facing wrapper — reads Company.year_start_date, the proven source
+    of truth in this app (see utils/fiscal_year.py's own docstring). NOT a
+    `company` filter on the Fiscal Year doctype, which has no such column
+    (that was v2.86.0/v2.86.1's bug; fixed in v2.86.2 by copying this query
+    shape from fiscal_year.py).
+
+    v2.86.3 — copying the query wasn't enough; fiscal_year.py wraps it in
+    try/except and this didn't, so when THIS query also hit a schema this
+    site doesn't have (year_start_date isn't a column here either — the
+    exact next error reported), it crashed the same way the first one did.
+    fiscal_year.py's own get_company_fy_start_month silently falls back to
+    January on the identical failure, which is why nothing else in the app
+    visibly errors on this site — every other report has likely been
+    treating every company as January-start this whole time, silently. That
+    is worth this site's owner knowing about directly; it is not something
+    to guess a fix for here. This function now matches that same fallback
+    behaviour rather than being the one place that crashes instead of
+    defaulting."""
+    if not company:
+        return 1
+    try:
+        return parse_fy_start_month(frappe.get_value("Company", company, "year_start_date"))
+    except Exception:
+        return 1
+
 
 def resolve_cash_accounts(company: str | None, restrict_to: list[str] | None = None) -> list[str]:
     """This module's OWN definition of 'which accounts are cash' — not

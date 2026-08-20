@@ -162,7 +162,7 @@ function mergeMenu(saved: { sections?: MenuSectionCfg[] } | null): NavSection[] 
     if (placed.has(ws)) continue;
     const home = out.find((s) => s.key === catalog[ws].defSection);
     if (home) home.tabs.push(catalog[ws]);
-    else out.push({ key: catalog[ws].defSection, label: catalog[ws].defSection, tabs: [catalog[ws]] });
+    else out.push({ key: catalog[ws].defSection, label: SECTION_LABELS[catalog[ws].defSection] || catalog[ws].defSection, tabs: [catalog[ws]] });
   }
   return out.filter((s) => s.tabs.length);
 }
@@ -191,6 +191,17 @@ function editableMenu(saved: { sections?: MenuSectionCfg[] } | null): MenuSectio
 
 const CATALOG_LABELS: Record<string, string> = Object.fromEntries(
   DEFAULT_SECTIONS.flatMap((s) => s.tabs.map((tb) => [tb.ws, tb.label])));
+
+// v2.86.3 — a NEW section (one a previously-saved site menu has never seen,
+// e.g. Cash Flow Forecast on any site that customised its menu before
+// v2.86.0 shipped) fell through mergeMenu's auto-append path, which used
+// the section's raw KEY ('cash_flow_forecast') as its label instead of its
+// real one ('Cash Flow Forecast') — every existing site with a saved
+// layout hit this, not just one screenshot's worth. Same shape of bug as
+// CATALOG_LABELS existing for tabs but nothing equivalent existed for
+// sections.
+const SECTION_LABELS: Record<string, string> = Object.fromEntries(
+  DEFAULT_SECTIONS.map((s) => [s.key, s.label]));
 
 export default function App() {
   // v1.9.41 — CFO Briefing is the new default landing tab.

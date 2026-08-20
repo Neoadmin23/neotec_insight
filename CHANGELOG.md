@@ -1,3 +1,31 @@
+## v2.86.3 — 2026-08-21
+
+### Fixed: nav button showed the raw internal key ("cash_flow_forecast") instead of its label
+
+`mergeMenu()` merges a site's previously-saved menu layout with the current build's catalog of tabs. A tab the saved layout has never seen — true for Cash Flow Forecast on any site that customised its menu before v2.86.0 shipped, which is most real sites — falls through to an auto-append path that used the section's raw KEY (`cash_flow_forecast`) as its display label instead of the actual one (`Cash Flow Forecast`). `CATALOG_LABELS` already existed for exactly this problem at the tab level; nothing equivalent existed for sections. Added `SECTION_LABELS` and used it in the fallback.
+
+### Fixed: `run()` still crashed on the same real site — 500, now "Unknown column 'year_start_date' in 'SELECT'"
+
+v2.86.2 fixed the wrong query (Fiscal Year.company) but copied only the query shape from `fiscal_year.py`, not its resilience — the real `get_company_fy_start_month` wraps the read in `try/except Exception: pass` and falls back to January; `resolve_company_fy_start_month` didn't, so when this site's schema *also* doesn't have `Company.year_start_date` (a second, different missing column), it crashed the same way.
+
+Fixed by wrapping the query in the same try/except. Worth stating plainly rather than quietly working around: `fiscal_year.py`'s identical fallback means every OTHER report in this app has likely been silently treating every company on this site as January-start this whole time, with no visible error — this function now matches that behaviour rather than being the one place that crashes instead of defaulting. That silent fallback elsewhere is a real thing worth this site's owner knowing about directly; it's not something to guess a fix for from inside an isolated feature that isn't supposed to share code with the rest of the app in the first place.
+
+Added `TestResolveCompanyFyStartMonth` (4 tests) — extended `_load_engine()` to accept a configurable `get_value_impl` so a test can simulate the exact `OperationalError` this hit in production, not just a normal return value. Also re-caught the same class-declaration-swallowed-by-an-edit mistake as v2.86.1 and v2.86.2 (`TestClassifyVoucherLeg` again) — cross-checked this time by counting declared classes against classes that actually ran tests under their own name, not just grep for the string "ok". 46 engine tests, 139 total, all green, all correctly attributed.
+
+## v2.86.2 — 2026-08-21
+
+### Fixed: `run()` crashed on every real site — 500, "Unknown column 'company' in 'WHERE'"
+
+Reported from production, first real run against a live bench: `_fy_start_month()` queried `frappe.db.get_value("Fiscal Year", {"company": company}, ...)` — the Fiscal Year doctype has no `company` column to filter on. Every call to `run()` failed before it could return anything, in both v2.86.0 and v2.86.1.
+
+The unit suite (42 tests as of v2.86.1) never caught this because the broken code was 100% on the DB-facing side of the function, and this module's whole testing discipline — deliberately, everywhere else — is pure functions tested directly, DB wrappers trusted thin. This one DB wrapper wasn't thin; it was wrong, and nothing exercised it.
+
+Fixed by copying the query shape from `utils/fiscal_year.py`'s `get_company_fy_start_month` (not importing it — isolation holds) rather than inventing one: the real source of truth is `Company.year_start_date`, not Fiscal Year. Split into `parse_fy_start_month()` (pure — extracts a month from a date/string/None, defaults to January on anything unparseable) and `resolve_company_fy_start_month()` (the actual DB read), the same pure/impure split as every other function in this module. The pure half now has 7 tests of its own. The DB-reading half still doesn't, and still can't without a live site — but the part of this bug that COULD be caught by a unit test now is.
+
+Also fixed two copy-paste artifacts introduced while adding tests in v2.86.1: `class TestClassifyVoucherLeg` and `class TestBalanceCarry`'s declaration lines were dropped during editing, silently merging their test methods into the preceding class. All 42 tests still ran and passed either way — Python doesn't care which class a method sits in — but `pytest -k TestClassifyVoucherLeg` would have found nothing, and a future reader grep-ing for "which class tests the transfer fee scenario" would have been misled. Caught by grep-ing every `class Test` declaration against ones actually run, rather than assuming green output meant correctly organized.
+
+135 tests total, all green, all correctly attributed to their own class.
+
 ## v2.86.1 — 2026-08-21
 
 ### Fixed: internal transfers with a bank fee were double-counted as real cash movements
