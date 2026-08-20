@@ -1,3 +1,11 @@
+## v2.86.4 — 2026-08-21
+
+### Added: proper account picker on the Account Bindings table — no more raw text input
+
+The Line Setup binding table's Account field was a plain `<input>` — no validation, no visibility into the chart of accounts, easy to mistype a name and get a silent zero with nothing telling you why. Replaced with `LinkField`, the tree+search picker already used elsewhere in the app (VAT settings, mapping rules) — reused as-is, no changes needed to it or its backend (`vat_settings.link_options`, a generic doctype-driven lookup, not P&L/report-engine code, so this doesn't cross the isolation boundary). Blocks selecting a group node, same as everywhere else it's used — a group account can't hold a balance, so letting one be picked here would silently resolve to nothing, exactly the failure mode this feature's reconciliation residual exists to catch, closed instead at the point of entry.
+
+Company, Cost Center, and Party fields are still plain text for now — `LinkField`'s backend spec only covers Account, Customer, and Customer Group today. Worth doing next if it'd help; scoped out of this pass since it wasn't what was asked.
+
 ## v2.86.3 — 2026-08-21
 
 ### Fixed: nav button showed the raw internal key ("cash_flow_forecast") instead of its label

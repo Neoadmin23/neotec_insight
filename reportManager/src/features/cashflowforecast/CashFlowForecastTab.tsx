@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
+import LinkField from '../../components/LinkField';
 
 /* Cash Flow Forecast (v2.86.0).
  *
@@ -490,7 +491,11 @@ export function CashFlowForecastTab() {
                     <tbody>
                       {(editing.bindings || []).map((b, idx) => (
                         <tr key={idx}>
-                          <td><input value={b.account} onChange={(e) => updateBinding(idx, { account: e.target.value })} /></td>
+                          <td className="cff-bind-account-cell">
+                            <LinkField doctype="Account" company={company}
+                              value={b.account} placeholder={t('Search or browse the chart of accounts…')}
+                              onChange={(v) => updateBinding(idx, { account: v })} />
+                          </td>
                           <td>
                             <select value={b.direction_mode} onChange={(e) => updateBinding(idx, { direction_mode: e.target.value as any })}>
                               <option value="Net">{t('Net')}</option>
