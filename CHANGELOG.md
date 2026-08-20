@@ -1,3 +1,17 @@
+## v2.85.0 — 2026-08-19
+
+### Fixed: hidden rows printed on the consolidated P&L
+
+A company-wide P&L exported to PDF still listed **Net Operating Income (Before Allocation)**, **GMO Allocation** and **Sales & Marketing Allocation** — rows the screen correctly hides when no cost centre is selected.
+
+Two independent faults, both fixed:
+
+**The export never checked `hidden`.** The on-screen grid has skipped hidden rows since v2.62.1; the export loop in `utils/export.ts` iterated every row regardless, so Excel, PDF, Print and CSV all printed them. The printed copy is the one that leaves the building.
+
+**The budget loader had no notion of visibility.** `_load_budget` applied no `show_when` rule, so a row hidden on the actual side still carried a budget. That is why the rows printed as Actual 0 against a real Budget figure — GMO Allocation showed 492,876 budget against nothing actual, which reads as "budgeted and not spent" rather than "not applicable at this level". The % Achieved column was computed from it.
+
+Allocation budgets now obey the same `is_row_hidden` rule the actuals obey, resolved against the same cost-centre selection.
+
 ## v2.84.0 — 2026-08-18
 
 ### Added: an HR role that sees People and nothing else

@@ -206,6 +206,13 @@ function buildStyledMatrix(run: RunResult, show = { growth: true, pctrev: true, 
 
   run.current.rows.forEach((row, idx) => {
     const kind = row.kind as RowKind;
+    // v2.85.0 — a row the screen hides must not appear in Excel, PDF, Print or
+    // CSV either. The on-screen grid has skipped `hidden` rows since v2.62.1;
+    // this loop never did, so a consolidated P&L printed its allocation rows
+    // and its before-allocation line — with Actual 0 and a real Budget figure,
+    // which reads as "budgeted and not spent" rather than "not applicable
+    // here". The printed copy is the one that leaves the building.
+    if ((row as any).hidden) return;
     if (kind === 'section') {
       const cells: CellMeta[] = [{ text: row.label, raw: row.label, tier: 'total', sub: 'actual', rowKind: 'section', isLabel: true }];
       const colCount = headerSub.length - 1;

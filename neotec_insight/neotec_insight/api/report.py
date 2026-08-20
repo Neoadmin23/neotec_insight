@@ -3737,6 +3737,20 @@ def _load_budget(
                 rule=row["allocation_rule"], fiscal_year=fiscal_year,
                 months=months, cost_center=cost_center,
                 company=company, fy_start_month_override=fy_start_month_override)
+            # v2.85.0 — the same visibility rule the actuals obey.
+            #
+            # `_load_budget` had no notion of show_when, so a row hidden on the
+            # actual side still carried a budget. On a consolidated P&L that
+            # printed as Actual 0 against a real Budget figure — which reads as
+            # "budgeted and not spent" rather than "not applicable at this
+            # level", and the % Achieved beside it was computed from it.
+            from neotec_insight.neotec_insight.utils.execution import is_row_hidden
+            single_cc = cost_center if isinstance(cost_center, str) and cost_center.strip() else None
+            if isinstance(cost_center, (list, tuple)) and len(cost_center) == 1:
+                single_cc = cost_center[0]
+            if is_row_hidden(row, "allocation", single_cc):
+                monthly = {m: 0.0 for m in months}
+                has_cell = {m: False for m in months}
             ctx[key] = monthly
             has_cell_by_key[key] = has_cell
             out_rows.append({**row, "monthly": monthly, "has_cell": has_cell})
