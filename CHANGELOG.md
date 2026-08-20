@@ -1,3 +1,15 @@
+## v2.86.5 — 2026-08-21
+
+### Fixed: `save_line` failed with "Document has been modified after you have opened it" on a save's very first attempt
+
+`save_line` fetched a fresh doc, then called `doc.update(data)` with the entire frontend payload — including `modified`, `owner`, `creation`, `docstatus`, every metadata field `list_lines()`'s `doc.as_dict()` had put into the frontend's `editing` state in the first place. `.update()` overwrote the freshly-fetched doc's real `modified` with whatever stale value was sitting in that browser state, and Frappe's own optimistic-lock check then correctly rejected the save as a conflict — even on a save that was the very first attempt in that session, because the "conflict" was entirely an artifact of copying a field that was never meant to be writable. Fixed with an explicit whitelist of the fields this screen actually lets someone edit; `doc.set()` per field, never a blind `.update(data)`.
+
+Also hardened the two things that made this worse in practice rather than just annoying: the Save button had no in-flight guard, so a double-click or a slow network plus an impatient second click could fire two saves against the same stale state — added a `savingLine` guard and disabled state. And the error surfaced as an untranslated background toast, leaving the form stuck on the same stale data with no obvious next step — now shown inline with a **Reload** action that re-fetches the line fresh.
+
+### Added: an actual place to enter Budget
+
+The Statement view's Budget column was read-only — `save_budget_grid`/`get_budget_grid` existed and worked since v2.86.0, but nothing in the frontend ever called them. There was no way to enter a budget figure anywhere in the app. New **Budget** tab: every active line, every month, editable, same blank-vs-zero contract as the allocation grid this was modeled on (a cell left blank was never entered and stays that way; a saved 0 is a real zero). Noted plainly in the UI, not just the changelog: clearing a previously-saved cell back to blank does not delete the underlying record — `save_budget_grid` only inserts or updates, never deletes — enter 0 explicitly if that's the intent.
+
 ## v2.86.4 — 2026-08-21
 
 ### Added: proper account picker on the Account Bindings table — no more raw text input

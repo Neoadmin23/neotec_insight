@@ -88,7 +88,7 @@ function fmt(n: number | undefined): string {
 }
 
 export function CashFlowForecastTab() {
-  const [view, setView] = useState<'statement' | 'setup'>('statement');
+  const [view, setView] = useState<'statement' | 'budget' | 'setup'>('statement');
   const [fiscalYear, setFiscalYear] = useState<number>(new Date().getFullYear());
   const [companies, setCompanies] = useState<Company[]>([]);
   const [company, setCompany] = useState<string | null>(null);
@@ -99,6 +99,12 @@ export function CashFlowForecastTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Line | null>(null);
+  const [savingLine, setSavingLine] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [budgetCells, setBudgetCells] = useState<Record<string, Record<number, string>>>({});
+  const [budgetLoading, setBudgetLoading] = useState(false);
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetError, setBudgetError] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ line: RunLine; monthIdx: number } | null>(null);
   const [showTransfers, setShowTransfers] = useState(false);
 
@@ -139,6 +145,61 @@ export function CashFlowForecastTab() {
   useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
   useEffect(() => { if (view === 'statement') loadRun(); }, [view, loadRun]);
 
+  const loadBudget = useCallback(async () => {
+    setBudgetLoading(true);
+    setBudgetError(null);
+    try {
+      const grid = await api.cashFlowForecastBudgetGrid(fiscalYear, company);
+      const cells: Record<string, Record<number, string>> = {};
+      for (const [line, months] of Object.entries<any>(grid || {})) {
+        cells[line] = {};
+        for (const [m, v] of Object.entries<any>(months || {})) {
+          cells[line][parseInt(m, 10)] = String(v);
+        }
+      }
+      setBudgetCells(cells);
+    } catch (e: any) {
+      setBudgetError(e?.message || String(e));
+    } finally {
+      setBudgetLoading(false);
+    }
+  }, [fiscalYear, company]);
+
+  useEffect(() => { if (view === 'budget') loadBudget(); }, [view, loadBudget]);
+
+  function setBudgetCell(line: string, month: number, value: string) {
+    setBudgetCells((prev) => ({ ...prev, [line]: { ...(prev[line] || {}), [month]: value } }));
+  }
+
+  async function saveBudget() {
+    if (budgetSaving) return;
+    setBudgetSaving(true);
+    setBudgetError(null);
+    try {
+      // Only cells with a real, parseable value are sent — a cell left
+      // blank was never entered and must stay that way server-side too
+      // (blank contributes nothing to totals; a saved 0 is a real zero).
+      // Clearing a PREVIOUSLY-saved cell back to blank in this screen does
+      // not delete the underlying record — save_budget_grid only inserts
+      // or updates, never deletes. Overwrite with an explicit 0 instead if
+      // that's the intent.
+      const payload: Record<string, Record<string, number>> = {};
+      for (const [line, months] of Object.entries(budgetCells)) {
+        const clean: Record<string, number> = {};
+        for (const [m, v] of Object.entries(months)) {
+          if (v !== '' && v != null && !Number.isNaN(Number(v))) clean[m] = Number(v);
+        }
+        if (Object.keys(clean).length) payload[line] = clean;
+      }
+      await api.cashFlowForecastSaveBudgetGrid(fiscalYear, payload, company);
+      await loadBudget();
+    } catch (e: any) {
+      setBudgetError(e?.message || String(e));
+    } finally {
+      setBudgetSaving(false);
+    }
+  }
+
   function toggleBank(name: string) {
     setSelectedBanks((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]);
   }
@@ -155,9 +216,35 @@ export function CashFlowForecastTab() {
   }, [run]);
 
   async function saveLine(line: Line) {
-    const saved = await api.cashFlowForecastSaveLine(line);
-    await loadLines();
-    setEditing(saved);
+    if (savingLine) return; // guards the double-click / slow-network double-submit
+    setSavingLine(true);
+    setSaveError(null);
+    try {
+      const saved = await api.cashFlowForecastSaveLine(line);
+      await loadLines();
+      setEditing(saved);
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      // Frappe's own wording ("Document has been modified…") is accurate
+      // but assumes desk familiarity — reframe it as an action, and offer
+      // the fix directly rather than leaving the form stuck on stale data.
+      if (/modified after you have opened it/i.test(msg)) {
+        setSaveError(t('Someone (or another tab) saved this line after you opened it. Reload it, then redo your change.'));
+      } else {
+        setSaveError(msg);
+      }
+    } finally {
+      setSavingLine(false);
+    }
+  }
+
+  async function reloadEditing() {
+    if (!editing?.name) return;
+    const rows = await api.cashFlowForecastLines(false);
+    setLines(rows || []);
+    const fresh = (rows || []).find((r: Line) => r.name === editing.name);
+    setEditing(fresh || null);
+    setSaveError(null);
   }
 
   async function deleteLine(name: string) {
@@ -168,6 +255,7 @@ export function CashFlowForecastTab() {
   }
 
   function newLine(direction: 'Cash Out' | 'Cash In') {
+    setSaveError(null);
     setEditing({ label: '', direction, section: direction, sort_key: 0, is_active: 1, bindings: [] });
   }
 
@@ -209,6 +297,7 @@ export function CashFlowForecastTab() {
 
       <div className="cff-view-toggle">
         <button className={view === 'statement' ? 'active' : ''} onClick={() => setView('statement')}>{t('Statement')}</button>
+        <button className={view === 'budget' ? 'active' : ''} onClick={() => setView('budget')}>{t('Budget')}</button>
         <button className={view === 'setup' ? 'active' : ''} onClick={() => setView('setup')}>{t('Line Setup')}</button>
       </div>
 
@@ -419,6 +508,82 @@ export function CashFlowForecastTab() {
         </div>
       )}
 
+      {view === 'budget' && (
+        <div className="cff-budget">
+          <div className="cff-toolbar">
+            <input type="number" className="cff-input" value={fiscalYear}
+              onChange={(e) => setFiscalYear(parseInt(e.target.value, 10) || fiscalYear)} />
+            {companies.length <= 1 ? (
+              <span className="cff-company-fixed">{company || (companies[0] && companies[0].name) || t('(no company)')}</span>
+            ) : (
+              <select className="cff-input" value={company || ''} onChange={(e) => setCompany(e.target.value || null)}>
+                <option value="">{t('— select company —')}</option>
+                {companies.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
+            )}
+            <button className="cff-btn-primary" disabled={budgetSaving} onClick={saveBudget}>
+              {budgetSaving ? t('Saving…') : t('Save Budget')}
+            </button>
+          </div>
+
+          <div className="cff-budget-note">
+            {t('Entered by hand and never derived — shown against the calculated Actual on the Statement. A blank cell and a zero are different: blank contributes nothing, zero contributes a real zero. Clearing a cell back to blank here does not delete a previously-saved value — enter 0 explicitly if that is the intent.')}
+          </div>
+
+          {budgetError && <div className="cff-error">{budgetError}</div>}
+          {budgetLoading && <div className="cff-note-loading">{t('Loading…')}</div>}
+
+          {!budgetLoading && (
+            <div className="cff-tbl-scroll">
+              <table className="cff-tbl">
+                <thead>
+                  <tr>
+                    <th className="cff-rowlbl">{t('Line')}</th>
+                    {MONTHS.map((m) => <th key={m}>{m}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const bySection = new Map<string, Line[]>();
+                    for (const l of lines) {
+                      if (l.is_active === 0) continue;
+                      const key = l.section || l.direction;
+                      if (!bySection.has(key)) bySection.set(key, []);
+                      bySection.get(key)!.push(l);
+                    }
+                    return Array.from(bySection.entries()).map(([section, rows]) => (
+                      <Fragment key={section}>
+                        <tr className="cff-section-hdr">
+                          <td colSpan={13}>{section}</td>
+                        </tr>
+                        {rows.map((l) => (
+                          <tr className="cff-item" key={l.name}>
+                            <td className="cff-rowlbl">{l.label}</td>
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                              <td key={m} className="cff-budget-cell">
+                                <input type="number" className="cff-budget-input"
+                                  value={budgetCells[l.name!]?.[m] ?? ''}
+                                  placeholder="—"
+                                  onChange={(e) => setBudgetCell(l.name!, m, e.target.value)} />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ));
+                  })()}
+                  {lines.filter((l) => l.is_active !== 0).length === 0 && (
+                    <tr><td colSpan={13} className="cff-setup-empty">
+                      {t('No active lines yet — add one under Line Setup first.')}
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {view === 'setup' && (
         <div className="cff-setup">
           <div className="cff-setup-cols">
@@ -429,7 +594,7 @@ export function CashFlowForecastTab() {
               </div>
               {lines.map((l) => (
                 <div key={l.name} className={`cff-line-row ${editing?.name === l.name ? 'active' : ''}`}
-                  onClick={() => setEditing(l)}>
+                  onClick={() => { setSaveError(null); setEditing(l); }}>
                   <span className={`cff-dir-tag ${l.direction === 'Cash Out' ? 'out' : 'in'}`}>
                     {l.direction === 'Cash Out' ? t('OUT') : t('IN')}
                   </span>
@@ -512,10 +677,21 @@ export function CashFlowForecastTab() {
                     </tbody>
                   </table>
 
+                  {saveError && (
+                    <div className="cff-error cff-save-error">
+                      {saveError}
+                      {editing.name && (
+                        <button className="cff-btn-sm" onClick={reloadEditing}>{t('Reload')}</button>
+                      )}
+                    </div>
+                  )}
+
                   <div className="cff-lc-actions">
-                    <button className="cff-btn-primary" onClick={() => saveLine(editing)}>{t('Save')}</button>
+                    <button className="cff-btn-primary" disabled={savingLine} onClick={() => saveLine(editing)}>
+                      {savingLine ? t('Saving…') : t('Save')}
+                    </button>
                     {editing.name && (
-                      <button className="cff-btn-danger" onClick={() => deleteLine(editing.name!)}>{t('Delete')}</button>
+                      <button className="cff-btn-danger" disabled={savingLine} onClick={() => deleteLine(editing.name!)}>{t('Delete')}</button>
                     )}
                   </div>
                 </div>

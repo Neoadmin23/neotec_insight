@@ -89,17 +89,34 @@ def list_lines(include_inactive: bool = False):
     return [frappe.get_doc("Insight Cash Flow Line", n).as_dict() for n in names]
 
 
+_LINE_EDITABLE_FIELDS = ["label", "direction", "section", "sort_key", "is_active",
+                        "dimension_field", "description", "bindings"]
+
+
 @frappe.whitelist()
 def save_line(line: str | dict):
+    """Only ever writes the fields a person can actually edit on this
+    screen — never `doc.update(data)` with the whole payload. The frontend's
+    `editing` state originates from list_lines()'s doc.as_dict(), which
+    includes every metadata field (modified, owner, creation, docstatus…),
+    and every edit afterwards just spreads that same object. A blind
+    `.update(data)` overwrites the freshly-fetched doc's real `modified`
+    with whatever stale value was sitting in that state — Frappe's own
+    optimistic-lock check then correctly rejects the save as a conflict,
+    even when there wasn't really one: 'Document has been modified after
+    you have opened it,' on a save that's the very first attempt in that
+    session. Restricting to a named field whitelist closes this at the
+    source rather than working around the symptom."""
     _require_write()
     data = json.loads(line) if isinstance(line, str) else line
     name = data.get("name")
     if name and frappe.db.exists("Insight Cash Flow Line", name):
         doc = frappe.get_doc("Insight Cash Flow Line", name)
-        doc.update(data)
     else:
-        data.pop("name", None)
-        doc = frappe.get_doc({"doctype": "Insight Cash Flow Line", **data})
+        doc = frappe.new_doc("Insight Cash Flow Line")
+    for f in _LINE_EDITABLE_FIELDS:
+        if f in data:
+            doc.set(f, data[f])
     doc.save()
     return doc.as_dict()
 

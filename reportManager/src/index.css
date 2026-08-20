@@ -4416,6 +4416,7 @@ tr:hover .row-livegroup { opacity: 1; }
 .cff-btn-x { border: none; background: transparent; color: var(--text-faint); cursor: pointer; font-size: 15px; line-height: 1; }
 .cff-error { padding: 10px 14px; background: var(--neg-bg); border: 1px solid rgba(163,45,45,0.3);
   border-radius: 6px; color: var(--neg); font-size: 12px; margin-bottom: 12px; }
+.cff-save-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 .cff-tbl-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .cff-tbl { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
@@ -4475,6 +4476,15 @@ tr:hover .row-livegroup { opacity: 1; }
 .cff-bind-account-cell .lf { width: 100%; }
 .cff-bind-account-cell .lf-input { width: 100%; border: 1px solid var(--border); border-radius: 4px;
   padding: 5px 6px; font-size: 11.5px; font-family: inherit; }
+
+.cff-budget-note { font-size: 11.5px; color: var(--text-muted); background: var(--budget-bg);
+  border: 1px solid rgba(186,117,23,0.2); border-radius: 6px; padding: 9px 12px; margin-bottom: 12px; max-width: 900px; }
+.cff-note-loading { color: var(--text-faint); font-size: 12px; padding: 20px; text-align: center; }
+.cff-budget-cell { padding: 3px 5px !important; }
+.cff-budget-input { width: 78px; border: 1px solid var(--border); border-radius: 4px; padding: 5px 6px;
+  font-size: 11.5px; font-family: var(--font-num); text-align: right; background: var(--budget-bg); }
+.cff-budget-input:focus { outline: 2px solid var(--accent, #5b3fa0); outline-offset: -1px; background: var(--surface); }
+.cff-budget-input::placeholder { color: var(--text-faint); }
 
 /* ── Cash Flow Forecast — company/bank picker, transfers, drill-down ── */
 .cff-company-fixed { font-size: 12px; color: var(--text-muted); padding: 7px 10px;
