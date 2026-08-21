@@ -255,6 +255,7 @@ export const api = {
   exportConfiguration: (sections?: string[]) =>
     call<any>('report.export_configuration', sections && sections.length ? { sections: JSON.stringify(sections) } : {}),
   configSectionCounts: () => call<any>('report.config_section_counts'),
+  configAreas: () => call<{ label: string; doctypes: string[] }[]>('report.config_areas'),
   importConfiguration: (payload: any, mode: 'replace' | 'merge' = 'replace') =>
     call<any>('report.import_configuration', { payload: JSON.stringify(payload), mode }, 'POST'),
 
@@ -848,6 +849,12 @@ export const api = {
       { line, voucher_type: voucherType, voucher_no: voucherNo, note }, 'POST'),
   cashFlowForecastDeleteOverride: (name: string) =>
     call<any>('cash_flow_forecast.delete_override', { name }, 'POST'),
+  cashFlowForecastPreviewImport: (fileBase64: string, sheetName?: string | null) =>
+    call<any>('cash_flow_forecast.preview_classified_history_import',
+      { file_base64: fileBase64, sheet_name: sheetName || null }, 'POST'),
+  cashFlowForecastCommitImport: (fileBase64: string, sheetName?: string | null) =>
+    call<any>('cash_flow_forecast.commit_classified_history_import',
+      { file_base64: fileBase64, sheet_name: sheetName || null }, 'POST'),
   cashFlowForecastBudgetGrid: (fiscalYear: number, company?: string | null) =>
     call<any>('cash_flow_forecast.get_budget_grid', { fiscal_year: fiscalYear, company: company || null }),
   cashFlowForecastSaveBudgetGrid: (fiscalYear: number, cells: any, company?: string | null) =>

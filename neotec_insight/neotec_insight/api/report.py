@@ -30,6 +30,11 @@ from neotec_insight.neotec_insight.utils.map_importer import (
 from neotec_insight.neotec_insight.utils.report_structure_importer import (
     import_report_structure,
 )
+from neotec_insight.neotec_insight.utils.config_backup_registry import (
+    CONFIG_REGISTRY,
+    EXCLUDED_FROM_CONFIG_BACKUP,
+    compute_coverage,
+)
 
 EXECUTION_CACHE_TTL_SECONDS = 300
 
@@ -2185,14 +2190,23 @@ def gl_drill_entries(
 def export_configuration(sections=None):
     """Bundle Insight configuration into one portable JSON object.
 
-    Includes report definitions, account→flag mappings, budget books/cells,
-    dashboards, equity setup, mapping rules, quick links, variance notes, and
-    AI settings (with the Arabic Label Sources child table). Carry the file to
-    another site and restore it with import_configuration. Account/department
-    names are kept as-is (intended for the SAME company / chart).
+    Every doctype in CONFIG_REGISTRY (utils/config_backup_registry.py) —
+    that ONE list is now the single source of truth this function, import_
+    configuration, and config_section_counts all read from, replacing what
+    used to be three independently hardcoded lists that could silently
+    drift out of sync, or all three simply never learn about a new
+    doctype. A coverage audit (see check_config_backup_coverage below)
+    found seven pre-existing doctypes unregistered in any of them before
+    this fix, on top of Cash Flow Forecast's own doctypes never having been
+    added either.
 
-    `sections` (optional): JSON list of doctype keys to include. When omitted,
-    every area is exported. Useful for partial backups from a test environment.
+    Carry the file to another site and restore it with import_configuration.
+    Account/department names are kept as-is (intended for the SAME company
+    / chart).
+
+    `sections` (optional): JSON list of doctype keys to include. When
+    omitted, every area is exported. Useful for partial backups from a test
+    environment.
     """
     frappe.only_for("System Manager")
     if not frappe.has_permission("Insight Report Definition", "read"):
@@ -2223,25 +2237,16 @@ def export_configuration(sections=None):
             rows.append(_clean(d))
         return rows
 
-    data = {
-        "Insight Report Definition": _dump("Insight Report Definition"),
-        "Insight Mapping Rule": _dump("Insight Mapping Rule"),
-        "Insight Equity Component": _dump("Insight Equity Component"),
-        "Insight Equity Movement Type": _dump("Insight Equity Movement Type"),
-        "Account Flag Mapping": _dump("Account Flag Mapping"),
-        "Insight Equity Movement": _dump("Insight Equity Movement"),
-        "Insight Budget Book": _dump("Insight Budget Book"),
-        "Insight Budget Cell": _dump("Insight Budget Cell"),
-        "Insight Dashboard": _dump("Insight Dashboard"),
-        "Insight Variance Note": _dump("Insight Variance Note"),
-        "Insight Quick Link": _dump("Insight Quick Link"),
-    }
-    # AI Settings is a Single
-    try:
-        ai = frappe.get_doc("Insight AI Settings").as_dict()
-        data["Insight AI Settings"] = [_clean(ai)]
-    except Exception:
-        data["Insight AI Settings"] = []
+    data = {}
+    for entry in CONFIG_REGISTRY:
+        dt = entry["doctype"]
+        if entry.get("is_single"):
+            try:
+                data[dt] = [_clean(frappe.get_doc(dt).as_dict())]
+            except Exception:
+                data[dt] = []
+        else:
+            data[dt] = _dump(dt)
 
     # optional section filter (partial backup)
     sel = None
@@ -2266,36 +2271,56 @@ def export_configuration(sections=None):
 
 
 @frappe.whitelist()
+def config_areas():
+    """The registry, grouped by area, for the backup UI's checkbox list —
+    replaces the frontend's own previously-hardcoded AREAS array. Adding a
+    doctype to CONFIG_REGISTRY now makes it appear here with no frontend
+    change needed."""
+    _require_read()
+    areas: dict[str, list[str]] = {}
+    for entry in CONFIG_REGISTRY:
+        areas.setdefault(entry["area"], []).append(entry["doctype"])
+    return [{"label": label, "doctypes": doctypes} for label, doctypes in areas.items()]
+
+
+@frappe.whitelist()
+def check_config_backup_coverage():
+    """Live diagnostic: every Insight doctype (module='Neotec Insight',
+    not a child table) against CONFIG_REGISTRY and EXCLUDED_FROM_CONFIG_
+    BACKUP. `unaccounted` should always be empty — the same check runs as
+    tests/test_config_backup_registry.py against the doctype/ folder
+    directly, so a real gap should already have been caught before this
+    ever reaches a live site; this endpoint is for confirming that on an
+    actual installed site, including any custom doctypes a specific
+    deployment might have added outside this app's own source."""
+    frappe.only_for("System Manager")
+    live = frappe.get_all("DocType", filters={"module": "Neotec Insight", "istable": 0}, pluck="name")
+    return compute_coverage(live)
+
+
+@frappe.whitelist()
 def config_section_counts():
     """Record count per Insight configuration area, for the backup selector."""
     _require_read()
     out = {}
-    for dt in _IMPORT_ORDER:
+    for entry in CONFIG_REGISTRY:
+        dt = entry["doctype"]
         try:
-            out[dt] = frappe.db.count(dt)
+            if entry.get("is_single"):
+                out[dt] = 1 if frappe.db.exists(dt, dt) else 0
+            else:
+                out[dt] = frappe.db.count(dt)
         except Exception:
             out[dt] = 0
-    try:
-        out["Insight AI Settings"] = 1 if frappe.db.exists("Insight AI Settings", "Insight AI Settings") else 1
-    except Exception:
-        out["Insight AI Settings"] = 0
     return out
 
 
-# Insert order — parents/targets before the records that link to them.
-_IMPORT_ORDER = [
-    "Insight Report Definition",
-    "Insight Mapping Rule",
-    "Insight Equity Component",
-    "Insight Equity Movement Type",
-    "Account Flag Mapping",
-    "Insight Equity Movement",
-    "Insight Budget Book",
-    "Insight Budget Cell",
-    "Insight Dashboard",
-    "Insight Variance Note",
-    "Insight Quick Link",
-]
+# Non-Single doctypes, in registry order — parents/targets before the
+# records that link to them, same ordering guarantee _IMPORT_ORDER used to
+# provide as its own separately-maintained list. Derived from CONFIG_
+# REGISTRY now so there's exactly one place to add a new doctype, not two.
+_IMPORT_ORDER = [e["doctype"] for e in CONFIG_REGISTRY if not e.get("is_single")]
+_SINGLE_DOCTYPES = [e["doctype"] for e in CONFIG_REGISTRY if e.get("is_single")]
 
 
 def _app_version():
@@ -2355,19 +2380,25 @@ def import_configuration(payload=None, mode="replace"):
                     summary["errors"].append(f"{dt} [{raw.get('name', '?')}]: {e}")
         summary["inserted"][dt] = ins
 
-    # 3) AI Settings (Single).
-    ai_list = data.get("Insight AI Settings") or []
-    if ai_list:
+    # 3) Single doctypes — every one in the registry, not just AI Settings.
+    # The old version of this function only ever handled AI Settings by
+    # name; Insight Menu Settings and Insight Cash Flow Settings (both
+    # Singles) would have silently never restored, the same class of
+    # silent gap the registry itself exists to close.
+    for dt in _SINGLE_DOCTYPES:
+        rows = data.get(dt) or []
+        if not rows:
+            continue
         try:
-            ai_doc = frappe.get_doc("Insight AI Settings")
-            src = dict(ai_list[0])
+            doc = frappe.get_doc(dt)
+            src = dict(rows[0])
             for k in ("doctype", "name"):
                 src.pop(k, None)
-            ai_doc.update(src)
-            ai_doc.save(ignore_permissions=True)
-            summary["inserted"]["Insight AI Settings"] = 1
+            doc.update(src)
+            doc.save(ignore_permissions=True)
+            summary["inserted"][dt] = 1
         except Exception as e:
-            summary["errors"].append(f"Insight AI Settings: {e}")
+            summary["errors"].append(f"{dt}: {e}")
 
     frappe.db.commit()
     return summary

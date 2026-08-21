@@ -1,3 +1,31 @@
+## v2.87.3 — 2026-08-22
+
+### Added: the config backup tool now covers every Insight doctype, and can't silently miss one again
+
+Audited the "Backup" tool against the app's real doctype folder — it turned out to be a hand-maintained config export/import, not a full backup, with the doctype list independently duplicated in **three places** (a hardcoded dict inside `export_configuration`, a separate `_IMPORT_ORDER` list, and the frontend's `AREAS` array). The audit found **7 pre-existing doctypes already missing** before any of this session's own Cash Flow Forecast doctypes were even counted: the entire Allocation Rule config, `Insight Menu Settings` (a site's saved nav layout — arguably the single most disruptive one to lose), GTPL rules, Account Tags, Report Schedules, Translation Overrides, and Studio Reports.
+
+**Fixed the cause, not the symptom.** New `utils/config_backup_registry.py` is now the one place a doctype gets registered — `CONFIG_REGISTRY` (portable setup, exported/restored) or `EXCLUDED_FROM_CONFIG_BACKUP` (site-specific transactional history, with a required real reason, not a placeholder). `export_configuration`, `import_configuration`, `config_section_counts`, and the frontend's checkbox list (now fetched from a new `config_areas()` endpoint instead of its own hardcoded array) all derive from this single registry.
+
+**The actual enforcement mechanism**, not just a cleanup: `test_config_backup_registry.py`'s `TestFullCoverageAgainstRealDoctypeFolder` scans the live `doctype/` folder and fails if anything is neither registered nor explicitly excluded — the next doctype someone adds and forgets to triage gets a failing test, not three more releases of silence. A live diagnostic (`check_config_backup_coverage()`) runs the identical check against an installed site's actual `DocType` table, for custom doctypes a specific deployment might add outside this app's own source.
+
+Two exclusions are marked lower-confidence rather than asserted as fact (`Insight Payment Order`, `Insight VAT Adjustment`) — inferred from their names, not verified against how they're actually used, since I don't have deep context on either. Flagged for the app owner to confirm, not presented as certain.
+
+`import_configuration`'s Single-doctype handling was also generalized while this was being fixed — the old version only ever restored `Insight AI Settings` by name; `Insight Menu Settings` and `Insight Cash Flow Settings` (also Singles) would have silently never come back on a restore. Now loops every `is_single` entry in the registry.
+
+12 new tests. 189 total at this point in the session, all green.
+
+### Added: import already-classified history into Cash Flow Forecast, instead of re-classifying it by hand
+
+For a customer whose existing process has already manually classified thousands of bank transactions (via the same remarks-reading judgment the Classification Queue now automates going forward) — bring that history in directly as Overrides, rather than re-doing the same work one row at a time.
+
+Two-step, deliberately: **preview never writes anything.** It parses the uploaded workbook and matches each row's category label against real, existing Lines, reporting matched/already-classified/unmatched counts — with every unmatched category named and counted, not silently dropped, so the user knows exactly which Lines to create before anything commits. **Commit re-parses and re-matches from scratch** rather than trusting a stale preview held in the browser, so what gets written always reflects the current Line list even if one was renamed in the few seconds between preview and commit.
+
+The header row is found by content (scanning for columns containing both "Voucher No" and "New Class"), not assumed to sit at a fixed row — verified against the real customer workbook this feature was built from, which has it at row 4 with trailing spaces on several headers ("Transaction Type ", not "Transaction Type"). 13 engine tests using a synthetic workbook (so tests don't depend on an uploaded file being present), plus direct verification against the real file: parsed all 2,209 real rows correctly, matched a 3-category sample at 597 matched / 1,612 unmatched with an itemized per-category breakdown.
+
+Follows this app's own established upload pattern (`api/report.py`'s `import_map_sheet`: file sent base64-encoded through the standard REST envelope, decoded and parsed server-side with `openpyxl`) rather than inventing a new one — same shape, no shared code, since Cash Flow Forecast's isolation boundary still holds.
+
+202 tests total, all green. Frontend typechecks clean and builds — `CashFlowForecastTab` grew to 30kB with the import modal bundled in.
+
 ## v2.87.2 — 2026-08-22
 
 ### Fixed: `mine_rules` crashed on first use — 500, "unsupported operand type(s) for /: 'str' and 'int'" — and a second, silent bug found by sweeping for the same pattern

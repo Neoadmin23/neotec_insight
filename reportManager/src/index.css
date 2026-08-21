@@ -4588,3 +4588,16 @@ tr:hover .row-livegroup { opacity: 1; }
 .cff-rule-samples { font-size: 11px; color: var(--text-faint); font-style: italic; margin-bottom: 8px; }
 .cff-rule-samples div { margin-bottom: 2px; }
 .cff-rule-actions { display: flex; gap: 6px; }
+
+/* ── Cash Flow Forecast — historical import (v2.87.4) ── */
+.cff-import-panel { min-width: 420px; max-width: 560px; }
+.cff-import-filename { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+.cff-import-preview { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.cff-import-stat { font-size: 12px; }
+.cff-import-ok { color: var(--pos); font-weight: 600; }
+.cff-import-warn { color: var(--warn, #854f0b); background: var(--budget-bg);
+  border: 1px solid rgba(133,79,11,0.2); border-radius: 6px; padding: 8px 10px; font-weight: 500; }
+.cff-import-unmatched-list { margin: 6px 0 0; padding-left: 18px; font-weight: 400; font-size: 11.5px; }
+.cff-import-unmatched-list li { margin-bottom: 2px; }
+.cff-import-errors { font-size: 11px; color: var(--neg); margin-top: 4px; }
+.cff-import-errors ul { max-height: 140px; overflow-y: auto; padding-left: 18px; }

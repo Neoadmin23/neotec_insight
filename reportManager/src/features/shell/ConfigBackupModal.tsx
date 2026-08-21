@@ -2,20 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 
-// Friendly areas → the Insight doctypes they cover. Lets the user back up only
-// the parts they need (e.g. skip test data from a sandbox).
-const AREAS: Array<{ label: string; doctypes: string[] }> = [
-  { label: 'Report definitions & rows', doctypes: ['Insight Report Definition'] },
-  { label: 'Account map (flag mappings)', doctypes: ['Account Flag Mapping'] },
-  { label: 'Mapping rules', doctypes: ['Insight Mapping Rule'] },
-  { label: 'Budgets', doctypes: ['Insight Budget Book', 'Insight Budget Cell'] },
-  { label: 'Equity setup & movements', doctypes: ['Insight Equity Component', 'Insight Equity Movement Type', 'Insight Equity Movement'] },
-  { label: 'Dashboards', doctypes: ['Insight Dashboard'] },
-  { label: 'Variance notes', doctypes: ['Insight Variance Note'] },
-  { label: 'Quick links', doctypes: ['Insight Quick Link'] },
-  { label: 'AI settings', doctypes: ['Insight AI Settings'] },
-];
-const ALL_DT = AREAS.flatMap((a) => a.doctypes);
+// v2.87.3 — AREAS used to be hardcoded here, a THIRD independently
+// maintained list alongside two more in api/report.py (export_
+// configuration's own dict, and _IMPORT_ORDER) — any of the three could
+// silently miss a new doctype, and a coverage audit found seven already
+// had. All three are now derived from ONE registry
+// (utils/config_backup_registry.py); this component just fetches it.
+type Area = { label: string; doctypes: string[] };
 
 /* Configuration backup — export ALL Insight config (report definitions,
  * account→flag mappings, budget, equity, dashboards, AI settings, etc.) to a
@@ -27,27 +20,35 @@ export function ConfigBackupModal({ onClose }: { onClose: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const [summary, setSummary] = useState<any>(null);
   const [pending, setPending] = useState<any>(null); // parsed bundle awaiting confirm
-  const [selected, setSelected] = useState<Set<string>>(new Set(ALL_DT));
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [counts, setCounts] = useState<Record<string, number>>({});
   const fileRef = useRef<HTMLInputElement>(null);
+  const allDt = areas.flatMap((a) => a.doctypes);
 
-  useEffect(() => { api.configSectionCounts().then(setCounts).catch(() => {}); }, []);
+  useEffect(() => {
+    api.configAreas().then((rows) => {
+      setAreas(rows || []);
+      setSelected(new Set((rows || []).flatMap((a) => a.doctypes)));
+    }).catch(() => {});
+    api.configSectionCounts().then(setCounts).catch(() => {});
+  }, []);
 
-  const areaSelected = (a: { doctypes: string[] }) => a.doctypes.every((d) => selected.has(d));
-  const areaCount = (a: { doctypes: string[] }) => a.doctypes.reduce((s, d) => s + (counts[d] || 0), 0);
-  const toggleArea = (a: { doctypes: string[] }) => setSelected((s) => {
+  const areaSelected = (a: Area) => a.doctypes.every((d) => selected.has(d));
+  const areaCount = (a: Area) => a.doctypes.reduce((s, d) => s + (counts[d] || 0), 0);
+  const toggleArea = (a: Area) => setSelected((s) => {
     const n = new Set(s); const on = a.doctypes.every((d) => n.has(d));
     a.doctypes.forEach((d) => (on ? n.delete(d) : n.add(d)));
     return n;
   });
-  const allOn = selected.size === ALL_DT.length;
-  const toggleAll = () => setSelected(allOn ? new Set() : new Set(ALL_DT));
+  const allOn = allDt.length > 0 && selected.size === allDt.length;
+  const toggleAll = () => setSelected(allOn ? new Set() : new Set(allDt));
 
   async function doExport() {
     setBusy(true); setErr(null); setMsg(null);
     try {
       const picked = [...selected];
-      const bundle = await api.exportConfiguration(picked.length === ALL_DT.length ? undefined : picked);
+      const bundle = await api.exportConfiguration(picked.length === allDt.length ? undefined : picked);
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       const stamp = new Date().toISOString().slice(0, 10);
@@ -115,11 +116,11 @@ export function ConfigBackupModal({ onClose }: { onClose: () => void }) {
                 <input type="checkbox" checked={allOn} ref={(el) => { if (el) el.indeterminate = !allOn && selected.size > 0; }} onChange={toggleAll} />
                 {t('All areas')}
               </label>
-              <span style={{ fontSize: 11, color: '#9a948a' }}>{selected.size}/{ALL_DT.length} {t('selected')}</span>
+              <span style={{ fontSize: 11, color: '#9a948a' }}>{selected.size}/{allDt.length} {t('selected')}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 14px', marginBottom: 10,
                           border: '1px solid var(--border,#eee)', borderRadius: 8, padding: '8px 10px' }}>
-              {AREAS.map((a) => (
+              {areas.map((a) => (
                 <label key={a.label} style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
                   <input type="checkbox" checked={areaSelected(a)} onChange={() => toggleArea(a)} />
                   <span>{t(a.label)}</span>
@@ -128,7 +129,7 @@ export function ConfigBackupModal({ onClose }: { onClose: () => void }) {
               ))}
             </div>
             <button className="btn-primary gl-open" onClick={doExport} disabled={busy || selected.size === 0} style={{ border: 0 }}>
-              {busy ? t('Working…') : selected.size === ALL_DT.length ? t('Export all configuration') : `${t('Export selected')} (${selected.size})`}
+              {busy ? t('Working…') : selected.size === allDt.length ? t('Export all configuration') : `${t('Export selected')} (${selected.size})`}
             </button>
           </section>
 

@@ -18,6 +18,7 @@ Three screens this backs:
 
 from __future__ import annotations
 
+import base64
 import json
 
 import frappe
@@ -41,6 +42,10 @@ from neotec_insight.neotec_insight.utils.cash_flow_forecast import (
     reconciliation_residual,
     resolve_cash_accounts,
     resolve_company_fy_start_month,
+)
+from neotec_insight.neotec_insight.utils.cash_flow_import import (
+    match_lines_to_rows,
+    parse_classified_history_sheet,
 )
 
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -164,6 +169,100 @@ def delete_override(name: str):
     _require_write()
     frappe.delete_doc("Insight Cash Flow Override", name)
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Historical import — bring in a workbook of already-classified transactions
+# (the same shape a customer's manual Excel process produces) as Overrides,
+# rather than re-classifying the same history one row at a time through the
+# Classification Queue. Two steps, deliberately: preview never writes
+# anything; commit writes only what preview already showed the user.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _resolve_available_lines() -> list[dict]:
+    return frappe.get_all("Insight Cash Flow Line", filters={"is_active": 1},
+                          fields=["name", "label"], limit_page_length=0)
+
+
+@frappe.whitelist()
+def preview_classified_history_import(file_base64: str, sheet_name: str | None = None):
+    """Parses and matches only — writes nothing. Returns matched/unmatched
+    counts and, per unmatched category, how many rows it affects, so the
+    user knows exactly which Lines to create (or which typo to fix) before
+    committing anything."""
+    _require_read()
+    try:
+        file_bytes = base64.b64decode(file_base64)
+    except Exception:
+        frappe.throw(_("file_base64 must be a base64-encoded .xlsx file."))
+    parsed = parse_classified_history_sheet(file_bytes, sheet_name=sheet_name)
+    match = match_lines_to_rows(parsed["rows"], _resolve_available_lines())
+
+    # Already-overridden vouchers are counted separately from "matched" —
+    # they have a Line, but importing them again would just hit the
+    # doctype's own one-voucher-one-line uniqueness check and do nothing,
+    # so the preview should say so up front rather than let the user think
+    # committing will create that many new records.
+    existing = {(o["voucher_type"], o["voucher_no"])
+               for o in frappe.get_all("Insight Cash Flow Override",
+                                       fields=["voucher_type", "voucher_no"], limit_page_length=0)}
+    already_classified = sum(1 for r in match["matched"] if (r["voucher_type"], r["voucher_no"]) in existing)
+    new_count = match["matched_count"] - already_classified
+
+    return {
+        "sheet_used": parsed["sheet_used"], "header_row": parsed["header_row"],
+        "warnings": parsed["warnings"],
+        "total_rows": len(parsed["rows"]),
+        "matched_count": match["matched_count"],
+        "already_classified_count": already_classified,
+        "new_count": new_count,
+        "unmatched_count": match["unmatched_count"],
+        "unmatched_labels": match["unmatched_labels"],
+    }
+
+
+@frappe.whitelist()
+def commit_classified_history_import(file_base64: str, sheet_name: str | None = None):
+    """Writes an Insight Cash Flow Override per matched row whose voucher
+    isn't already classified — same parse+match as preview, run again
+    rather than trusting client-held state, so what gets written is always
+    based on the current Line list, not a stale preview from a minute ago
+    if a Line was renamed in between."""
+    _require_write()
+    try:
+        file_bytes = base64.b64decode(file_base64)
+    except Exception:
+        frappe.throw(_("file_base64 must be a base64-encoded .xlsx file."))
+    parsed = parse_classified_history_sheet(file_bytes, sheet_name=sheet_name)
+    match = match_lines_to_rows(parsed["rows"], _resolve_available_lines())
+
+    created = 0
+    skipped_already_classified = 0
+    errors: list[str] = []
+    for row in match["matched"]:
+        if frappe.db.exists("Insight Cash Flow Override",
+                            {"voucher_type": row["voucher_type"], "voucher_no": row["voucher_no"]}):
+            skipped_already_classified += 1
+            continue
+        try:
+            frappe.get_doc({
+                "doctype": "Insight Cash Flow Override",
+                "line": row["line"], "voucher_type": row["voucher_type"], "voucher_no": row["voucher_no"],
+                "note": f"Imported from historical workbook — original remarks: {row['remarks']}"[:500],
+                "decision_kind": "Manual",
+            }).insert()
+            created += 1
+        except Exception as e:
+            if len(errors) < 60:
+                errors.append(f"{row['voucher_type']} {row['voucher_no']}: {e}")
+
+    return {
+        "created": created,
+        "skipped_already_classified": skipped_already_classified,
+        "unmatched_count": match["unmatched_count"],
+        "unmatched_labels": match["unmatched_labels"],
+        "errors": errors,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────

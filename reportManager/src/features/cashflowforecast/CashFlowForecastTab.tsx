@@ -134,6 +134,13 @@ export function CashFlowForecastTab() {
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [importFileB64, setImportFileB64] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importPreview, setImportPreview] = useState<any>(null);
+  const [importResult, setImportResult] = useState<any>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ line: RunLine; monthIdx: number } | null>(null);
   const [showTransfers, setShowTransfers] = useState(false);
 
@@ -227,6 +234,56 @@ export function CashFlowForecastTab() {
     } finally {
       setBudgetSaving(false);
     }
+  }
+
+  function onImportFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setImportError(null); setImportPreview(null); setImportResult(null);
+    setImportFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      // FileReader.readAsDataURL gives "data:<mime>;base64,<payload>" —
+      // only the payload half is what the backend's base64.b64decode wants.
+      const b64 = result.split(',')[1] || '';
+      setImportFileB64(b64);
+    };
+    reader.readAsDataURL(f);
+  }
+
+  async function doPreviewImport() {
+    if (!importFileB64) return;
+    setImportBusy(true); setImportError(null);
+    try {
+      const res = await api.cashFlowForecastPreviewImport(importFileB64);
+      setImportPreview(res);
+    } catch (e: any) {
+      setImportError(e?.message || String(e));
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function doCommitImport() {
+    if (!importFileB64 || !importPreview) return;
+    if (!window.confirm(t(`Import ${importPreview.new_count} new classified transactions? This cannot be bulk-undone.`))) return;
+    setImportBusy(true); setImportError(null);
+    try {
+      const res = await api.cashFlowForecastCommitImport(importFileB64);
+      setImportResult(res);
+      setImportPreview(null);
+    } catch (e: any) {
+      setImportError(e?.message || String(e));
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  function closeImport() {
+    setShowImport(false);
+    setImportFileB64(null); setImportFileName(null);
+    setImportPreview(null); setImportResult(null); setImportError(null);
   }
 
   function toggleBank(name: string) {
@@ -639,6 +696,7 @@ export function CashFlowForecastTab() {
               <div className="cff-setup-list-hdr">
                 <button className="cff-btn-sm" onClick={() => newLine('Cash Out')}>+ {t('Cash Out line')}</button>
                 <button className="cff-btn-sm" onClick={() => newLine('Cash In')}>+ {t('Cash In line')}</button>
+                <button className="cff-btn-sm" onClick={() => setShowImport(true)}>{t('Import history')}</button>
               </div>
               {lines.map((l) => (
                 <div key={l.name} className={`cff-line-row ${editing?.name === l.name ? 'active' : ''}`}
@@ -755,6 +813,94 @@ export function CashFlowForecastTab() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showImport && (
+        <div className="cff-drill-overlay" onClick={closeImport}>
+          <div className="cff-drill-panel cff-import-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="cff-drill-hdr">
+              <div>
+                <strong>{t('Import classified history')}</strong>
+                <div className="cff-drill-sub">
+                  {t('Bring in already-classified transactions from a workbook — matched by category label to your existing Lines — instead of re-classifying the same history one row at a time in the Queue.')}
+                </div>
+              </div>
+              <button className="cff-btn-x" onClick={closeImport}>×</button>
+            </div>
+
+            <input type="file" accept=".xlsx" onChange={onImportFilePicked} />
+            {importFileName && <div className="cff-import-filename">{importFileName}</div>}
+
+            {importError && <div className="cff-error">{importError}</div>}
+
+            {!importPreview && !importResult && (
+              <button className="cff-btn-primary" style={{ marginTop: 10 }}
+                disabled={!importFileB64 || importBusy} onClick={doPreviewImport}>
+                {importBusy ? t('Reading…') : t('Preview')}
+              </button>
+            )}
+
+            {importPreview && !importResult && (
+              <div className="cff-import-preview">
+                <div className="cff-import-stat">
+                  <b>{importPreview.total_rows}</b> {t('rows found')} ({t('sheet')}: {importPreview.sheet_used})
+                </div>
+                <div className="cff-import-stat cff-import-ok">
+                  <b>{importPreview.new_count}</b> {t('will be imported')}
+                </div>
+                {importPreview.already_classified_count > 0 && (
+                  <div className="cff-import-stat">
+                    {importPreview.already_classified_count} {t('already classified — will be skipped')}
+                  </div>
+                )}
+                {importPreview.unmatched_count > 0 && (
+                  <div className="cff-import-stat cff-import-warn">
+                    <div><b>{importPreview.unmatched_count}</b> {t('rows have no matching Line yet — create these first, or they will be skipped')}:</div>
+                    <ul className="cff-import-unmatched-list">
+                      {Object.entries(importPreview.unmatched_labels as Record<string, number>).slice(0, 12).map(([label, count]) => (
+                        <li key={label}>{label} — {count}</li>
+                      ))}
+                      {Object.keys(importPreview.unmatched_labels).length > 12 && (
+                        <li>… {Object.keys(importPreview.unmatched_labels).length - 12} {t('more')}</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+                {importPreview.warnings?.length > 0 && (
+                  <div className="cff-import-stat cff-import-warn">{importPreview.warnings.join(' ')}</div>
+                )}
+                <button className="cff-btn-primary" disabled={importBusy || importPreview.new_count === 0} onClick={doCommitImport}>
+                  {importBusy ? t('Importing…') : `${t('Import')} ${importPreview.new_count} ${t('rows')}`}
+                </button>
+              </div>
+            )}
+
+            {importResult && (
+              <div className="cff-import-preview">
+                <div className="cff-import-stat cff-import-ok">
+                  <b>{importResult.created}</b> {t('imported')}
+                </div>
+                {importResult.skipped_already_classified > 0 && (
+                  <div className="cff-import-stat">
+                    {importResult.skipped_already_classified} {t('already classified — skipped')}
+                  </div>
+                )}
+                {importResult.unmatched_count > 0 && (
+                  <div className="cff-import-stat cff-import-warn">
+                    {importResult.unmatched_count} {t('rows left unmatched — create the missing Lines and re-import to pick them up')}
+                  </div>
+                )}
+                {importResult.errors?.length > 0 && (
+                  <details className="cff-import-errors">
+                    <summary>{importResult.errors.length} {t('errors')}</summary>
+                    <ul>{importResult.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}</ul>
+                  </details>
+                )}
+                <button className="cff-btn-sm" onClick={closeImport}>{t('Done')}</button>
+              </div>
+            )}
           </div>
         </div>
       )}
