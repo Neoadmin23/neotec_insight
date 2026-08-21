@@ -22,7 +22,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, get_first_day, get_last_day, add_days
+from frappe.utils import cint, flt, getdate, get_first_day, get_last_day, add_days
 
 from neotec_insight.neotec_insight.utils.cash_flow_forecast import (
     attribute_binding_monthly,
@@ -83,7 +83,14 @@ def list_bank_accounts(company: str | None = None):
 @frappe.whitelist()
 def list_lines(include_inactive: bool = False):
     _require_read()
-    filters = {} if include_inactive else {"is_active": 1}
+    # Same failure mode as mine_rules' min_purity, but silent instead of a
+    # crash — which is worse, not better. The frontend always sends an
+    # explicit 0/1, which arrives here as the STRING "0" (this site does
+    # not auto-cast whitelisted-method params to their type hint — see
+    # v2.87.2). `if "0":` is True in Python (a non-empty string), so every
+    # call showed inactive lines regardless of what the caller asked for,
+    # with no error to ever surface it.
+    filters = {} if cint(include_inactive) else {"is_active": 1}
     names = frappe.get_all("Insight Cash Flow Line", filters=filters,
                            order_by="section asc, sort_key asc", pluck="name")
     return [frappe.get_doc("Insight Cash Flow Line", n).as_dict() for n in names]

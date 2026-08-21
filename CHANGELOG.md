@@ -1,3 +1,15 @@
+## v2.87.2 — 2026-08-22
+
+### Fixed: `mine_rules` crashed on first use — 500, "unsupported operand type(s) for /: 'str' and 'int'" — and a second, silent bug found by sweeping for the same pattern
+
+A different bug class from the last two: not a wrong field name, but a wrong assumption that Python type hints (`min_purity: float = 95.0`) get enforced when a whitelisted method is called over HTTP. They don't — this site does not auto-cast form/query parameters to a function's annotations, so `min_purity` arrived as a string and `min_purity / 100` crashed. Fixed by explicitly casting with `cint`/`flt` at the top of the function, the same pattern every other numeric parameter in this feature already used — `mine_rules` and (see below) `list_lines` were the two spots that hadn't.
+
+**Swept both API files for the same pattern rather than patch only the one that crashed.** Found a second instance in `list_lines(include_inactive: bool = False)` — and this one is worse than a crash, because it never raised an error. The frontend always sends an explicit `0`/`1`, which arrives as the string `"0"`. `if "0":` is `True` in Python — a non-empty string — so every call to this endpoint showed inactive lines regardless of what the caller actually asked for, silently, since the code path that runs is indistinguishable from correct behavior until someone notices a line they deactivated is still showing. Fixed with the same `cint()` cast.
+
+Checked every other numeric parameter across both files (`get_budget_grid`, `save_budget_grid`, `run`, `list_unclassified_transactions`) — all already cast their `fiscal_year`/`limit` parameters explicitly at the point of use, from earlier work in this feature; only the two added in v2.87.0 had skipped it. Also defensively cast `confirm_classification`'s `confidence` parameter, lower-risk (Frappe's own DocField type coercion on save is more reliable than whitelisted-method parameter type hints, so this one likely wasn't actually broken) but cheap to close off regardless.
+
+177 tests unchanged — both bugs lived in the same untested DB-facing orchestration layer named as the open gap in the last three point releases. Four production bugs in that layer across five point releases now (v2.86.2, v2.86.3, v2.87.1, v2.87.2) — the standing recommendation stated plainly rather than repeated as a footnote: this layer needs validation against a real bench before the next feature builds on top of it, not another individual patch after the next report.
+
 ## v2.87.1 — 2026-08-22
 
 ### Fixed: `list_unclassified_transactions` crashed on the very first Queue load — 500, "Unknown column 'against_account' in 'SELECT'"

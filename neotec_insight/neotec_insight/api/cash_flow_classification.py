@@ -13,7 +13,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_last_day
+from frappe.utils import cint, flt, get_last_day
 
 from neotec_insight.neotec_insight.api.cash_flow_forecast import (
     _require_read,
@@ -89,6 +89,16 @@ def mine_rules(min_support: int = 3, min_purity: float = 95.0):
     and idempotent-ish: re-running it after new confirmations won't
     duplicate what a reviewer already acted on)."""
     _require_write()
+    # Python type hints are not enforced at runtime, and this site does not
+    # auto-cast whitelisted-method parameters to their annotation — both
+    # arrive here as strings over HTTP regardless of the `int`/`float`
+    # above. Confirmed by the actual production crash: min_purity / 100 on
+    # an uncast string raised "unsupported operand type(s) for /: 'str' and
+    # 'int'" the first time this endpoint was called. Every other numeric
+    # parameter in this API surface is now checked (see the v2.87.2
+    # changelog entry) rather than assuming a type hint did its job.
+    min_support = cint(min_support)
+    min_purity = flt(min_purity)
     overrides = frappe.get_all(
         "Insight Cash Flow Override", fields=["line", "voucher_type", "voucher_no"],
         limit_page_length=0)
@@ -244,6 +254,12 @@ def confirm_classification(voucher_type: str, voucher_no: str, line: str, note: 
     provenance is recorded so the rule that got it right (or wrong) can be
     told which."""
     _require_write()
+    # confidence is stored on the doc, not used in arithmetic here, so
+    # Frappe's own DocField coercion (a documented, reliable behavior,
+    # unlike whitelisted-method parameter type hints — see mine_rules)
+    # would likely have handled a string value fine on save. Cast anyway,
+    # cheaply, rather than rely on that distinction holding forever.
+    confidence = flt(confidence) if confidence is not None else None
     changed = bool(suggested_by_rule and suggested_line and suggested_line != line)
     decision_kind = "Manual"
     if suggested_by_rule:

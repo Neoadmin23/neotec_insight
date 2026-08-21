@@ -1,7 +1,7 @@
 {
   "name": "neotec-insight-frontend",
   "private": true,
-  "version": "2.87.1",
+  "version": "2.87.2",
   "type": "module",
   "engines": {
     "node": ">=18.16.0"
