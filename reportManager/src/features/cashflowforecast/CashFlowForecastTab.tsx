@@ -24,11 +24,39 @@ type Binding = {
   name?: string;
   account: string;
   direction_mode: 'Net' | 'Debit Only' | 'Credit Only';
-  cost_center?: string;
+  // v2.86.6 — multiple, mapped once. Kept as a plain string[] here for the
+  // UI's sake; toApiShape/fromApiShape convert to/from the Table
+  // MultiSelect's nested row shape ({cost_center: string}[]) that Frappe
+  // actually stores and returns.
+  cost_centers?: string[];
   project?: string;
   party_type?: string;
   party?: string;
 };
+
+/** Frappe returns/expects a Table MultiSelect field as a list of child rows
+ *  ({cost_center: "X"}, one per selection), not a plain string array — these
+ *  two functions are the only place that shape needs to be known, so the
+ *  rest of this component can just work with string[]. */
+function fromApiShape(line: Line): Line {
+  return {
+    ...line,
+    bindings: (line.bindings || []).map((b: any) => ({
+      ...b,
+      cost_centers: (b.cost_centers || []).map((row: any) =>
+        typeof row === 'string' ? row : row.cost_center),
+    })),
+  };
+}
+function toApiShape(line: Line): any {
+  return {
+    ...line,
+    bindings: (line.bindings || []).map((b) => ({
+      ...b,
+      cost_centers: (b.cost_centers || []).map((cc) => ({ cost_center: cc })),
+    })),
+  };
+}
 
 type Line = {
   name?: string;
@@ -110,7 +138,7 @@ export function CashFlowForecastTab() {
 
   const loadLines = useCallback(async () => {
     const rows = await api.cashFlowForecastLines(false);
-    setLines(rows || []);
+    setLines((rows || []).map(fromApiShape));
   }, []);
 
   const loadCompanies = useCallback(async () => {
@@ -220,9 +248,9 @@ export function CashFlowForecastTab() {
     setSavingLine(true);
     setSaveError(null);
     try {
-      const saved = await api.cashFlowForecastSaveLine(line);
+      const saved = await api.cashFlowForecastSaveLine(toApiShape(line));
       await loadLines();
-      setEditing(saved);
+      setEditing(fromApiShape(saved));
     } catch (e: any) {
       const msg = e?.message || String(e);
       // Frappe's own wording ("Document has been modified…") is accurate
@@ -240,7 +268,7 @@ export function CashFlowForecastTab() {
 
   async function reloadEditing() {
     if (!editing?.name) return;
-    const rows = await api.cashFlowForecastLines(false);
+    const rows = (await api.cashFlowForecastLines(false)).map(fromApiShape);
     setLines(rows || []);
     const fresh = (rows || []).find((r: Line) => r.name === editing.name);
     setEditing(fresh || null);
@@ -279,6 +307,20 @@ export function CashFlowForecastTab() {
     const next = [...(editing.bindings || [])];
     next.splice(idx, 1);
     setEditing({ ...editing, bindings: next });
+  }
+
+  // v2.86.6 — mapped once: add a cost centre to a binding's list rather
+  // than needing a whole extra binding row per cost centre.
+  function addCostCenter(idx: number, cc: string) {
+    if (!cc || !editing) return;
+    const current = editing.bindings![idx].cost_centers || [];
+    if (current.includes(cc)) return;
+    updateBinding(idx, { cost_centers: [...current, cc] });
+  }
+  function removeCostCenter(idx: number, cc: string) {
+    if (!editing) return;
+    const current = editing.bindings![idx].cost_centers || [];
+    updateBinding(idx, { cost_centers: current.filter((c) => c !== cc) });
   }
 
   return (
@@ -625,17 +667,15 @@ export function CashFlowForecastTab() {
                       <span>{t('Section')}</span>
                       <input value={editing.section || ''} onChange={(e) => setEditing({ ...editing, section: e.target.value })} />
                     </label>
-                    {editing.direction === 'Cash In' && (
-                      <label className="cff-field">
-                        <span>{t('Dimension field')}</span>
-                        <select value={editing.dimension_field || ''}
-                          onChange={(e) => setEditing({ ...editing, dimension_field: e.target.value })}>
-                          <option value="">{t('— none —')}</option>
-                          <option value="Cost Center">{t('Cost Center')}</option>
-                          <option value="Project">{t('Project')}</option>
-                        </select>
-                      </label>
-                    )}
+                    <label className="cff-field">
+                      <span>{t('Dimension field')}</span>
+                      <select value={editing.dimension_field || ''}
+                        onChange={(e) => setEditing({ ...editing, dimension_field: e.target.value })}>
+                        <option value="">{t('— none —')}</option>
+                        <option value="Cost Center">{t('Cost Center')}</option>
+                        <option value="Project">{t('Project')}</option>
+                      </select>
+                    </label>
                   </div>
 
                   <div className="cff-bindings-hdr">
@@ -668,7 +708,19 @@ export function CashFlowForecastTab() {
                               <option value="Credit Only">{t('Credit Only')}</option>
                             </select>
                           </td>
-                          <td><input value={b.cost_center || ''} onChange={(e) => updateBinding(idx, { cost_center: e.target.value })} /></td>
+                          <td className="cff-bind-cc-cell">
+                            <div className="cff-cc-tags">
+                              {(b.cost_centers || []).map((cc) => (
+                                <span className="cff-cc-tag" key={cc}>
+                                  {cc}
+                                  <button type="button" onClick={() => removeCostCenter(idx, cc)}>×</button>
+                                </span>
+                              ))}
+                            </div>
+                            <LinkField doctype="Cost Center" company={company}
+                              value="" placeholder={t('+ add cost centre…')}
+                              onChange={(v) => addCostCenter(idx, v)} />
+                          </td>
                           <td><input value={b.party_type || ''} onChange={(e) => updateBinding(idx, { party_type: e.target.value })} /></td>
                           <td><input value={b.party || ''} onChange={(e) => updateBinding(idx, { party: e.target.value })} /></td>
                           <td><button className="cff-btn-x" onClick={() => removeBinding(idx)}>×</button></td>

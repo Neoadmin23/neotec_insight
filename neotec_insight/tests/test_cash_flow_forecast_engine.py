@@ -23,12 +23,16 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[1]  # .../neotec_insight/neotec_insight
 
 
-def _load_engine(get_value_impl=None):
+def _load_engine(get_value_impl=None, get_all_impl=None):
     """Import utils/cash_flow_forecast.py with a minimal fake frappe, the
     same pattern used throughout this app's test suite. get_value_impl, if
     given, backs frappe.get_value — lets a test simulate either a real
     return value or the exact 'unknown column' failure this module hit in
-    production (v2.86.0's Fiscal Year.company, v2.86.2's Company.year_start_date)."""
+    production (v2.86.0's Fiscal Year.company, v2.86.2's Company.year_start_date).
+    get_all_impl, if given, backs frappe.get_all the same way — lets a test
+    capture the filters dict a DB-facing wrapper actually builds, rather
+    than trusting it by inspection alone (the standard that missed two
+    production bugs already on this module)."""
     fake_frappe = types.ModuleType("frappe")
     fake_utils = types.ModuleType("frappe.utils")
     fake_utils.flt = lambda v, precision=None: (
@@ -38,6 +42,8 @@ def _load_engine(get_value_impl=None):
     fake_frappe.utils = fake_utils
     if get_value_impl is not None:
         fake_frappe.get_value = get_value_impl
+    if get_all_impl is not None:
+        fake_frappe.get_all = get_all_impl
     sys.modules["frappe"] = fake_frappe
     sys.modules["frappe.utils"] = fake_utils
 
@@ -431,6 +437,101 @@ class TestBankBreakdownMonthly(unittest.TestCase):
         breakdown = self.eng.bank_breakdown_monthly(
             rows, "Net", {key}, {key}, set(), {key: ["Riyadh Bank - CO"]}, 1, list(range(12)))
         self.assertEqual(breakdown[3], {})
+
+
+
+class TestFetchBindingGlRowsFilters(unittest.TestCase):
+    """fetch_binding_gl_rows is DB-facing — this module's stated convention
+    is that layer stays thin and untested, trusted by inspection. That
+    standard already missed two production bugs on this exact module
+    (v2.86.2, v2.86.3), so the filter-construction half of this function
+    gets a real test here rather than staying 'reasonably confident by
+    inspection' a third time. What's still untested: the actual DB round
+    trip — these tests only prove the filters dict is built correctly, not
+    that frappe.get_all does the right thing with it."""
+
+    def _capture(self):
+        calls = []
+
+        def fake_get_all(doctype, filters=None, fields=None, limit_page_length=0):
+            calls.append({"doctype": doctype, "filters": filters})
+            return []
+
+        return calls, fake_get_all
+
+    def test_no_cost_centers_means_no_cost_center_filter_key_at_all(self):
+        """Absence must mean 'no restriction', not 'restricted to nothing' —
+        an empty/missing cost_centers list must not add a
+        cost_center: ['in', []] filter, which would silently match zero rows."""
+        calls, fake_get_all = self._capture()
+        eng = _load_engine(get_all_impl=fake_get_all)
+        eng.fetch_binding_gl_rows(
+            {"account": "GOSI Payable"}, None, "2026-01-01", "2026-12-31")
+        self.assertNotIn("cost_center", calls[0]["filters"])
+
+    def test_single_cost_center_uses_in_filter_with_one_value(self):
+        calls, fake_get_all = self._capture()
+        eng = _load_engine(get_all_impl=fake_get_all)
+        eng.fetch_binding_gl_rows(
+            {"account": "Trade Receivables", "cost_centers": ["Audit"]},
+            None, "2026-01-01", "2026-12-31")
+        self.assertEqual(calls[0]["filters"]["cost_center"], ["in", ["Audit"]])
+
+    def test_multiple_cost_centers_are_mapped_once_into_a_single_in_filter(self):
+        """The actual feature requested this turn: one binding, several
+        cost centres, one query — not one call per cost centre."""
+        calls, fake_get_all = self._capture()
+        eng = _load_engine(get_all_impl=fake_get_all)
+        eng.fetch_binding_gl_rows(
+            {"account": "Trade Receivables", "cost_centers": ["Audit", "GRC", "HR"]},
+            None, "2026-01-01", "2026-12-31")
+        self.assertEqual(calls[0]["filters"]["cost_center"], ["in", ["Audit", "GRC", "HR"]])
+        self.assertEqual(len(calls), 1, "must be one query, not one per cost centre")
+
+    def test_company_filter_included_only_when_given(self):
+        calls, fake_get_all = self._capture()
+        eng = _load_engine(get_all_impl=fake_get_all)
+        eng.fetch_binding_gl_rows({"account": "A"}, "Acme Co", "2026-01-01", "2026-12-31")
+        self.assertEqual(calls[0]["filters"]["company"], "Acme Co")
+
+        calls2, fake_get_all2 = self._capture()
+        eng2 = _load_engine(get_all_impl=fake_get_all2)
+        eng2.fetch_binding_gl_rows({"account": "A"}, None, "2026-01-01", "2026-12-31")
+        self.assertNotIn("company", calls2[0]["filters"])
+
+    def test_project_filter_included_only_when_given(self):
+        calls, fake_get_all = self._capture()
+        eng = _load_engine(get_all_impl=fake_get_all)
+        eng.fetch_binding_gl_rows(
+            {"account": "A", "project": "Qassem Project"}, None, "2026-01-01", "2026-12-31")
+        self.assertEqual(calls[0]["filters"]["project"], "Qassem Project")
+
+    def test_party_filter_requires_both_type_and_party_together(self):
+        """Party alone or party_type alone must not silently filter on a
+        half-specified party — either both are present or neither is."""
+        calls, fake_get_all = self._capture()
+        eng = _load_engine(get_all_impl=fake_get_all)
+        eng.fetch_binding_gl_rows(
+            {"account": "A", "party_type": "Employee", "party": "HR-EMP-555"},
+            None, "2026-01-01", "2026-12-31")
+        self.assertEqual(calls[0]["filters"]["party_type"], "Employee")
+        self.assertEqual(calls[0]["filters"]["party"], "HR-EMP-555")
+
+        calls2, fake_get_all2 = self._capture()
+        eng2 = _load_engine(get_all_impl=fake_get_all2)
+        eng2.fetch_binding_gl_rows(
+            {"account": "A", "party_type": "Employee"}, None, "2026-01-01", "2026-12-31")
+        self.assertNotIn("party_type", calls2[0]["filters"])
+        self.assertNotIn("party", calls2[0]["filters"])
+
+    def test_date_range_and_account_always_present(self):
+        calls, fake_get_all = self._capture()
+        eng = _load_engine(get_all_impl=fake_get_all)
+        eng.fetch_binding_gl_rows({"account": "Rent Expense"}, None, "2026-01-01", "2026-12-31")
+        f = calls[0]["filters"]
+        self.assertEqual(f["account"], "Rent Expense")
+        self.assertEqual(f["posting_date"], ["between", ["2026-01-01", "2026-12-31"]])
+        self.assertEqual(f["is_cancelled"], 0)
 
 
 

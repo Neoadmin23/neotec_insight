@@ -289,10 +289,23 @@ def run(fiscal_year: int, company: str | None = None, bank_accounts: str | list 
     voucher_cash_legs = fetch_voucher_cash_legs(company, from_date, to_date, cash_accounts)
 
     for line in lines:
-        bindings = frappe.get_all(
-            "Insight Cash Flow Line Binding", filters={"parent": line["name"]},
-            fields=["account", "direction_mode", "cost_center", "project", "party_type", "party"],
-            limit_page_length=0)
+        # v2.86.6 — a flat frappe.get_all can't nest a Table MultiSelect
+        # field's own child rows (cost_centers is itself a child table of
+        # the binding row). frappe.get_doc() fetches the whole document
+        # tree correctly, so that's what unpacks the multi-select here —
+        # not a raw join this module would otherwise have to hand-write.
+        line_doc = frappe.get_doc("Insight Cash Flow Line", line["name"])
+        bindings = [
+            {
+                "account": b.account,
+                "direction_mode": b.direction_mode,
+                "cost_centers": [row.cost_center for row in (b.cost_centers or [])],
+                "project": b.project,
+                "party_type": b.party_type,
+                "party": b.party,
+            }
+            for b in (line_doc.bindings or [])
+        ]
         monthly = {m: 0.0 for m in months}
         by_bank: dict[int, dict[str, float]] = {m: {} for m in months}
         for b in bindings:

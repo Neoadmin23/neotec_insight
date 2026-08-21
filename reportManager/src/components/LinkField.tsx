@@ -17,7 +17,7 @@ type Opt = { value: string; label: string; code?: string; meta?: string; is_grou
 export default function LinkField({
   doctype, company, value, onChange, placeholder, disabled,
 }: {
-  doctype: 'Account' | 'Customer' | 'Customer Group' | 'Sales Invoice';
+  doctype: 'Account' | 'Customer' | 'Customer Group' | 'Sales Invoice' | 'Cost Center';
   company?: string | null;
   value: string;
   onChange: (v: string) => void;

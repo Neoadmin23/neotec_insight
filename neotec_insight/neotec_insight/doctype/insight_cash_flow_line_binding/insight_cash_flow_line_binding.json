@@ -8,7 +8,7 @@
  "field_order": [
   "account",
   "direction_mode",
-  "cost_center",
+  "cost_centers",
   "project",
   "party_type",
   "party"
@@ -33,12 +33,11 @@
    "description": "Net: every cash-leg movement on this account counts. Debit Only / Credit Only: only movements in that direction count \u2014 the setting that lets 'Riyadh Bank Loan settlement' (Debit Only) and 'Financing from Riyadh Bank' (Credit Only) read the SAME liability account as two distinct, non-overlapping lines instead of one net figure."
   },
   {
-   "fieldname": "cost_center",
-   "fieldtype": "Link",
-   "options": "Cost Center",
-   "label": "Cost Center",
-   "in_list_view": 1,
-   "description": "Set when the parent line's Dimension field is Cost Center. Narrows this binding to GL Entries carrying this exact cost centre \u2014 how 'Audit' and 'HR' read from the same shared receivables account as two different lines."
+   "fieldname": "cost_centers",
+   "fieldtype": "Table MultiSelect",
+   "options": "Insight Cash Flow Binding Cost Center",
+   "label": "Cost Centers",
+   "description": "v2.86.6 \u2014 multiple, mapped once. One binding row now reads from every listed cost centre together (a single 'cost_center IN (...)' query), instead of needing one binding row per cost centre for the same account. Set when the parent line's Dimension field is Cost Center \u2014 how 'Audit' and 'HR' read from the same shared receivables account as two different lines, and how a line that legitimately spans several departments (e.g. a company-wide supplier payment split by cost centre) doesn't need a duplicate binding per department."
   },
   {
    "fieldname": "project",

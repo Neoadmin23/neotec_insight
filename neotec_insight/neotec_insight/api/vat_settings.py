@@ -279,6 +279,15 @@ _LINKABLE = {
         "fields": ["name", "account_name", "account_number", "is_group", "root_type"],
         "search": ["name", "account_name", "account_number"],
     },
+    # v2.86.6 — added for the Cash Flow Forecast Cost Center multi-select.
+    # Same tree shape as Account (parent_cost_center / is_group), reused
+    # rather than duplicated — this endpoint is generic UI plumbing, not
+    # P&L/report-engine logic, so it's shared across features on purpose.
+    "Cost Center": {
+        "tree": True, "parent": "parent_cost_center", "by_company": True,
+        "fields": ["name", "cost_center_name", "is_group"],
+        "search": ["name", "cost_center_name"],
+    },
     "Customer Group": {
         "tree": True, "parent": "parent_customer_group", "by_company": False,
         "fields": ["name", "customer_group_name", "is_group"],
@@ -306,6 +315,9 @@ def _link_label(doctype: str, row: dict) -> dict:
                 "is_group": bool(row.get("is_group"))}
     if doctype == "Customer Group":
         return {"value": row["name"], "label": row.get("customer_group_name") or row["name"],
+                "code": "", "meta": "", "is_group": bool(row.get("is_group"))}
+    if doctype == "Cost Center":
+        return {"value": row["name"], "label": row.get("cost_center_name") or row["name"],
                 "code": "", "meta": "", "is_group": bool(row.get("is_group"))}
     if doctype == "Customer":
         return {"value": row["name"], "label": row.get("customer_name") or row["name"],

@@ -70,15 +70,14 @@
   {
    "fieldname": "sb_dimension",
    "fieldtype": "Section Break",
-   "label": "Cash In dimension"
+   "label": "Dimension"
   },
   {
    "fieldname": "dimension_field",
    "fieldtype": "Select",
    "label": "Dimension field",
    "options": "\nCost Center\nProject",
-   "depends_on": "eval:doc.direction=='Cash In'",
-   "description": "Cash In lines are usually distinguished by cost centre or project on a SHARED receivables account, not by a dedicated account per line \u2014 set which GL Entry field carries that distinction here, then set the matching value on each binding row below."
+   "description": "v2.86.6 \u2014 no longer restricted to Cash In. Your own Cash Out lines need this too (Kafaa Project Allowance, Municipalities Project Per Diem) \u2014 they're project/department-specific the same way Collection is, just on the spending side. Set which GL Entry field carries the distinction here, then set the matching value(s) on each binding row below."
   },
   {
    "fieldname": "description",

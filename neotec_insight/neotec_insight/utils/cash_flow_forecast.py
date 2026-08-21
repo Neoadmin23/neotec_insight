@@ -513,8 +513,14 @@ def fetch_bank_leg_and_transfer_vouchers(
 
 
 def fetch_binding_gl_rows(binding: dict, company: str | None, from_date, to_date) -> list[dict]:
-    """GL Entries for one binding's account, filtered by its cost_center/
-    project/party if set."""
+    """GL Entries for one binding's account, filtered by its cost_centers/
+    project/party if set.
+
+    v2.86.6 — binding["cost_centers"] is a plain list of names (already
+    unpacked from the Table MultiSelect by the caller — this function stays
+    a flat list-in, no Frappe child-row shapes here), matched with an `in`
+    filter. One binding now reads from every listed cost centre in a single
+    query, mapped once, instead of needing one binding row per cost centre."""
     filters = {
         "account": binding["account"],
         "posting_date": ["between", [from_date, to_date]],
@@ -522,8 +528,9 @@ def fetch_binding_gl_rows(binding: dict, company: str | None, from_date, to_date
     }
     if company:
         filters["company"] = company
-    if binding.get("cost_center"):
-        filters["cost_center"] = binding["cost_center"]
+    cost_centers = binding.get("cost_centers")
+    if cost_centers:
+        filters["cost_center"] = ["in", cost_centers]
     if binding.get("project"):
         filters["project"] = binding["project"]
     if binding.get("party_type") and binding.get("party"):

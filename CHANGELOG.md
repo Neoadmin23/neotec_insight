@@ -1,3 +1,31 @@
+## v2.86.7 — 2026-08-22
+
+### Added: real test coverage for `fetch_binding_gl_rows`'s filter construction
+
+Closed the specific gap flagged at the end of v2.86.6 rather than let it sit as a known risk. Extended `_load_engine()`'s fake-frappe harness with a configurable `get_all_impl`, the same pattern already used for `get_value_impl` — lets a test capture the actual filters dict a DB-facing wrapper builds, instead of trusting it by inspection. That standard already missed two production bugs on this exact module (v2.86.2, v2.86.3); no reason to trust it a third time on the cost-centre multi-select filter added this same session.
+
+`TestFetchBindingGlRowsFilters` (7 tests): confirms an empty/missing `cost_centers` list produces no `cost_center` filter key at all — not a `cost_center: ['in', []]`, which would silently match zero rows instead of applying no restriction; confirms multiple cost centres map into one `['in', [...]]` filter in a single query, not one call per cost centre, which is the actual feature v2.86.6 was for; confirms company/project filters only appear when given; confirms the party filter requires both `party_type` and `party` together, never a half-specified match on one alone. Still genuinely untested: the real database round trip — these tests prove the filters dict is built correctly, not that `frappe.get_all` does the right thing with it. That gap is named, not implied closed.
+
+### Fixed: the same class-declaration-swallowed-by-an-edit mistake, a fourth time
+
+`TestBalanceCarry`'s declaration line was dropped again while inserting the new test class above it — identical shape to v2.86.1, v2.86.2, and v2.86.3. All tests still ran and passed regardless of which class they were nested under, same as every previous occurrence; caught this time, as it should have been from the first time, by counting declared `class Test` lines against classes that actually appeared running their own tests in `-v` output, not by re-reading the diff and assuming it looked right. 53 engine tests, 146 total, all green, all 13 classes correctly attributed this time — verified by count, not by eye.
+
+## v2.86.6 — 2026-08-22
+
+### Added: Cost Center is now a multi-select — mapped once, not once per department
+
+A binding's Cost Center was a single Link — a line that legitimately spans several departments (e.g. a company-wide "Kafaa Project Allowance" split by cost centre) needed one duplicate binding row per department, same account and direction mode repeated each time. Replaced with a proper Frappe `Table MultiSelect` (`Insight Cash Flow Line Binding` → `cost_centers`, backed by a new bridge doctype `Insight Cash Flow Binding Cost Center`) — one binding row now reads from every listed cost centre in a single `cost_center IN (...)` query.
+
+Fetching a Table MultiSelect field correctly requires `frappe.get_doc()`, not a flat `frappe.get_all()` — a raw list query can't see a child table's own child rows. `run()`'s binding fetch switched accordingly; the pure engine functions (`attribute_binding_monthly` and friends) were untouched, since cost-centre filtering happens entirely at the SQL layer, not in aggregation.
+
+Extended `api/vat_settings.py`'s generic `link_options`/`_LINKABLE` lookup to cover `Cost Center` (same tree shape as `Account`, reused rather than duplicated — this is shared UI plumbing, not P&L/report-engine logic) so the Cost Center picker gets the same tree+search experience as the Account picker added in v2.86.4. Widened `LinkField`'s type union additively; no existing consumer's behavior changed.
+
+### Fixed: the Cost Centre/Project dimension was wrongly restricted to Cash In lines only
+
+Flagged two turns ago, not actually fixed until now: the Line Setup mapping showed Cash Out lines (Kafaa Project Allowance, Municipalities Project Per Diem) are just as department-specific as Cash In lines are — the restriction to Cash In was arbitrary, not a real constraint. Removed from the doctype's `depends_on`, the Python validation, and the frontend's conditional rendering. A Cash Out line can now set a Dimension field and get the same "binding must carry a value" validation Cash In lines always had.
+
+139 tests, all green — no engine-level test changes needed since cost-centre filtering lives entirely in the DB-facing layer this module's pure-function suite deliberately doesn't reach. Frontend typechecks clean and builds.
+
 ## v2.86.5 — 2026-08-21
 
 ### Fixed: `save_line` failed with "Document has been modified after you have opened it" on a save's very first attempt
