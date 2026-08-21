@@ -865,6 +865,35 @@ export const api = {
     call<{ name: string; account_name: string; account_type: string }[]>(
       'cash_flow_forecast.list_bank_accounts', { company: company || null }),
 
+  // v2.87.0 — Cash Flow Classification (Phase B/C/D). Same isolated feature
+  // as cashFlowForecast* above, own module on the backend
+  // (api/cash_flow_classification.py) — kept a separate prefix here too so
+  // it reads as its own capability, not folded into the forecast calls.
+  cashFlowClassificationQueue: (fiscalYear: number, company?: string | null, bankAccounts?: string[] | null, limit = 200) =>
+    call<any>('cash_flow_classification.list_unclassified_transactions', {
+      fiscal_year: fiscalYear, company: company || null,
+      bank_accounts: bankAccounts && bankAccounts.length ? JSON.stringify(bankAccounts) : null,
+      limit,
+    }),
+  cashFlowClassificationConfirm: (
+    voucherType: string, voucherNo: string, line: string, note?: string | null,
+    suggestedByRule?: string | null, suggestedLine?: string | null, confidence?: number | null,
+  ) => call<any>('cash_flow_classification.confirm_classification', {
+    voucher_type: voucherType, voucher_no: voucherNo, line, note: note || null,
+    suggested_by_rule: suggestedByRule || null, suggested_line: suggestedLine || null,
+    confidence: confidence ?? null,
+  }, 'POST'),
+  cashFlowClassificationReject: (suggestedByRule: string) =>
+    call<any>('cash_flow_classification.reject_suggestion', { suggested_by_rule: suggestedByRule }, 'POST'),
+  cashFlowClassificationBatchConfirm: (items: any[]) =>
+    call<any>('cash_flow_classification.batch_confirm', { items: JSON.stringify(items) }, 'POST'),
+  cashFlowClassificationRules: (status?: string | null) =>
+    call<any[]>('cash_flow_classification.list_rules', { status: status || null }),
+  cashFlowClassificationSetRuleStatus: (name: string, status: string) =>
+    call<any>('cash_flow_classification.set_rule_status', { name, status }, 'POST'),
+  cashFlowClassificationMineRules: (minSupport = 3, minPurity = 95) =>
+    call<any>('cash_flow_classification.mine_rules', { min_support: minSupport, min_purity: minPurity }, 'POST'),
+
   // v2.57.0 — party ledgers
   partyControlAccounts: (company: string | null, party_type: string) =>
     call<{ name: string; label: string }[]>('report.party_control_accounts', { company, party_type }),

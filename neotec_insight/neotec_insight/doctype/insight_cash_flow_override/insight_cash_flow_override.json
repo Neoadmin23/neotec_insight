@@ -9,6 +9,11 @@
   "voucher_type",
   "voucher_no",
   "note",
+  "sb_provenance",
+  "decision_kind",
+  "suggested_by_rule",
+  "suggested_line",
+  "confidence_at_decision",
   "created_by_user",
   "created_on"
  ],
@@ -44,6 +49,39 @@
    "fieldtype": "Small Text",
    "label": "Why this can't be a binding rule",
    "description": "The last resort, for a transaction Tier-1 filters genuinely can't separate from others on the same account \u2014 same direction, same party, same cost centre, distinguishable only by a human knowing what it actually was. Required so the override still means something to someone else in six months."
+  },
+  {"fieldname": "sb_provenance", "fieldtype": "Section Break", "label": "Provenance"},
+  {
+   "fieldname": "decision_kind",
+   "fieldtype": "Select",
+   "options": "Manual\nRule Suggested \u2014 Confirmed\nRule Suggested \u2014 Changed",
+   "default": "Manual",
+   "label": "Decision Kind",
+   "in_list_view": 1,
+   "description": "Manual: typed from scratch, exactly today's process. Confirmed: the Classification Queue suggested this line and the accountant agreed. Changed: the Queue suggested a DIFFERENT line (see Suggested Line) and the accountant picked this one instead \u2014 this is what feeds rolling_precision back to the rule that got it wrong."
+  },
+  {
+   "fieldname": "suggested_by_rule",
+   "fieldtype": "Link",
+   "options": "Insight Cash Flow Classification Rule",
+   "label": "Suggested By Rule",
+   "read_only": 1,
+   "description": "Which Active rule (if any) produced the suggestion this decision is a response to. Blank for Manual decisions."
+  },
+  {
+   "fieldname": "suggested_line",
+   "fieldtype": "Link",
+   "options": "Insight Cash Flow Line",
+   "label": "Originally Suggested Line",
+   "read_only": 1,
+   "description": "Only set when Decision Kind is 'Changed' \u2014 what the rule suggested, distinct from Line above, which is what the accountant actually chose."
+  },
+  {
+   "fieldname": "confidence_at_decision",
+   "fieldtype": "Percent",
+   "label": "Confidence At Decision",
+   "read_only": 1,
+   "description": "The rule's rolling_precision at the moment this suggestion was made \u2014 a snapshot, not a live link, so this record stays an accurate audit trail even after the rule's own precision later changes."
   },
   {
    "fieldname": "created_by_user",

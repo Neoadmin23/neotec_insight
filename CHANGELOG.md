@@ -1,3 +1,39 @@
+## v2.87.1 — 2026-08-22
+
+### Fixed: `list_unclassified_transactions` crashed on the very first Queue load — 500, "Unknown column 'against_account' in 'SELECT'"
+
+GL Entry's real column is `against` (Data, comma-separated other-side accounts/parties) — labeled "Against Account" in the Frappe UI, which is exactly how `against_account` got requested as a fieldname instead of the real one. Third time this specific bug shape has hit this feature in production: v2.86.2 assumed a `company` column on Fiscal Year, v2.86.3 assumed `year_start_date` on Company, this one assumed `against_account` on GL Entry — three different fields, three different doctypes, same root cause every time: a field referenced without checking it against the real schema first.
+
+This one was avoidable more cheaply than the first two. `report.py`, `ageing.py`, and `packs.py` — already in this codebase — all reference GL Entry's real `against` field correctly. Grepping the existing codebase for how a field is already used, before writing new code that references it, would have caught this before it ever ran against a live site. That's now the standing rule for any new GL Entry (or other core doctype) field reference in this app: check an existing correct usage first, don't infer a fieldname from its UI label and assume.
+
+Fixed by requesting the real `against` column and renaming it to `against_account` immediately after the fetch — every downstream consumer (the classification engine's transaction dict, the Queue's API output, the frontend's `QueueRow` type) needed no changes, since none of them ever cared where the value came from, only its key name once received.
+
+Confirmed no other file in the app has this same mistake — grepped for `against_account` across the whole codebase; only the one call site had it. 177 tests still green, unchanged, because this bug lived entirely in the same untested DB-facing orchestration layer flagged as an open gap in the two previous point releases. That gap is the actual thing to fix next, not another individual field name.
+
+## v2.87.0 — 2026-08-22
+
+### Added: Cash Flow Classification — Phase B/C/D of the build spec, the tiered decision cascade
+
+Implements `Cash_Flow_Classification_Final_Verdict_and_Build_Spec.docx`'s architecture: Account Binding first (already built, untouched), then a learned rule, then a human via the Classification Queue — whichever tier resolves it, the reconciliation residual still checks the total independently, same as always. Same isolation boundary as the rest of Cash Flow Forecast.
+
+**New doctype `Insight Cash Flow Classification Rule`** — full governance lifecycle (Candidate → Under Review → Approved → Active → Suspended/Retired), enforced by the controller as an explicit transition table, not left to the UI to get right. A rule cannot reach Active without having been Approved by a named person first — checked in `validate()`, not assumed.
+
+**`Insight Cash Flow Override` extended** with provenance fields (`decision_kind`, `suggested_by_rule`, `suggested_line`, `confidence_at_decision`) rather than inventing a parallel data model — a confirmed classification, whatever tier produced it, was already the single source of truth this doctype represented; it just didn't used to say where the suggestion came from.
+
+**The engine** (`utils/cash_flow_classification.py`, standalone, 31 tests):
+- `infer_transaction_type` — the verified 98.0% structural debit/credit rule for Column E. Deliberately does not attempt the 45 exceptions (reversals, contra entries) — the build spec is explicit those need a human characterizing them first, not a guessed pattern.
+- `resolve_classification` — High/Medium/Low/Conflict tiering. Conflict always overrides confidence: two rules disagreeing about the answer go to a human together, regardless of which one scores higher — a 99% match does not get to steamroll a 51% one it disagrees with. Caught a real gap while wiring the frontend to this: the resolved suggestion didn't carry which rule actually won, only its target line — without that, a Queue confirmation could never credit or correct the rule that produced it. Fixed before it shipped, both the function and its tests.
+- `mine_candidate_rules` — the exact backtested configuration (2-4 word phrases, 95% purity) that produced 96.8-100% precision on the real, voucher-grouped, leakage-safe backtest two turns ago. Mines Candidates only, Remarks-only by default — Against Account is never auto-selected, matching both the build spec's caution and this module's own backtest finding that combining it sometimes hurt precision rather than helping.
+- `update_rule_stats` — rolling precision from confirmed/corrected decisions only; a suggestion nobody has acted on yet moves precision in neither direction.
+
+**The Classification Queue (Phase C)** — `list_unclassified_transactions` finds every real cash-leg transaction not already covered by an Account Binding or a prior Override, for the period, excluding internal transfers the same way every line's Actual does. Each row carries its tier-labeled suggestion; the frontend's new Classify tab shows Confirm / Change (pick a different line) / Reject, plus batch-confirm restricted to same-period high-confidence rows with a visible count before committing.
+
+**Rule Review (Phase D)** — a Rules panel listing candidates with their evidence (support, precision, real sample transactions from the mining pass) and the only legal next actions for that status, matching the doctype's own transition table.
+
+177 backend tests total, all green — 146 existing, 31 new. Frontend typechecks clean against baseline and builds; `CashFlowForecastTab` grew from 13kB to 26kB with the new Classify view bundled in.
+
+**Not built, honestly:** the E-column exception layer (45 real reversal/contra cases, unmodeled by design — see above), and end-to-end orchestration tests for the new API layer (`list_unclassified_transactions`, `confirm_classification`, `mine_rules`) — same category of gap as the rest of this feature's DB-facing code, needing a live bench to close properly rather than another fake-frappe harness.
+
 ## v2.86.7 — 2026-08-22
 
 ### Added: real test coverage for `fetch_binding_gl_rows`'s filter construction

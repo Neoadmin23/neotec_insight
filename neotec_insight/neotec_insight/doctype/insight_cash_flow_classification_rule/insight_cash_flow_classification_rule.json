@@ -1,0 +1,132 @@
+{
+ "actions": [],
+ "creation": "2026-08-22 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "autoname": "hash",
+ "field_order": [
+  "sb_match",
+  "pattern",
+  "match_field",
+  "target_line",
+  "sb_status",
+  "status",
+  "version",
+  "effective_date",
+  "sb_evidence",
+  "historical_support",
+  "historical_precision",
+  "sample_transactions",
+  "sb_governance",
+  "created_by_user",
+  "created_on",
+  "approved_by_user",
+  "approved_on",
+  "sb_monitoring",
+  "times_suggested",
+  "times_confirmed",
+  "times_corrected",
+  "rolling_precision",
+  "last_used_on",
+  "superseded_by"
+ ],
+ "fields": [
+  {"fieldname": "sb_match", "fieldtype": "Section Break", "label": "Match"},
+  {
+   "fieldname": "pattern",
+   "fieldtype": "Data",
+   "label": "Pattern (phrase)",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "A substring match against the field(s) below, lowercase, e.g. 'gosi' or 'current account to mr. medhat'. Regex is not supported in v1 \u2014 per the build spec, deterministic phrase rules come before probabilistic scoring, and a plain substring is the simplest thing that's still fully explainable to the accountant reviewing a suggestion."
+  },
+  {
+   "fieldname": "match_field",
+   "fieldtype": "Select",
+   "options": "Remarks\nAgainst Account\nRemarks + Against Account",
+   "default": "Remarks",
+   "label": "Match Field",
+   "in_list_view": 1,
+   "description": "Which transaction field(s) this pattern is checked against. Against Account alone is rarely safe on its own \u2014 the historical data shows the same counterparty appearing under several different categories \u2014 prefer Remarks or the combined option unless the evidence below says otherwise."
+  },
+  {
+   "fieldname": "target_line",
+   "fieldtype": "Link",
+   "options": "Insight Cash Flow Line",
+   "label": "Target Line",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "The Cash Flow Forecast line (the 'G' / New Class category) this rule suggests when it matches. Never a freeform label \u2014 always one of the approved, already-configured lines, so a rule can never invent a category."
+  },
+  {"fieldname": "sb_status", "fieldtype": "Section Break", "label": "Lifecycle"},
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "options": "Candidate\nUnder Review\nApproved\nActive\nSuspended\nRetired",
+   "default": "Candidate",
+   "label": "Status",
+   "in_list_view": 1,
+   "description": "Candidate: mined automatically, nobody has looked at it yet. Under Review: a reviewer has it open. Approved: a human signed off, not yet live. Active: actually used to suggest classifications. Suspended: temporarily pulled (e.g. rolling precision dropped) without deleting its history. Retired: permanently done. Only Active rules are ever used in classify_transaction \u2014 mining, approving, and using are three separate, deliberate steps, never one."
+  },
+  {"fieldname": "version", "fieldtype": "Int", "label": "Version", "default": "1"},
+  {"fieldname": "effective_date", "fieldtype": "Date", "label": "Effective Date"},
+  {"fieldname": "sb_evidence", "fieldtype": "Section Break", "label": "Evidence (from mining)"},
+  {
+   "fieldname": "historical_support",
+   "fieldtype": "Int",
+   "label": "Historical Support",
+   "description": "How many already-classified historical transactions this pattern matched, at mining time."
+  },
+  {
+   "fieldname": "historical_precision",
+   "fieldtype": "Percent",
+   "label": "Historical Precision",
+   "description": "Of those matches, the share that were actually classified as Target Line. A rule mined with anything less than very high precision should not reach Active without a reviewer understanding why."
+  },
+  {
+   "fieldname": "sample_transactions",
+   "fieldtype": "Small Text",
+   "label": "Sample Transactions",
+   "description": "A handful of real historical remarks this pattern matched, shown to the reviewer as concrete evidence rather than an abstract precision number."
+  },
+  {"fieldname": "sb_governance", "fieldtype": "Section Break", "label": "Governance"},
+  {"fieldname": "created_by_user", "fieldtype": "Data", "label": "Created By", "read_only": 1},
+  {"fieldname": "created_on", "fieldtype": "Datetime", "label": "Created On", "read_only": 1},
+  {"fieldname": "approved_by_user", "fieldtype": "Data", "label": "Approved By", "read_only": 1},
+  {"fieldname": "approved_on", "fieldtype": "Datetime", "label": "Approved On", "read_only": 1},
+  {"fieldname": "sb_monitoring", "fieldtype": "Section Break", "label": "Monitoring (live)"},
+  {"fieldname": "times_suggested", "fieldtype": "Int", "label": "Times Suggested", "default": "0", "read_only": 1},
+  {"fieldname": "times_confirmed", "fieldtype": "Int", "label": "Times Confirmed", "default": "0", "read_only": 1},
+  {"fieldname": "times_corrected", "fieldtype": "Int", "label": "Times Corrected", "default": "0", "read_only": 1},
+  {
+   "fieldname": "rolling_precision",
+   "fieldtype": "Percent",
+   "label": "Rolling Precision",
+   "read_only": 1,
+   "description": "confirmed / (confirmed + corrected), updated on every accountant decision \u2014 the live version of Historical Precision, from real usage rather than the mining snapshot. A rule whose rolling precision drops below its approval threshold should be flagged for review, never silently rewritten."
+  },
+  {"fieldname": "last_used_on", "fieldtype": "Datetime", "label": "Last Used On", "read_only": 1},
+  {
+   "fieldname": "superseded_by",
+   "fieldtype": "Link",
+   "options": "Insight Cash Flow Classification Rule",
+   "label": "Superseded By",
+   "description": "If a reviewer replaces this rule with a refined version rather than editing it in place \u2014 keeps the old rule's history intact for audit instead of overwriting it."
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-22 00:00:00",
+ "module": "Neotec Insight",
+ "name": "Insight Cash Flow Classification Rule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1,
+   "role": "System Manager", "share": 1, "write": 1
+  },
+  {"create": 1, "delete": 1, "read": 1, "write": 1, "role": "Accounts Manager"},
+  {"read": 1, "role": "Accounts User"}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 import LinkField from '../../components/LinkField';
+import { CashFlowClassificationView } from './CashFlowClassificationView';
 
 /* Cash Flow Forecast (v2.86.0).
  *
@@ -116,7 +117,7 @@ function fmt(n: number | undefined): string {
 }
 
 export function CashFlowForecastTab() {
-  const [view, setView] = useState<'statement' | 'budget' | 'setup'>('statement');
+  const [view, setView] = useState<'statement' | 'budget' | 'classify' | 'setup'>('statement');
   const [fiscalYear, setFiscalYear] = useState<number>(new Date().getFullYear());
   const [companies, setCompanies] = useState<Company[]>([]);
   const [company, setCompany] = useState<string | null>(null);
@@ -340,8 +341,13 @@ export function CashFlowForecastTab() {
       <div className="cff-view-toggle">
         <button className={view === 'statement' ? 'active' : ''} onClick={() => setView('statement')}>{t('Statement')}</button>
         <button className={view === 'budget' ? 'active' : ''} onClick={() => setView('budget')}>{t('Budget')}</button>
+        <button className={view === 'classify' ? 'active' : ''} onClick={() => setView('classify')}>{t('Classify')}</button>
         <button className={view === 'setup' ? 'active' : ''} onClick={() => setView('setup')}>{t('Line Setup')}</button>
       </div>
+
+      {view === 'classify' && (
+        <CashFlowClassificationView fiscalYear={fiscalYear} company={company} bankAccounts={selectedBanks} />
+      )}
 
       {view === 'statement' && (
         <div className="cff-statement">
