@@ -329,7 +329,16 @@ def list_binding_transactions(
     voucher_no, posting_date, and the SIGNED amount this row contributes —
     everything the caller needs to build an 'Open transaction' link and
     show the same figure the summary total already displayed, transaction
-    by transaction, the way the customer's own Excel process already does."""
+    by transaction, the way the customer's own Excel process already does.
+
+    v2.87.6 — also carries account, cost_center, project, remarks, and
+    against_account straight from `row` when present, so the caller (now
+    that fetch_binding_gl_rows fetches these) doesn't need a second
+    per-voucher lookup afterward. `row` may still lack these keys for a
+    caller that built gl_rows some other way (e.g. an Override-sourced row
+    that only ever had voucher_type/voucher_no/posting_date/debit/credit) —
+    .get(...) with a default keeps that case working exactly as before,
+    just with blank display fields rather than an error."""
     out = []
     for row in gl_rows:
         amt = filter_and_sign_row(row, direction_mode, bank_leg_vouchers, transfer_vouchers, override_vouchers)
@@ -345,6 +354,11 @@ def list_binding_transactions(
             "voucher_no": row.get("voucher_no"),
             "posting_date": str(pd),
             "amount": amt,
+            "account": row.get("account") or "",
+            "cost_center": row.get("cost_center") or "",
+            "project": row.get("project") or "",
+            "remarks": row.get("remarks") or "",
+            "against_account": row.get("against") or "",
         })
     out.sort(key=lambda r: r["posting_date"])
     return out
@@ -632,7 +646,15 @@ def fetch_binding_gl_rows(binding: dict, company: str | None, from_date, to_date
 
     v2.87.4 — binding["account"] may be a GROUP node; resolved live to its
     current leaf accounts via resolve_binding_accounts before the account
-    filter is built. A leaf account still resolves to itself, unchanged."""
+    filter is built. A leaf account still resolves to itself, unchanged.
+
+    v2.87.6 — carries account/cost_center/project/remarks/against alongside
+    the fields every other caller already used. attribute_binding_monthly
+    and bank_breakdown_monthly ignore the extra keys (harmless); the
+    transaction drill-down (list_line_transactions) uses them directly from
+    THIS query instead of a second per-voucher lookup afterward — which,
+    for a multi-leg voucher, risked showing whichever leg happened to come
+    back first rather than the one this specific binding actually matched."""
     accounts = resolve_binding_accounts(binding["account"], company)
     filters = {
         "account": ["in", accounts],
@@ -651,6 +673,7 @@ def fetch_binding_gl_rows(binding: dict, company: str | None, from_date, to_date
         filters["party"] = binding["party"]
     return frappe.get_all(
         "GL Entry", filters=filters,
-        fields=["voucher_type", "voucher_no", "posting_date", "debit", "credit"],
+        fields=["voucher_type", "voucher_no", "posting_date", "debit", "credit",
+               "account", "cost_center", "project", "remarks", "against"],
         limit_page_length=0,
     )

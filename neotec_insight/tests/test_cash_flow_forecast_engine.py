@@ -768,6 +768,31 @@ class TestListBindingTransactions(unittest.TestCase):
         # rather than inventing a richer fake date object just for this.
         self.assertEqual({r["voucher_no"] for r in result}, {"PE-1", "PE-2"})
 
+    def test_carries_account_cost_center_and_remarks_through_when_present(self):
+        """v2.87.6 — fetch_binding_gl_rows now fetches these; this function
+        must pass them through, not just the original four fields."""
+        key = ("Payment Entry", "PE-1")
+        rows = [{"voucher_type": "Payment Entry", "voucher_no": "PE-1",
+                 "posting_date": _Date(1), "debit": 5000, "credit": 0,
+                 "account": "GOSI Payable - CO", "cost_center": "Audit",
+                 "project": "", "remarks": "GOSI payment for Jan", "against": "GOSI"}]
+        result = self.eng.list_binding_transactions(rows, "Net", {key}, set(), set(), 1, target_fy_position=0)
+        self.assertEqual(result[0]["account"], "GOSI Payable - CO")
+        self.assertEqual(result[0]["cost_center"], "Audit")
+        self.assertEqual(result[0]["remarks"], "GOSI payment for Jan")
+        self.assertEqual(result[0]["against_account"], "GOSI")
+
+    def test_missing_new_fields_default_to_blank_not_a_crash(self):
+        """A row built without these keys (e.g. still the older
+        Override-sourced shape) must not raise a KeyError — blank display
+        fields, same as before this change, not an error."""
+        key = ("Payment Entry", "PE-1")
+        rows = [{"voucher_type": "Payment Entry", "voucher_no": "PE-1",
+                 "posting_date": _Date(1), "debit": 5000, "credit": 0}]
+        result = self.eng.list_binding_transactions(rows, "Net", {key}, set(), set(), 1, target_fy_position=0)
+        self.assertEqual(result[0]["account"], "")
+        self.assertEqual(result[0]["remarks"], "")
+
 
 class TestBalanceCarry(unittest.TestCase):
     """The one genuinely new engine capability — a rollforward, tested with

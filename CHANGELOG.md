@@ -1,3 +1,17 @@
+## v2.87.6 — 2026-08-22
+
+### Added: Account, Voucher, Against, and Cost Center columns in the transaction drill-down
+
+The transaction list only showed Date, Remarks, Amount, and Open. Added the fields the customer's own Excel process shows for every row — Account, Voucher (type + number), Against Account, and Cost Center — matching what's actually useful to see, especially now that a line can bind an entire account group (v2.87.4): a group-bound line's transactions can span several different leaf accounts, and knowing which specific one each transaction hit is exactly the case this was missing.
+
+**Fixed the source, not just added a display column.** `fetch_binding_gl_rows` now fetches `account`, `cost_center`, `project`, `remarks`, and `against` in its one query — previously the drill-down re-queried GL Entry per surviving voucher afterward, `limit_page_length=1`, which for a multi-leg voucher risked returning whichever leg the database happened to list first, not necessarily the one this specific binding actually matched. That re-query is gone; every field now comes from the same row the amount itself was computed from, so there's no chance of a transaction's displayed account disagreeing with the account its amount was actually attributed to.
+
+`list_binding_transactions` (the shared pure function, already used by the "amounts must sum to the total" test) carries the new fields through with `.get(...)` defaults, so a caller that still builds rows the old way keeps working with blank display fields rather than an error — checked directly by a new test. Override-sourced rows (Tier 2 manual classifications, which never go through a binding's own fetch) get the same fields from their own widened query.
+
+Widened the drill-down panel (480px → 920px max) and added horizontal scroll to the transaction table specifically, so the extra columns don't cramp the account/bank breakdown shown above it.
+
+2 new engine tests. 222 backend tests total, all green. Frontend typechecks clean and builds.
+
 ## v2.87.5 — 2026-08-22
 
 ### Added: open the individual transactions behind any figure, not just which bank fed it

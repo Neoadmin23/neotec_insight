@@ -642,31 +642,44 @@ export function CashFlowForecastTab() {
                           <div className="cff-drill-sub" style={{ marginTop: 10, marginBottom: 4 }}>
                             {t('Individual transactions')} — {drillTransactions.length}
                           </div>
-                          <table className="cff-drill-tx-tbl">
-                            <thead>
-                              <tr>
-                                <th>{t('Date')}</th><th>{t('Remarks')}</th><th>{t('Amount')}</th><th></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {drillTransactions.length === 0 && (
-                                <tr><td colSpan={4} className="cff-drill-empty">{t('No transactions found.')}</td></tr>
-                              )}
-                              {drillTransactions.map((tx: any, i: number) => (
-                                <tr key={i}>
-                                  <td>{tx.posting_date}</td>
-                                  <td className="cff-drill-tx-remarks" title={tx.remarks}>{tx.remarks || <em>{t('(no remarks)')}</em>}</td>
-                                  <td className="cff-drill-amt">{fmt(tx.amount)}</td>
-                                  <td>
-                                    <a className="cff-drill-open" href={deskUrl(tx.voucher_type, tx.voucher_no)}
-                                      target="_blank" rel="noopener noreferrer" title={`${tx.voucher_type} ${tx.voucher_no}`}>
-                                      {t('Open')} ↗
-                                    </a>
-                                  </td>
+                          <div className="cff-drill-tx-scroll">
+                            <table className="cff-drill-tx-tbl">
+                              <thead>
+                                <tr>
+                                  <th>{t('Date')}</th>
+                                  <th>{t('Voucher')}</th>
+                                  <th>{t('Account')}</th>
+                                  <th>{t('Against')}</th>
+                                  <th>{t('Cost Center')}</th>
+                                  <th>{t('Remarks')}</th>
+                                  <th>{t('Amount')}</th>
+                                  <th></th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {drillTransactions.length === 0 && (
+                                  <tr><td colSpan={8} className="cff-drill-empty">{t('No transactions found.')}</td></tr>
+                                )}
+                                {drillTransactions.map((tx: any, i: number) => (
+                                  <tr key={i}>
+                                    <td>{tx.posting_date}</td>
+                                    <td className="cff-drill-tx-voucher">{tx.voucher_type} {tx.voucher_no}</td>
+                                    <td className="cff-drill-tx-account" title={tx.account}>{tx.account || '—'}</td>
+                                    <td className="cff-drill-tx-account" title={tx.against_account}>{tx.against_account || '—'}</td>
+                                    <td>{tx.cost_center || '—'}</td>
+                                    <td className="cff-drill-tx-remarks" title={tx.remarks}>{tx.remarks || <em>{t('(no remarks)')}</em>}</td>
+                                    <td className="cff-drill-amt">{fmt(tx.amount)}</td>
+                                    <td>
+                                      <a className="cff-drill-open" href={deskUrl(tx.voucher_type, tx.voucher_no)}
+                                        target="_blank" rel="noopener noreferrer" title={`${tx.voucher_type} ${tx.voucher_no}`}>
+                                        {t('Open')} ↗
+                                      </a>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </>
                       )}
                     </div>

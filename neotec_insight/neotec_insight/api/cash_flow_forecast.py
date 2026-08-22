@@ -409,13 +409,19 @@ def list_line_transactions(fiscal_year: int, line: str, month_index: int, compan
 
     # Overrides claiming this line, in the same target month — a manually
     # tagged voucher never went through a binding's own gl_rows fetch, so
-    # it needs its own pass here to appear in the drill-down at all.
+    # it needs its own pass here to appear in the drill-down at all. An
+    # override tags the WHOLE voucher, not one specific leg the way a
+    # binding does, so there's no single "the" account to prefer — this
+    # takes whichever leg GL Entry returns first per voucher, same
+    # simplification the pre-v2.87.6 enrichment step already made.
     for o in frappe.get_all("Insight Cash Flow Override", filters={"line": line},
                             fields=["voucher_type", "voucher_no"], limit_page_length=0):
         gl = frappe.get_all(
             "GL Entry",
             filters={"voucher_type": o["voucher_type"], "voucher_no": o["voucher_no"], "is_cancelled": 0},
-            fields=["posting_date", "debit", "credit"], limit_page_length=0)
+            fields=["posting_date", "debit", "credit", "account", "cost_center",
+                   "project", "remarks", "against"],
+            limit_page_length=0)
         for g in gl:
             pd = g["posting_date"]
             cal_month = pd.month if hasattr(pd, "month") else getdate(pd).month
@@ -424,22 +430,19 @@ def list_line_transactions(fiscal_year: int, line: str, month_index: int, compan
                 transactions.append({
                     "voucher_type": o["voucher_type"], "voucher_no": o["voucher_no"],
                     "posting_date": str(pd), "amount": flt(g["debit"]) - flt(g["credit"]),
+                    "account": g.get("account") or "", "cost_center": g.get("cost_center") or "",
+                    "project": g.get("project") or "", "remarks": g.get("remarks") or "",
+                    "against_account": g.get("against") or "",
                 })
 
-    # Enrich with remarks/against_account for display — a separate query
-    # per surviving voucher rather than widening fetch_binding_gl_rows'
-    # own field list for every other caller; this endpoint is the only one
-    # that needs this detail. GL Entry's real field is `against`, not
-    # `against_account` — see v2.87.1; renamed on the way out for the same
-    # consistency reason it was renamed in cash_flow_classification.py.
-    for t in transactions:
-        gl = frappe.get_all(
-            "GL Entry",
-            filters={"voucher_type": t["voucher_type"], "voucher_no": t["voucher_no"], "is_cancelled": 0},
-            fields=["remarks", "against"], limit_page_length=1)
-        t["remarks"] = gl[0]["remarks"] if gl else ""
-        t["against_account"] = gl[0]["against"] if gl else ""
-
+    # v2.87.6 — binding-sourced rows already carry account/cost_center/
+    # remarks/against_account from list_binding_transactions (which gets
+    # them from fetch_binding_gl_rows' now-widened field list), and
+    # override-sourced rows get them from the widened query directly above
+    # — the separate per-voucher "enrichment" re-query this used to need is
+    # gone. It was also a real, if minor, correctness risk: for a
+    # multi-leg voucher it could return whichever leg GL Entry happened to
+    # list first, not necessarily the one this specific binding matched.
     transactions.sort(key=lambda t: t["posting_date"])
     return {"line": line, "month_index": target_month, "transactions": transactions,
             "total": flt(sum(t["amount"] for t in transactions), 2)}
