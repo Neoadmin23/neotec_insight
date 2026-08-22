@@ -39,6 +39,7 @@ from neotec_insight.neotec_insight.utils.cash_flow_forecast import (
     fy_position_to_calendar,
     fy_position_to_calendar_year,
     list_bank_accounts_for_ui,
+    list_binding_transactions,
     reconciliation_residual,
     resolve_cash_accounts,
     resolve_company_fy_start_month,
@@ -341,6 +342,109 @@ def save_budget_grid(fiscal_year: int, cells: str | dict, company: str | None = 
 
 
 
+def _fy_date_range(fy: int, fy_start_month: int) -> tuple[str, str]:
+    """Shared by run() and list_line_transactions() — extracted here (this
+    is its 3rd call site across the two API files, counting the near-
+    identical copy in api/cash_flow_classification.py) since duplicating a
+    6-line date computation a third time is the actual risk this function
+    closes, not a style preference. Not imported by cash_flow_classification.py
+    or vice versa — both files independently need the same logic and
+    importing between them would create the kind of cross-file coupling
+    this feature's isolation was built to avoid; small enough duplication
+    to accept once, not a third time."""
+    if fy_start_month == 1:
+        return f"{fy}-01-01", f"{fy}-12-31"
+    from_date = f"{fy}-{fy_start_month:02d}-01"
+    end_year, end_month = fy + 1, fy_start_month - 1
+    return from_date, get_last_day(f"{end_year}-{end_month:02d}-01")
+
+
+@frappe.whitelist()
+def list_line_transactions(fiscal_year: int, line: str, month_index: int, company: str | None = None,
+                           bank_accounts: str | list | None = None):
+    """The individual transactions behind one line's Actual figure for one
+    month — the app equivalent of a row in the customer's own Excel Data
+    sheet, with an Open action per transaction attached by the frontend.
+
+    month_index: 0-11, FY position — the SAME index the Statement view's
+    month_labels array already uses, not a calendar month. The caller
+    already has this from whichever cell was clicked; no conversion needed
+    on either side."""
+    _require_read()
+    fy = int(fiscal_year)
+    target_month = int(month_index)
+    fy_start_month = resolve_company_fy_start_month(company)
+    restrict = json.loads(bank_accounts) if isinstance(bank_accounts, str) else bank_accounts
+    cash_accounts = resolve_cash_accounts(company, restrict_to=restrict or None)
+    from_date, to_date = _fy_date_range(fy, fy_start_month)
+
+    if not frappe.db.exists("Insight Cash Flow Line", line):
+        frappe.throw(_("Unknown line: {0}").format(line))
+    line_doc = frappe.get_doc("Insight Cash Flow Line", line)
+    bindings = [
+        {
+            "account": b.account,
+            "direction_mode": b.direction_mode,
+            "cost_centers": [row.cost_center for row in (b.cost_centers or [])],
+            "project": b.project, "party_type": b.party_type, "party": b.party,
+        }
+        for b in (line_doc.bindings or [])
+    ]
+
+    override_vouchers = {
+        (o["voucher_type"], o["voucher_no"])
+        for o in frappe.get_all("Insight Cash Flow Override", filters={"line": line},
+                                fields=["voucher_type", "voucher_no"], limit_page_length=0)
+    }
+
+    transactions: list[dict] = []
+    for b in bindings:
+        gl_rows = fetch_binding_gl_rows(b, company, from_date, to_date)
+        bank_leg, transfer = fetch_bank_leg_and_transfer_vouchers(
+            b["account"], company, from_date, to_date, cash_accounts)
+        rows = list_binding_transactions(
+            gl_rows, b.get("direction_mode") or "Net", bank_leg, transfer,
+            override_vouchers, fy_start_month, target_month)
+        transactions.extend(rows)
+
+    # Overrides claiming this line, in the same target month — a manually
+    # tagged voucher never went through a binding's own gl_rows fetch, so
+    # it needs its own pass here to appear in the drill-down at all.
+    for o in frappe.get_all("Insight Cash Flow Override", filters={"line": line},
+                            fields=["voucher_type", "voucher_no"], limit_page_length=0):
+        gl = frappe.get_all(
+            "GL Entry",
+            filters={"voucher_type": o["voucher_type"], "voucher_no": o["voucher_no"], "is_cancelled": 0},
+            fields=["posting_date", "debit", "credit"], limit_page_length=0)
+        for g in gl:
+            pd = g["posting_date"]
+            cal_month = pd.month if hasattr(pd, "month") else getdate(pd).month
+            pos = calendar_to_fy_position(cal_month, fy_start_month)
+            if pos == target_month:
+                transactions.append({
+                    "voucher_type": o["voucher_type"], "voucher_no": o["voucher_no"],
+                    "posting_date": str(pd), "amount": flt(g["debit"]) - flt(g["credit"]),
+                })
+
+    # Enrich with remarks/against_account for display — a separate query
+    # per surviving voucher rather than widening fetch_binding_gl_rows'
+    # own field list for every other caller; this endpoint is the only one
+    # that needs this detail. GL Entry's real field is `against`, not
+    # `against_account` — see v2.87.1; renamed on the way out for the same
+    # consistency reason it was renamed in cash_flow_classification.py.
+    for t in transactions:
+        gl = frappe.get_all(
+            "GL Entry",
+            filters={"voucher_type": t["voucher_type"], "voucher_no": t["voucher_no"], "is_cancelled": 0},
+            fields=["remarks", "against"], limit_page_length=1)
+        t["remarks"] = gl[0]["remarks"] if gl else ""
+        t["against_account"] = gl[0]["against"] if gl else ""
+
+    transactions.sort(key=lambda t: t["posting_date"])
+    return {"line": line, "month_index": target_month, "transactions": transactions,
+            "total": flt(sum(t["amount"] for t in transactions), 2)}
+
+
 @frappe.whitelist()
 def run(fiscal_year: int, company: str | None = None, bank_accounts: str | list | None = None):
     """bank_accounts: optional list of specific Bank/Cash account names to
@@ -376,14 +480,7 @@ def run(fiscal_year: int, company: str | None = None, bank_accounts: str | list 
             override_gl.append({"line": r["line"], **g})
     override_monthly = attribute_overrides_monthly(override_gl, fy_start_month, months)
 
-    if fy_start_month == 1:
-        from_date, to_date = f"{fy}-01-01", f"{fy}-12-31"
-    else:
-        # Same bug class as the budget grid above: the FY's date range does
-        # not sit inside one calendar year for a non-January-start company.
-        from_date = f"{fy}-{fy_start_month:02d}-01"
-        end_year, end_month = fy + 1, fy_start_month - 1
-        to_date = get_last_day(f"{end_year}-{end_month:02d}-01")
+    from_date, to_date = _fy_date_range(fy, fy_start_month)
 
     result_lines = []
     cash_in_total = {m: 0.0 for m in months}

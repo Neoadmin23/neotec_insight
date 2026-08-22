@@ -142,6 +142,9 @@ export function CashFlowForecastTab() {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ line: RunLine; monthIdx: number } | null>(null);
+  const [drillTransactions, setDrillTransactions] = useState<any[] | null>(null);
+  const [drillTxLoading, setDrillTxLoading] = useState(false);
+  const [drillTxError, setDrillTxError] = useState<string | null>(null);
   const [showTransfers, setShowTransfers] = useState(false);
 
   const loadLines = useCallback(async () => {
@@ -288,6 +291,27 @@ export function CashFlowForecastTab() {
 
   function toggleBank(name: string) {
     setSelectedBanks((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]);
+  }
+
+  const loadDrillTransactions = useCallback(async () => {
+    if (!drill) return;
+    setDrillTxLoading(true); setDrillTxError(null);
+    try {
+      const res = await api.cashFlowForecastLineTransactions(
+        fiscalYear, drill.line.line, drill.monthIdx, company, selectedBanks);
+      setDrillTransactions(res.transactions || []);
+    } catch (e: any) {
+      setDrillTxError(e?.message || String(e));
+    } finally {
+      setDrillTxLoading(false);
+    }
+  }, [drill, fiscalYear, company, selectedBanks]);
+
+  // Frappe's own desk document URL, e.g. "Payment Entry" -> /app/payment-entry/<name>.
+  // Standard convention, not something this app needs to look up per doctype.
+  function deskUrl(voucherType: string, voucherNo: string) {
+    const slug = voucherType.toLowerCase().replace(/\s+/g, '-');
+    return `/app/${slug}/${encodeURIComponent(voucherNo)}`;
   }
 
   const sections = useMemo(() => {
@@ -531,7 +555,7 @@ export function CashFlowForecastTab() {
                                 <td className="cff-b">{fmt(r.budget[i])}</td>
                                 <td className={r.actual[i] ? 'cff-drillable' : ''}
                                   title={r.actual[i] ? t('Click to see which bank accounts fed this figure') : undefined}
-                                  onClick={() => r.actual[i] && setDrill({ line: r, monthIdx: i })}>
+                                  onClick={() => { if (r.actual[i]) { setDrill({ line: r, monthIdx: i }); setDrillTransactions(null); setDrillTxError(null); } }}>
                                   {fmt(r.actual[i])}
                                 </td>
                               </Fragment>
@@ -605,6 +629,47 @@ export function CashFlowForecastTab() {
                         </tr>
                       </tfoot>
                     </table>
+
+                    <div className="cff-drill-tx-section">
+                      {drillTransactions === null && (
+                        <button className="cff-btn-sm" disabled={drillTxLoading} onClick={loadDrillTransactions}>
+                          {drillTxLoading ? t('Loading…') : t('Show transactions')}
+                        </button>
+                      )}
+                      {drillTxError && <div className="cff-error">{drillTxError}</div>}
+                      {drillTransactions !== null && (
+                        <>
+                          <div className="cff-drill-sub" style={{ marginTop: 10, marginBottom: 4 }}>
+                            {t('Individual transactions')} — {drillTransactions.length}
+                          </div>
+                          <table className="cff-drill-tx-tbl">
+                            <thead>
+                              <tr>
+                                <th>{t('Date')}</th><th>{t('Remarks')}</th><th>{t('Amount')}</th><th></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {drillTransactions.length === 0 && (
+                                <tr><td colSpan={4} className="cff-drill-empty">{t('No transactions found.')}</td></tr>
+                              )}
+                              {drillTransactions.map((tx: any, i: number) => (
+                                <tr key={i}>
+                                  <td>{tx.posting_date}</td>
+                                  <td className="cff-drill-tx-remarks" title={tx.remarks}>{tx.remarks || <em>{t('(no remarks)')}</em>}</td>
+                                  <td className="cff-drill-amt">{fmt(tx.amount)}</td>
+                                  <td>
+                                    <a className="cff-drill-open" href={deskUrl(tx.voucher_type, tx.voucher_no)}
+                                      target="_blank" rel="noopener noreferrer" title={`${tx.voucher_type} ${tx.voucher_no}`}>
+                                      {t('Open')} ↗
+                                    </a>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -761,7 +826,7 @@ export function CashFlowForecastTab() {
                       {(editing.bindings || []).map((b, idx) => (
                         <tr key={idx}>
                           <td className="cff-bind-account-cell">
-                            <LinkField doctype="Account" company={company}
+                            <LinkField doctype="Account" company={company} allowGroupSelection
                               value={b.account} placeholder={t('Search or browse the chart of accounts…')}
                               onChange={(v) => updateBinding(idx, { account: v })} />
                           </td>

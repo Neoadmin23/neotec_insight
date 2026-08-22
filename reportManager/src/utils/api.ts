@@ -867,6 +867,13 @@ export const api = {
       fiscal_year: fiscalYear, company: company || null,
       bank_accounts: bankAccounts && bankAccounts.length ? JSON.stringify(bankAccounts) : null,
     }),
+  cashFlowForecastLineTransactions: (
+    fiscalYear: number, line: string, monthIndex: number,
+    company?: string | null, bankAccounts?: string[] | null,
+  ) => call<any>('cash_flow_forecast.list_line_transactions', {
+    fiscal_year: fiscalYear, line, month_index: monthIndex, company: company || null,
+    bank_accounts: bankAccounts && bankAccounts.length ? JSON.stringify(bankAccounts) : null,
+  }),
   cashFlowForecastCompanies: () => call<{ name: string; default_currency: string }[]>('cash_flow_forecast.list_companies'),
   cashFlowForecastBankAccounts: (company?: string | null) =>
     call<{ name: string; account_name: string; account_type: string }[]>(

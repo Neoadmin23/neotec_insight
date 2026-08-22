@@ -8,14 +8,20 @@ import { t } from '../utils/i18n';
  *  drilled when you know roughly where a thing lives and best searched when you
  *  know its name; forcing either one alone makes the other case tedious.
  *
- *  Group nodes are branches, never selections — an account that carries no
- *  balance cannot be a VAT control account, and letting someone pick one only
- *  produces a setting that silently resolves to nothing. */
+ *  Group nodes are branches, never selections by default — an account that
+ *  carries no balance cannot be a VAT control account, and letting someone
+ *  pick one only produces a setting that silently resolves to nothing.
+ *
+ *  v2.87.4 — `allowGroupSelection` lifts that for callers that have a real
+ *  use for a group (Cash Flow Forecast's account binding: bind a whole
+ *  account-tree branch, resolved live to its current leaf accounts every
+ *  time the report runs, rather than picking leaves one at a time). Off by
+ *  default — every existing caller's behaviour is unchanged. */
 
 type Opt = { value: string; label: string; code?: string; meta?: string; is_group?: boolean };
 
 export default function LinkField({
-  doctype, company, value, onChange, placeholder, disabled,
+  doctype, company, value, onChange, placeholder, disabled, allowGroupSelection,
 }: {
   doctype: 'Account' | 'Customer' | 'Customer Group' | 'Sales Invoice' | 'Cost Center';
   company?: string | null;
@@ -23,6 +29,7 @@ export default function LinkField({
   onChange: (v: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  allowGroupSelection?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -57,6 +64,11 @@ export default function LinkField({
 
   function pick(o: Opt) {
     if (o.is_group) { setTrail([...trail, { value: o.value, label: o.label }]); setQuery(''); return; }
+    onChange(o.value); setOpen(false); setQuery('');
+  }
+
+  function selectGroup(o: Opt, e: React.MouseEvent) {
+    e.stopPropagation();
     onChange(o.value); setOpen(false); setQuery('');
   }
 
@@ -100,6 +112,12 @@ export default function LinkField({
                 {o.label}
                 {o.is_group && <span className="lf-arrow">›</span>}
               </span>
+              {o.is_group && allowGroupSelection && (
+                <span className="lf-use-group" onClick={(e) => selectGroup(o, e)}
+                  title={t('Bind the whole group — resolved live to its current leaf accounts every run')}>
+                  {t('Use group')}
+                </span>
+              )}
               {o.meta && <span className="lf-meta">{o.meta}</span>}
             </button>
           ))}

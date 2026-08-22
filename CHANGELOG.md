@@ -1,3 +1,37 @@
+## v2.87.5 — 2026-08-22
+
+### Added: open the individual transactions behind any figure, not just which bank fed it
+
+The bank-breakdown drill-down (v2.86.1) showed which bank accounts contributed to a line's Actual figure, but not the individual transactions themselves — the customer's own Excel process shows a real transaction list (date, remarks, amount) for any figure, and the app's drill-down should give at least that, with an advantage Excel can't: an **Open** link straight to the real Payment Entry or Journal Entry in the desk.
+
+**`list_binding_transactions()`** — a fourth consumer of `filter_and_sign_row`, the shared exclusion/sign rule already behind `attribute_binding_monthly` and `bank_breakdown_monthly`. Extracting that rule once, rather than three separate copies, is what guarantees the transaction list shown to a user always sums to *exactly* the total already displayed above it — the same reasoning this app has applied to every other shared calculation this session, applied here before it could drift.
+
+**`list_line_transactions()`** — the API layer, with two details worth naming: manually-tagged Overrides get their own pass, since a voucher claimed by Tier 2 never went through a binding's own GL fetch and would otherwise be invisible in its own drill-down; and remarks/counterparty are enriched via GL Entry's real `against` field (not `against_account` — the exact naming mistake fixed in v2.87.1, not repeated here).
+
+**Frontend**: a "Show transactions" toggle inside the existing bank-breakdown drill-down, each row carrying date, remarks, signed amount, and an Open link built from Frappe's own desk URL convention.
+
+4 new engine tests (`TestListBindingTransactions`), including one confirming the listed transactions' amounts sum to exactly what the summary total already showed — the correctness guarantee the shared `filter_and_sign_row` extraction exists to provide. 220 backend tests total, all green. Frontend typechecks clean and builds.
+
+### Investigated: a large reconciliation residual reported from a live screenshot
+
+Traced rather than guessed at. The displayed Bank Beginning/End of Month row is built only from currently-configured Lines; the reconciliation residual independently checks against the *full* real bank ledger for the same period, regardless of whether a transaction is bound to any Line yet. A large residual while Line Setup is still in progress is the mechanism doing its job — showing how much real cash movement isn't accounted for yet — not a computation defect. Should shrink toward zero as more of the categories get bound. Noted as a reasoned assessment from reading the code, not a live-data-verified diagnosis, since no live site was available to confirm directly.
+
+## v2.87.4 — 2026-08-22
+
+### Added: bind a whole account group, not just one leaf account at a time
+
+Account Bindings could only pick a single leaf account — a line that genuinely belongs to a whole branch of the chart of accounts (e.g. "Payment To Supplier" against an entire Accounts Payable group) needed one binding row per leaf, and a new sub-account added later needed a new binding row added by hand to match.
+
+**`resolve_binding_accounts()`** resolves a bound account live, every run — a leaf resolves to itself (every existing binding's behaviour is unchanged), a group resolves to its current leaf descendants via the Account tree's nested-set (`lft`/`rgt`) bounds, not a stored snapshot. An account added under the group after the binding was saved is picked up automatically next time the report runs, the same "live group" principle the P&L engine already uses elsewhere in this app — reimplemented here standalone, not imported, so the isolation boundary holds.
+
+**A real bug caught by the test written for this, before it ran against real data**: the first version called `frappe.db.get_value()`, inconsistent with `frappe.get_value()` used everywhere else in this file. Caught immediately by the test harness, fixed before anything else built on top of it.
+
+**Transfer detection generalized properly, not patched around.** `classify_voucher_leg_group()` handles the case where a voucher touches more than one leaf of the *same* bound group — those legs are all "mine," not each other's "other leg." `classify_voucher_leg` (the original, already-tested single-account function) is now a thin wrapper around it, proven identical by a direct test comparing both against the same inputs, so the two paths can't silently drift apart the way earlier duplicated logic in this app has before.
+
+**Frontend:** `LinkField` gained an `allowGroupSelection` prop, off by default — every other caller (VAT settings, etc.) is unchanged. On specifically for Cash Flow Forecast's Account picker, where a group node now shows a "Use group" button alongside its normal drill-in behaviour.
+
+62 engine tests (9 new — including one proving a group binding actually queries every one of its live leaves, not the group name itself, which would silently match nothing since a group account never carries a balance). 211 backend tests total, all green, all correctly attributed by class this time — checked by count, the standing discipline after it slipped four times earlier this session. Frontend typechecks clean and builds.
+
 ## v2.87.3 — 2026-08-22
 
 ### Added: the config backup tool now covers every Insight doctype, and can't silently miss one again
