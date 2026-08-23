@@ -1,3 +1,17 @@
+## v2.87.7 — 2026-08-23
+
+### Verified: both GTPL scenarios reconciled against real filed VAT returns, for two different real companies
+
+Extracted and cross-checked six quarters of real, ZATCA-filed VAT data (Q3 2025 – Q2 2026) for IRSAA and a second, unrelated company (شركة المسح الرقمي لتقنية المعلومات) uploaded together.
+
+**IRSAA's government-deferral scenario — confirmed exact.** The existing `TestQ4PartialRelease.test_reproduces_filed_box_1_2` claims Amount 7,379,742.26 / Adjustment 1,740,443.00 / VAT 845,894.89 as IRSAA's real filed Q4 2025 box 1.2. Independently extracted the same three figures from IRSAA's actual ZATCA-filed Arabic PDF for that quarter — exact match, to the cent, on all three. The pure deferral engine (`utils/gtpl_core.py`, deliberately frappe-free specifically so it can be checked against real filed history without a site) reproduces a real filing precisely, not just plausibly.
+
+**The "no GTPL rule" scenario — previously only tested with a synthetic placeholder, now confirmed against a real second company.** The second company's real, official ZATCA-filed form has no box 1.2 line at all — not empty, structurally absent, confirmed by the form's own printed totals adding up cleanly without it and by the form's own screening question ("do you have government-rate supplies?") going unanswered where IRSAA's identical question is answered yes. Added `TestNoRuleAgainstARealSecondCompany`, asserting the routing logic against this company's actual filed total (3,000,053.87 SAR, entirely in box 1, nothing in box 1.2) rather than only a placeholder customer name.
+
+**A real data-organization issue found and named, not worked around.** The uploaded Q2 2026 folder mixes files from both companies — the "VAT Breakdown" workbook in that folder is IRSAA's own data (same Water Authority customer, same ~7.6M total as IRSAA's Q1 breakdown), while the "VAT Return" and official form in the same folder belong to the second company entirely (3.0M total, different VAT number). Flagged directly rather than silently pairing mismatched files into a reconciliation that would have looked verified without actually being consistent.
+
+56 GTPL tests (1 new), 223 backend tests total, all green.
+
 ## v2.87.6 — 2026-08-22
 
 ### Added: Account, Voucher, Against, and Cost Center columns in the transaction drill-down

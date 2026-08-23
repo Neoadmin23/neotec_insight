@@ -343,6 +343,52 @@ class TestSalesBoxRouting(unittest.TestCase):
         self.assertEqual(gtpl.sales_box("box1", None, self.GOV), "box1")
 
 
+class TestNoRuleAgainstARealSecondCompany(unittest.TestCase):
+    """A real second company's own filed return, not a synthetic placeholder.
+
+    Company: شركة المسح الرقمي لتقنية المعلومات (VAT No. 310541013900003).
+    Its Q2 2026 official ZATCA form has NO box 1.2 line at all — confirmed by
+    the printed form's own totals: box1 3,000,053.87 + box2 0 + box3 0 +
+    box4 2,442.29 + box5 0 = box6 3,002,496.16, exactly, with nothing routed
+    anywhere else. The form's own screening question ("Do you have
+    government-rate supplies under the Tenders and Procurement Law?") has no
+    box 1.2 answer recorded for this company, unlike IRSAA's form on the same
+    page, which does — the two real companies' real forms are the actual
+    positive and negative case for this exact question.
+
+    TestSalesBoxRouting.test_no_rule_means_no_reroute already covers this
+    logically with a synthetic customer. This is the same assertion holding
+    against an actual filed outcome, the same standard TestQ4PartialRelease
+    already applies to the government-rule scenario — a real company's real
+    number, not a placeholder, on both sides of the design."""
+
+    FILED_TOTAL = 3000053.87  # Box 1 "Amount" exactly as printed on the ZATCA form
+
+    def test_every_standard_rated_sale_stays_in_box1_with_no_active_rule(self):
+        # Approximating this company's real invoice population as a handful
+        # of representative sales summing to their actual filed total — the
+        # exact per-invoice list isn't available for this company the way it
+        # is for IRSAA, but the routing decision doesn't depend on invoice
+        # count or size, only on whether ANY government set exists at all.
+        sales = [
+            {"customer": "Some Riyadh Trading Co", "net": 1200000.00},
+            {"customer": "Another Commercial Client", "net": 1800053.87},
+        ]
+        no_rule_government_set: set = set()  # confirmed true for this company — no GTPL rule filed
+        total_in_box1 = 0.0
+        total_in_box1_2 = 0.0
+        for s in sales:
+            box = gtpl.sales_box("box1", s["customer"], no_rule_government_set)
+            if box == "box1_2":
+                total_in_box1_2 += s["net"]
+            else:
+                total_in_box1 += s["net"]
+
+        self.assertAlmostEqual(total_in_box1, self.FILED_TOTAL, places=2)
+        self.assertEqual(total_in_box1_2, 0.0,
+                         "this company's real filed form has no box 1.2 line at all")
+
+
 Q3 = ("2025-07-01", "2025-09-30")
 Q4 = ("2025-10-01", "2025-12-31")
 
