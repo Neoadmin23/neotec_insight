@@ -1,3 +1,19 @@
+## v2.87.8 — 2026-08-23
+
+### Fixed: the actual root cause of the impossible-looking VAT return — found in real IRSAA ledger data, not guessed at
+
+Traced this directly from the uploaded Q2 2026 GL export rather than theorize further. Found `ACC-JV-2026-01038` (30-06-2026): a Journal Entry debiting Output VAT 157,109.07 SAR against `21204002 - VAT Reconciliation`, and its pair `ACC-JV-2026-01035` (same date): debiting that same clearing account against Input VAT 30,595.85 SAR. Together, a completely standard quarter-end VAT close — moving the period's output and input VAT balances into a clearing account ahead of payment — done as two separate Journal Entries instead of one combined one.
+
+`_non_invoice_vat`'s existing settlement-exclusion only catches a single voucher that touches **both** the Output VAT and Input VAT accounts directly. Neither of these two JEs does — each touches only one VAT side plus the clearing account, invisible to that check. The clearing account itself was already correctly excluded from being counted *as* Output or Input VAT (matched by `_NOT_VAT`'s "تسوية/settlement" keyword, specifically to stop exactly this kind of account's own balance from distorting the return) — but that exclusion had no way to also flag it as a *clearing* account whose ledger entries should void the settlement check on the other side. The 157,109.07 SAR debit went straight into `sales["box1"]["vat"]` as a real, standalone output-VAT reduction — precisely where the impossible negative figures the customer flagged were showing up.
+
+**Fixed by adding a second, narrower pattern.** `_VAT_CLEARING` recognizes accounts that are VAT-adjacent *and* settlement/reconciliation-worded — not the same set `_NOT_VAT` excludes (which also catches unrelated tax types: Zakat, WHT, income tax), a genuinely distinct concept that needed its own name and its own regex. `_vat_accounts()` now returns this set alongside the output/input lists; every place that computes non-invoice VAT — the return itself, its drill-down, and the export-pack GL dump — now excludes a voucher touching a recognized clearing account the same way it already excludes one touching both VAT sides directly.
+
+**Fixed comprehensively, not just the one call site that prompted this.** `_vat_accounts()`'s return signature changed from 2 values to 3 — grepped the whole `api/` folder rather than trust memory, and found two more callers (`api/packs.py`, twice, and `api/vat_settings.py`) that would have broken outright with an unpacking error if left unfixed. All five call sites updated consistently.
+
+**Surfaced where the customer was already looking.** The VAT Settings screen's "VAT control accounts" section — the exact screen from the customer's own screenshot — now shows a third list: accounts recognized as VAT clearing/reconciliation, not a real VAT liability or asset in their own right. Checkable, not asserted, the same discipline already applied to the Output/Input heuristic lists on that same screen.
+
+7 new tests (`test_vat_clearing.py`) against the exact real account name and JE pattern that caused this, extracted via AST since `vat.py`'s relative imports make a full module load impractical outside the real app package. 230 backend tests total, all green.
+
 ## v2.87.7 — 2026-08-23
 
 ### Verified: both GTPL scenarios reconciled against real filed VAT returns, for two different real companies

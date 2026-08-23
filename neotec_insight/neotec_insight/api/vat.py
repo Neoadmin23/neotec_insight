@@ -59,6 +59,28 @@ _NOT_VAT = re.compile(
     r"wht|withhold|استقطاع|zakat|زكاة|income tax|ضريبة الدخل|"
     r"settle|settlement|تسوية|sadad|سداد|excise|انتقائية|الانتقائية", re.I)
 
+# A VAT-adjacent account excluded from being its OWN Output/Input VAT box
+# specifically because its name matches settlement/reconciliation — NOT
+# because it's a different tax entirely (WHT/Zakat/Sadad, which _NOT_VAT also
+# excludes, but which are irrelevant here). This is the account a quarter-end
+# closing JE moves VAT INTO — real, observed in IRSAA's own Q2 2026 ledger:
+# ACC-JV-2026-01038 (30-06-2026) debits Output VAT 157,109.07 against
+# '21204002 - VAT Reconciliation'; ACC-JV-2026-01035, same date, debits that
+# same account against Input VAT 30,595.85. Two separate JEs, each touching
+# only ONE VAT side plus this clearing account — neither is caught by the
+# existing settlement_clause below, which only excludes a voucher touching
+# BOTH an output AND an input VAT account directly. Both are, in substance,
+# the exact "quarter-end JE that nets VAT into a clearing account" the
+# existing exclusion already exists to catch; they just do it as a pair
+# instead of one combined entry. Without this, the clearing account being
+# correctly excluded from being counted AS Output/Input VAT — the whole
+# point of _NOT_VAT's settlement keywords — left its ledger entries fully
+# exposed to _non_invoice_vat, which does not itself know a clearing
+# account when it sees one.
+_VAT_CLEARING = re.compile(
+    r"(vat|ضريبة|ضريبه).{0,20}(settle|reconcil|تسوية|مقاصة)|"
+    r"(settle|reconcil|تسوية|مقاصة).{0,20}(vat|ضريبة|ضريبه)", re.I)
+
 # A VAT control account is never one of these, whatever it is called. The name
 # heuristic alone matched a BANK account called "Bank Saudi Hollandi (IRSAA VAT)"
 # and a supplier control account called "C/A - IRSAA VAT Consultancy Co." — both
@@ -131,7 +153,16 @@ def _vat_accounts(company):
     input_ = tagged_in if tagged_in else [
         a["name"] for a in accts
         if a["root_type"] == "Asset" and a["name"] not in excluded and is_vat(a)]
-    return output, input_
+
+    # v2.87.8 — accounts that ARE VAT-adjacent by name but are excluded from
+    # output/input specifically by the settlement/reconciliation half of
+    # _NOT_VAT, not by the WHT/Zakat half. See _VAT_CLEARING's own comment
+    # for the real ledger case this closes. Computed regardless of tagging
+    # mode — a clearing account is a clearing account whether or not the
+    # site has gone through and explicitly tagged its VAT control accounts.
+    clearing = [a["name"] for a in accts
+               if _VAT_CLEARING.search(f"{a.get('account_name') or ''} {a.get('name') or ''}")]
+    return output, input_, clearing
 
 
 # Vouchers that must NEVER feed the non-invoice VAT lines: invoices are already
@@ -412,7 +443,7 @@ def vat_return(company=None, from_date=None, to_date=None):
         frappe.throw("Not permitted.")
     getdate(from_date); getdate(to_date)
 
-    out_accts, in_accts = _vat_accounts(company)
+    out_accts, in_accts, clearing_accts = _vat_accounts(company)
 
     government, gtpl_rule = _government_customers(company, to_date)
     gov_split = bool((gtpl_rule or {}).get("target_box") or "")
@@ -423,11 +454,19 @@ def vat_return(company=None, from_date=None, to_date=None):
     # …) is CLUBBED INTO the same lines as invoices — box 7 for input, box 1 for
     # output — instead of a separate 'other' line, with the taxable base derived
     # from the VAT at the standard rate so Amount and VAT stay consistent.
+    #
+    # opposite_accounts includes clearing_accts alongside the literal other
+    # VAT side — a voucher touching Output VAT plus a recognized VAT-
+    # clearing/reconciliation account is excluded here exactly like one
+    # touching Output VAT plus Input VAT directly; see _VAT_CLEARING for the
+    # real ledger case (a quarter-end close done as two separate JEs, one per
+    # VAT side, each only ever touching ONE VAT account plus the clearing
+    # account — invisible to the input+output pairing check alone).
     rate = STANDARD_RATE / 100.0
     other_input, input_sources = _non_invoice_vat(
-        company, in_accts, out_accts, from_date, to_date, debit_positive=True)
+        company, in_accts, out_accts + clearing_accts, from_date, to_date, debit_positive=True)
     other_output, output_sources = _non_invoice_vat(
-        company, out_accts, in_accts, from_date, to_date, debit_positive=False)
+        company, out_accts, in_accts + clearing_accts, from_date, to_date, debit_positive=False)
     if abs(other_input) >= 0.01:
         purch["box7"]["vat"] += other_input
         purch["box7"]["amount"] += other_input / rate
@@ -585,11 +624,13 @@ def vat_box_drill(company=None, from_date=None, to_date=None, box=None):
     # those vouchers, each tagged with its own doctype, so the drill reconciles
     # with the box figure.
     if box in ("1", "7"):
-        out_accts, in_accts = _vat_accounts(company)
+        out_accts, in_accts, clearing_accts = _vat_accounts(company)
         if box == "7":
-            filtered += _non_invoice_vouchers(company, in_accts, out_accts, from_date, to_date, debit_positive=True)
+            filtered += _non_invoice_vouchers(
+                company, in_accts, out_accts + clearing_accts, from_date, to_date, debit_positive=True)
         else:
-            filtered += _non_invoice_vouchers(company, out_accts, in_accts, from_date, to_date, debit_positive=False)
+            filtered += _non_invoice_vouchers(
+                company, out_accts, in_accts + clearing_accts, from_date, to_date, debit_positive=False)
     return {"doctype": doctype, "rows": filtered, "excluded": excluded}
 
 

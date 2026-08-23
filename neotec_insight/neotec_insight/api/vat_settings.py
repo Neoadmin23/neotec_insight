@@ -58,7 +58,7 @@ def vat_settings(company=None):
     if not frappe.has_permission("Account", "read"):
         frappe.throw(_("Not permitted."))
 
-    out_names, in_names = _vat_accounts(company)
+    out_names, in_names, clearing_names = _vat_accounts(company)
     tags = tag_map(company)
     tagged_out = [a for a, t in tags.items() if t == "output_vat"]
     tagged_in = [a for a, t in tags.items() if t == "input_vat"]
@@ -74,6 +74,16 @@ def vat_settings(company=None):
         "input": {"mode": "tagged" if tagged_in else "heuristic",
                   "accounts": _account_labels(list(in_names)),
                   "tagged_count": len(tagged_in)},
+        # v2.87.8 — accounts recognized as VAT clearing/reconciliation, not a
+        # real Output or Input VAT liability/asset in their own right. A
+        # voucher touching one of these is excluded from the non-invoice VAT
+        # figure on BOTH sides, the same as one touching Output+Input VAT
+        # directly — a quarter-end closing entry done as two separate JEs
+        # (one per VAT side, each paired with an account from this list) is
+        # otherwise invisible to that exclusion. Shown here for the same
+        # reason the heuristic Output/Input lists are: so it's checkable,
+        # not asserted.
+        "clearing": {"accounts": _account_labels(list(clearing_names))},
     }
 
     rules = frappe.get_all(

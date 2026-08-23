@@ -337,9 +337,10 @@ def _purchase_rows(company, from_date, to_date, opts):
                          "vat": flt(inv["base_total_taxes_and_charges"], 2),
                          "source": "Purchase Invoice"})
     if opts.get("include_non_invoice", 1):
-        out_accts, in_accts = _vat_accounts(company)
+        out_accts, in_accts, clearing_accts = _vat_accounts(company)
         rate = STANDARD_RATE / 100.0
-        for v in _non_invoice_vouchers(company, in_accts, out_accts, from_date, to_date, debit_positive=True):
+        for v in _non_invoice_vouchers(
+                company, in_accts, out_accts + clearing_accts, from_date, to_date, debit_positive=True):
             rows.append({"party": v.get("supplier") or "", "tax_id": "",
                          "bill_no": v["name"], "bill_date": v["posting_date"],
                          "posting_date": v["posting_date"], "item": "", "qty": None, "rate": None,
@@ -355,7 +356,7 @@ def _gl_rows(company, from_date, to_date, opts):
     if mode == "custom":
         accounts = [a.strip() for a in str(opts.get("accounts") or "").split(",") if a.strip()]
     else:
-        out_accts, in_accts = _vat_accounts(company)
+        out_accts, in_accts, _clearing_accts = _vat_accounts(company)
         accounts = out_accts if mode == "output_vat" else in_accts
     if not accounts:
         return [], []
