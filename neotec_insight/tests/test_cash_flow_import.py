@@ -120,6 +120,133 @@ class TestParseClassifiedHistorySheet(unittest.TestCase):
         self.assertTrue(any("DoesNotExist" in w for w in result["warnings"]))
 
 
+class TestParseStatementTemplateSheet(unittest.TestCase):
+    """Uses a small synthetic workbook matching the real customer template's
+    shape — two sections (a Cash Out block, then a Collection/Department
+    Cash In block), interspersed Q1-Q4/Total subtotal columns that must be
+    skipped, and "March"/"April"/"June"/"July" spelled out in full where
+    "Jan"/"Feb"/"Aug" etc. are abbreviated — the exact mixed style verified
+    against the real uploaded file."""
+
+    def _build_workbook(self) -> bytes:
+        import openpyxl as oxl
+        wb = oxl.Workbook()
+        ws = wb.active
+        ws.title = "Cash Flow "
+
+        ws.cell(row=2, column=2, value="2026 Cash Flow (Actual + Budget)")
+        # Month date row (year-guess source) — deliberately placed above the header.
+        import datetime
+        ws.cell(row=5, column=5, value=datetime.datetime(2026, 1, 1))
+
+        # Header row: SL. | Cash out Item | Jan Budget/Actual | Feb B/A | Q1 B/A (skip) | March B/A
+        ws.cell(row=8, column=2, value="SL.")
+        ws.cell(row=8, column=3, value="Cash out Item")
+        ws.cell(row=8, column=5, value="Jan"); ws.cell(row=8, column=6, value=None)
+        ws.cell(row=8, column=8, value="Feb"); ws.cell(row=8, column=9, value=None)
+        ws.cell(row=8, column=11, value="Q1")  # subtotal — must be skipped
+        ws.cell(row=8, column=14, value="March"); ws.cell(row=8, column=15, value=None)
+
+        ws.cell(row=9, column=2, value=1)
+        ws.cell(row=9, column=3, value="Payroll & other allowances")
+        ws.cell(row=9, column=5, value=50000); ws.cell(row=9, column=6, value=48000)
+        ws.cell(row=9, column=8, value=51000)
+        # March deliberately left blank — must not become a stored zero.
+        ws.cell(row=9, column=11, value=999999)  # in the Q1 subtotal column — must never be read
+
+        ws.cell(row=10, column=2, value=2)
+        ws.cell(row=10, column=3, value="GOSI Payment")
+        ws.cell(row=10, column=5, value=8000)
+
+        # Second section header
+        ws.cell(row=13, column=2, value="SL.")
+        ws.cell(row=13, column=3, value="Collection/Department")
+        ws.cell(row=13, column=5, value="Jan")
+        ws.cell(row=13, column=8, value="Feb")
+        ws.cell(row=13, column=14, value="March")
+
+        ws.cell(row=14, column=2, value=1)
+        ws.cell(row=14, column=3, value="Audit")
+        ws.cell(row=14, column=5, value=30000)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    def test_finds_the_header_row_and_label_column(self):
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        self.assertEqual(result["warnings"], [])
+
+    def test_extracts_both_sections_with_correct_directions(self):
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        by_label = {l["label"]: l for l in result["lines"]}
+        self.assertEqual(by_label["Payroll & other allowances"]["direction"], "Cash Out")
+        self.assertEqual(by_label["Audit"]["direction"], "Cash In")
+
+    def test_section_names_are_captured(self):
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        by_label = {l["label"]: l for l in result["lines"]}
+        self.assertEqual(by_label["Payroll & other allowances"]["section"], "Cash out Item")
+        self.assertEqual(by_label["Audit"]["section"], "Collection/Department")
+
+    def test_quarter_subtotal_columns_are_never_read(self):
+        """The 999999 planted in the Q1 subtotal column must never appear —
+        this is the actual failure mode a naive 'every column pair' parser
+        would hit against the real template."""
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        by_label = {l["label"]: l for l in result["lines"]}
+        budgets = by_label["Payroll & other allowances"]["budgets"]
+        self.assertNotIn(999999, budgets.values())
+
+    def test_full_month_names_are_recognized_alongside_abbreviations(self):
+        """The real template mixes 'Jan'/'Feb' with 'March'/'April'/'June'/
+        'July' spelled out in full — both styles must resolve to the same
+        month-number keying."""
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        by_label = {l["label"]: l for l in result["lines"]}
+        budgets = by_label["Payroll & other allowances"]["budgets"]
+        self.assertIn(1, budgets)  # Jan
+        self.assertIn(2, budgets)  # Feb
+        # March deliberately left blank in the fixture — must be absent, not zero.
+        self.assertNotIn(3, budgets)
+
+    def test_blank_cell_is_absent_not_a_stored_zero(self):
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        by_label = {l["label"]: l for l in result["lines"]}
+        self.assertNotIn(3, by_label["Payroll & other allowances"]["budgets"])
+
+    def test_actual_column_is_not_mistaken_for_a_second_month(self):
+        """Row 8's Actual sub-header cell is blank (None) in the real
+        template — the Actual VALUE lives one column right of Budget, with
+        no header text of its own. It must not be picked up as a spurious
+        13th 'month'."""
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        by_label = {l["label"]: l for l in result["lines"]}
+        # Only real months (1, 2) should appear — no phantom entries from
+        # misreading blank Actual header cells as columns.
+        self.assertEqual(set(by_label["Payroll & other allowances"]["budgets"].keys()) & {1, 2}, {1, 2})
+
+    def test_fiscal_year_is_guessed_from_a_date_cell_above_the_header(self):
+        result = imp.parse_statement_template_sheet(self._build_workbook())
+        self.assertEqual(result["fiscal_year_guess"], 2026)
+
+    def test_explicit_fiscal_year_overrides_the_guess(self):
+        result = imp.parse_statement_template_sheet(self._build_workbook(), fiscal_year=2027)
+        self.assertEqual(result["fiscal_year_guess"], 2027)
+
+    def test_no_header_row_found_returns_empty_with_a_warning(self):
+        import openpyxl as oxl
+        wb = oxl.Workbook()
+        ws = wb.active
+        ws.cell(row=1, column=1, value="Not a real statement sheet")
+        buf = io.BytesIO()
+        wb.save(buf)
+        result = imp.parse_statement_template_sheet(buf.getvalue())
+        self.assertEqual(result["lines"], [])
+        self.assertTrue(result["warnings"])
+
+
+
 class TestMatchLinesToRows(unittest.TestCase):
     def setUp(self):
         self.rows = imp.parse_classified_history_sheet(_build_workbook())["rows"]

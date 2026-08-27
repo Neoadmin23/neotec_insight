@@ -855,6 +855,12 @@ export const api = {
   cashFlowForecastCommitImport: (fileBase64: string, sheetName?: string | null) =>
     call<any>('cash_flow_forecast.commit_classified_history_import',
       { file_base64: fileBase64, sheet_name: sheetName || null }, 'POST'),
+  cashFlowForecastPreviewStatementImport: (fileBase64: string, sheetName?: string | null, fiscalYear?: number | null) =>
+    call<any>('cash_flow_forecast.preview_statement_template_import',
+      { file_base64: fileBase64, sheet_name: sheetName || null, fiscal_year: fiscalYear || null }, 'POST'),
+  cashFlowForecastCommitStatementImport: (fileBase64: string, sheetName?: string | null, fiscalYear?: number | null) =>
+    call<any>('cash_flow_forecast.commit_statement_template_import',
+      { file_base64: fileBase64, sheet_name: sheetName || null, fiscal_year: fiscalYear || null }, 'POST'),
   cashFlowForecastBudgetGrid: (fiscalYear: number, company?: string | null) =>
     call<any>('cash_flow_forecast.get_budget_grid', { fiscal_year: fiscalYear, company: company || null }),
   cashFlowForecastSaveBudgetGrid: (fiscalYear: number, cells: any, company?: string | null) =>

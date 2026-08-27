@@ -19,6 +19,7 @@ Three screens this backs:
 from __future__ import annotations
 
 import base64
+import io
 import json
 
 import frappe
@@ -47,6 +48,7 @@ from neotec_insight.neotec_insight.utils.cash_flow_forecast import (
 from neotec_insight.neotec_insight.utils.cash_flow_import import (
     match_lines_to_rows,
     parse_classified_history_sheet,
+    parse_statement_template_sheet,
 )
 
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -186,6 +188,104 @@ def _resolve_available_lines() -> list[dict]:
 
 
 @frappe.whitelist()
+def download_sample_history_template():
+    """A minimal, correctly-shaped .xlsx for the transaction-history import
+    — same column set parse_classified_history_sheet actually reads
+    (matched by header text, not position, so the exact column order here
+    isn't load-bearing — it's just a clear, working example), with two
+    illustrative rows rather than the customer's real 2,209."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Data"
+    headers = ["Posting Date", "Account", "Transaction Type", "Class", "New Class",
+              "Debit (SAR)", "Credit (SAR)", "Voucher Type", "Voucher No",
+              "Against Account", "Project", "Cost Center", "Remarks"]
+    ws.append(headers)
+    for c in ws[1]:
+        c.fill = PatternFill("solid", fgColor="2A2440")
+        c.font = Font(bold=True, color="FFFFFF")
+    ws.append(["2026-01-01", "11102022 - Riyad Bank - IRSAA", "Cash In", "Direct", "Collection",
+              6900, 0, "Payment Entry", "ACC-PAY-2026-00001", "Example Customer Co",
+              "", "Book Keeping", "Received from Example Customer for invoice"])
+    ws.append(["2026-01-05", "11102022 - Riyad Bank - IRSAA", "Cash Out", "Direct", "GOSI Payment",
+              0, 11400, "Journal Entry", "ACC-JV-2026-00002", "GOSI",
+              "", "Audit", "GOSI payment for Jan"])
+    for col, width in zip("ABCDEFGHIJKLM", [12, 32, 14, 10, 22, 12, 12, 14, 20, 24, 10, 14, 40]):
+        ws.column_dimensions[col].width = width
+    buf = io.BytesIO()
+    wb.save(buf)
+    frappe.local.response.filename = "cash_flow_forecast_history_sample.xlsx"
+    frappe.local.response.filecontent = buf.getvalue()
+    frappe.local.response.type = "binary"
+
+
+@frappe.whitelist()
+def download_sample_statement_template():
+    """A minimal, correctly-shaped .xlsx for the Lines + Budget statement
+    import — the SL./label/month-header shape parse_statement_template_sheet
+    actually reads, with two illustrative Cash Out lines, one Cash In line,
+    and only January/February filled in (an intentionally blank March,
+    showing the blank-vs-zero contract directly in the sample rather than
+    just describing it)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Cash Flow "
+    ws.cell(row=2, column=2, value="2026 Cash Flow (Actual + Budget) — sample")
+    ws.cell(row=2, column=2).font = Font(bold=True)
+    # A real date cell above the header, matching the real customer
+    # template's own structure — this is what lets fiscal_year_guess work
+    # without the user having to specify it explicitly on import. A plain
+    # text string here (as an earlier draft of this sample had) leaves
+    # fiscal_year_guess at None even though the real template always has
+    # a real date.
+    import datetime
+    ws.cell(row=5, column=5, value=datetime.datetime(2026, 1, 1))
+
+    def _header_block(row, label):
+        ws.cell(row=row, column=2, value="SL.")
+        ws.cell(row=row, column=3, value=label)
+        for i, month in enumerate(["Jan", "Feb", "March"]):
+            col = 5 + i * 3
+            ws.cell(row=row, column=col, value=month)
+            ws.cell(row=row, column=col + 1, value="Actual")
+        for c in ws[row]:
+            c.fill = PatternFill("solid", fgColor="2A2440")
+            c.font = Font(bold=True, color="FFFFFF")
+
+    _header_block(8, "Cash out Item")
+    out_rows = [("Payroll & other allowances", 50000, 51000, None),
+               ("GOSI Payment", 8000, 8000, 8200)]
+    for i, (label, jan, feb, mar) in enumerate(out_rows):
+        r = 9 + i
+        ws.cell(row=r, column=2, value=i + 1)
+        ws.cell(row=r, column=3, value=label)
+        ws.cell(row=r, column=5, value=jan)
+        ws.cell(row=r, column=8, value=feb)
+        if mar is not None:
+            ws.cell(row=r, column=11, value=mar)  # March left genuinely blank when None
+
+    _header_block(13, "Collection/Department")
+    ws.cell(row=14, column=2, value=1)
+    ws.cell(row=14, column=3, value="Audit")
+    ws.cell(row=14, column=5, value=30000)
+    ws.cell(row=14, column=8, value=32000)
+
+    for col, width in [("B", 6), ("C", 34)]:
+        ws.column_dimensions[col].width = width
+    buf = io.BytesIO()
+    wb.save(buf)
+    frappe.local.response.filename = "cash_flow_forecast_statement_sample.xlsx"
+    frappe.local.response.filecontent = buf.getvalue()
+    frappe.local.response.type = "binary"
+
+
+@frappe.whitelist()
 def preview_classified_history_import(file_base64: str, sheet_name: str | None = None):
     """Parses and matches only — writes nothing. Returns matched/unmatched
     counts and, per unmatched category, how many rows it affects, so the
@@ -263,6 +363,128 @@ def commit_classified_history_import(file_base64: str, sheet_name: str | None = 
         "unmatched_count": match["unmatched_count"],
         "unmatched_labels": match["unmatched_labels"],
         "errors": errors,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Statement-template import — bulk-create Lines and their Budget from the
+# customer's own month-by-month statement layout (Budget/Actual per month,
+# per line item — the shape they've already been maintaining by hand), not
+# the raw transaction history above. This is what actually unblocks the
+# "no Lines exist yet, so nothing in the transaction import can match"
+# problem — importing THIS first creates the Lines the transaction import
+# then has something to match against.
+# ─────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def preview_statement_template_import(file_base64: str, sheet_name: str | None = None,
+                                      fiscal_year: int | None = None):
+    """Parses and matches only — writes nothing. Reports which labels
+    already exist as Lines (their Budget would be added to/overwritten,
+    never silently skipped the way an already-classified transaction is)
+    and which are genuinely new, so the user sees exactly what a commit
+    would create before anything happens."""
+    _require_read()
+    try:
+        file_bytes = base64.b64decode(file_base64)
+    except Exception:
+        frappe.throw(_("file_base64 must be a base64-encoded .xlsx file."))
+    parsed = parse_statement_template_sheet(file_bytes, sheet_name=sheet_name, fiscal_year=fiscal_year)
+    existing_labels = {(l["label"] or "").strip().lower()
+                       for l in frappe.get_all("Insight Cash Flow Line", fields=["label"], limit_page_length=0)}
+
+    new_lines = [l for l in parsed["lines"] if l["label"].strip().lower() not in existing_labels]
+    existing_matches = [l for l in parsed["lines"] if l["label"].strip().lower() in existing_labels]
+    total_budget_cells = sum(len(l["budgets"]) for l in parsed["lines"])
+
+    return {
+        "sheet_used": parsed["sheet_used"], "warnings": parsed["warnings"],
+        "fiscal_year_guess": parsed["fiscal_year_guess"],
+        "total_lines_found": len(parsed["lines"]),
+        "new_line_count": len(new_lines),
+        "existing_line_count": len(existing_matches),
+        "total_budget_cells": total_budget_cells,
+        "new_lines": [{"label": l["label"], "direction": l["direction"], "section": l["section"]}
+                     for l in new_lines],
+        "existing_line_labels": [l["label"] for l in existing_matches],
+    }
+
+
+@frappe.whitelist()
+def commit_statement_template_import(file_base64: str, sheet_name: str | None = None,
+                                     fiscal_year: int | None = None):
+    """Creates any Line whose label doesn't already exist (Account Bindings
+    are NOT created — the sheet has no account information at all, only
+    labels and figures — so every new Line lands with no bindings, exactly
+    like one created by hand and not yet configured), then writes every
+    Budget cell found, for the given fiscal year. An existing Line's Budget
+    is overwritten cell-by-cell for whichever months the sheet has real
+    values for — a month genuinely left blank in the sheet is never
+    touched, matching the same blank-vs-zero contract as manual Budget
+    entry."""
+    _require_write()
+    try:
+        file_bytes = base64.b64decode(file_base64)
+    except Exception:
+        frappe.throw(_("file_base64 must be a base64-encoded .xlsx file."))
+    parsed = parse_statement_template_sheet(file_bytes, sheet_name=sheet_name, fiscal_year=fiscal_year)
+    fy = parsed["fiscal_year_guess"]
+    if not fy:
+        frappe.throw(_("Could not determine the fiscal year for this sheet — pass fiscal_year explicitly."))
+
+    label_to_name: dict[str, str] = {
+        (l["label"] or "").strip().lower(): l["name"]
+        for l in frappe.get_all("Insight Cash Flow Line", fields=["name", "label"], limit_page_length=0)
+    }
+    fy_start_month = resolve_company_fy_start_month(None)
+
+    lines_created = 0
+    budget_cells_written = 0
+    errors: list[str] = []
+    for row in parsed["lines"]:
+        key = row["label"].strip().lower()
+        line_name = label_to_name.get(key)
+        if not line_name:
+            try:
+                doc = frappe.get_doc({
+                    "doctype": "Insight Cash Flow Line",
+                    "label": row["label"], "direction": row["direction"],
+                    "section": row["section"], "is_active": 1,
+                }).insert()
+                line_name = doc.name
+                label_to_name[key] = line_name
+                lines_created += 1
+            except Exception as e:
+                errors.append(f"{row['label']}: could not create line — {e}")
+                continue
+
+        for month_no, amount in row["budgets"].items():
+            # Same conversion save_budget_grid already uses, not a naive
+            # f"{fy}-{month_no:02d}-01" — a calendar month doesn't belong to
+            # `fy`'s literal year for a non-January-start company (Jan/Feb/Mar
+            # belong to fy+1 for an April-start company), the exact "right
+            # month, wrong year" bug this app has already been bitten by once.
+            pos = calendar_to_fy_position(month_no, fy_start_month)
+            year = fy_position_to_calendar_year(pos, fy, fy_start_month)
+            period_month = f"{year}-{month_no:02d}-01"
+            try:
+                existing_name = frappe.db.exists(
+                    "Insight Cash Flow Budget", {"line": line_name, "period_month": period_month})
+                if existing_name:
+                    frappe.db.set_value("Insight Cash Flow Budget", existing_name, "budget_amount", flt(amount))
+                else:
+                    frappe.get_doc({
+                        "doctype": "Insight Cash Flow Budget",
+                        "line": line_name, "period_month": period_month, "budget_amount": flt(amount),
+                    }).insert()
+                budget_cells_written += 1
+            except Exception as e:
+                if len(errors) < 60:
+                    errors.append(f"{row['label']} month {month_no}: {e}")
+
+    return {
+        "lines_created": lines_created, "budget_cells_written": budget_cells_written,
+        "fiscal_year": fy, "errors": errors,
     }
 
 

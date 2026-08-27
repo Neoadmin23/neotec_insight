@@ -135,6 +135,7 @@ export function CashFlowForecastTab() {
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [importMode, setImportMode] = useState<'history' | 'statement'>('history');
   const [importFileB64, setImportFileB64] = useState<string | null>(null);
   const [importFileName, setImportFileName] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<any>(null);
@@ -259,7 +260,9 @@ export function CashFlowForecastTab() {
     if (!importFileB64) return;
     setImportBusy(true); setImportError(null);
     try {
-      const res = await api.cashFlowForecastPreviewImport(importFileB64);
+      const res = importMode === 'history'
+        ? await api.cashFlowForecastPreviewImport(importFileB64)
+        : await api.cashFlowForecastPreviewStatementImport(importFileB64, null, fiscalYear);
       setImportPreview(res);
     } catch (e: any) {
       setImportError(e?.message || String(e));
@@ -270,10 +273,15 @@ export function CashFlowForecastTab() {
 
   async function doCommitImport() {
     if (!importFileB64 || !importPreview) return;
-    if (!window.confirm(t(`Import ${importPreview.new_count} new classified transactions? This cannot be bulk-undone.`))) return;
+    const confirmMsg = importMode === 'history'
+      ? `Import ${importPreview.new_count} new classified transactions? This cannot be bulk-undone.`
+      : `Create ${importPreview.new_line_count} new line(s) and write ${importPreview.total_budget_cells} budget figure(s)?`;
+    if (!window.confirm(t(confirmMsg))) return;
     setImportBusy(true); setImportError(null);
     try {
-      const res = await api.cashFlowForecastCommitImport(importFileB64);
+      const res = importMode === 'history'
+        ? await api.cashFlowForecastCommitImport(importFileB64)
+        : await api.cashFlowForecastCommitStatementImport(importFileB64, null, fiscalYear);
       setImportResult(res);
       setImportPreview(null);
     } catch (e: any) {
@@ -285,6 +293,13 @@ export function CashFlowForecastTab() {
 
   function closeImport() {
     setShowImport(false);
+    setImportFileB64(null); setImportFileName(null);
+    setImportPreview(null); setImportResult(null); setImportError(null);
+    loadLines(); // a statement import may have created new lines
+  }
+
+  function switchImportMode(mode: 'history' | 'statement') {
+    setImportMode(mode);
     setImportFileB64(null); setImportFileName(null);
     setImportPreview(null); setImportResult(null); setImportError(null);
   }
@@ -900,12 +915,29 @@ export function CashFlowForecastTab() {
           <div className="cff-drill-panel cff-import-panel" onClick={(e) => e.stopPropagation()}>
             <div className="cff-drill-hdr">
               <div>
-                <strong>{t('Import classified history')}</strong>
+                <strong>{importMode === 'history' ? t('Import classified history') : t('Import Lines + Budget from a statement')}</strong>
                 <div className="cff-drill-sub">
-                  {t('Bring in already-classified transactions from a workbook — matched by category label to your existing Lines — instead of re-classifying the same history one row at a time in the Queue.')}
+                  {importMode === 'history'
+                    ? t('Bring in already-classified transactions from a workbook — matched by category label to your existing Lines — instead of re-classifying the same history one row at a time in the Queue.')
+                    : t('Bring in a month-by-month Budget statement (like the one you already maintain by hand) — creates any Line that doesn\u2019t exist yet and writes every Budget figure found, in one pass.')}
                 </div>
               </div>
               <button className="cff-btn-x" onClick={closeImport}>×</button>
+            </div>
+
+            <div className="cff-import-mode-toggle">
+              <button className={importMode === 'history' ? 'active' : ''} onClick={() => switchImportMode('history')}>
+                {t('Transaction history')}
+              </button>
+              <button className={importMode === 'statement' ? 'active' : ''} onClick={() => switchImportMode('statement')}>
+                {t('Lines + Budget statement')}
+              </button>
+              <a className="cff-import-sample-link"
+                href={importMode === 'history' ? '/api/method/neotec_insight.neotec_insight.api.cash_flow_forecast.download_sample_history_template'
+                                                : '/api/method/neotec_insight.neotec_insight.api.cash_flow_forecast.download_sample_statement_template'}
+                target="_blank" rel="noopener noreferrer">
+                {t('Download sample')} ↓
+              </a>
             </div>
 
             <input type="file" accept=".xlsx" onChange={onImportFilePicked} />
@@ -920,7 +952,7 @@ export function CashFlowForecastTab() {
               </button>
             )}
 
-            {importPreview && !importResult && (
+            {importPreview && !importResult && importMode === 'history' && (
               <div className="cff-import-preview">
                 <div className="cff-import-stat">
                   <b>{importPreview.total_rows}</b> {t('rows found')} ({t('sheet')}: {importPreview.sheet_used})
@@ -955,7 +987,44 @@ export function CashFlowForecastTab() {
               </div>
             )}
 
-            {importResult && (
+            {importPreview && !importResult && importMode === 'statement' && (
+              <div className="cff-import-preview">
+                <div className="cff-import-stat">
+                  {t('Sheet')}: {importPreview.sheet_used} · {t('Fiscal year')}: {importPreview.fiscal_year_guess ?? t('unknown — set the Statement year first, then reopen this dialog')}
+                </div>
+                <div className="cff-import-stat">
+                  <b>{importPreview.total_lines_found}</b> {t('line items found')}
+                </div>
+                <div className="cff-import-stat cff-import-ok">
+                  <b>{importPreview.new_line_count}</b> {t('new lines will be created')}
+                </div>
+                <div className="cff-import-stat">
+                  {importPreview.existing_line_count} {t('already exist — their Budget will be updated, nothing duplicated')}
+                </div>
+                <div className="cff-import-stat cff-import-ok">
+                  <b>{importPreview.total_budget_cells}</b> {t('budget figures will be written')}
+                </div>
+                {importPreview.new_lines?.length > 0 && (
+                  <details className="cff-import-errors">
+                    <summary>{t('New lines to be created')} ({importPreview.new_lines.length})</summary>
+                    <ul>
+                      {importPreview.new_lines.slice(0, 20).map((l: any, i: number) => (
+                        <li key={i}>{l.direction === 'Cash Out' ? t('OUT') : t('IN')} — {l.section} — {l.label}</li>
+                      ))}
+                      {importPreview.new_lines.length > 20 && <li>… {importPreview.new_lines.length - 20} {t('more')}</li>}
+                    </ul>
+                  </details>
+                )}
+                {importPreview.warnings?.length > 0 && (
+                  <div className="cff-import-stat cff-import-warn">{importPreview.warnings.join(' ')}</div>
+                )}
+                <button className="cff-btn-primary" disabled={importBusy || !importPreview.fiscal_year_guess} onClick={doCommitImport}>
+                  {importBusy ? t('Importing…') : t('Import lines and budget')}
+                </button>
+              </div>
+            )}
+
+            {importResult && importMode === 'history' && (
               <div className="cff-import-preview">
                 <div className="cff-import-stat cff-import-ok">
                   <b>{importResult.created}</b> {t('imported')}
@@ -970,6 +1039,24 @@ export function CashFlowForecastTab() {
                     {importResult.unmatched_count} {t('rows left unmatched — create the missing Lines and re-import to pick them up')}
                   </div>
                 )}
+                {importResult.errors?.length > 0 && (
+                  <details className="cff-import-errors">
+                    <summary>{importResult.errors.length} {t('errors')}</summary>
+                    <ul>{importResult.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}</ul>
+                  </details>
+                )}
+                <button className="cff-btn-sm" onClick={closeImport}>{t('Done')}</button>
+              </div>
+            )}
+
+            {importResult && importMode === 'statement' && (
+              <div className="cff-import-preview">
+                <div className="cff-import-stat cff-import-ok">
+                  <b>{importResult.lines_created}</b> {t('lines created')}
+                </div>
+                <div className="cff-import-stat cff-import-ok">
+                  <b>{importResult.budget_cells_written}</b> {t('budget figures written')} ({t('fiscal year')} {importResult.fiscal_year})
+                </div>
                 {importResult.errors?.length > 0 && (
                   <details className="cff-import-errors">
                     <summary>{importResult.errors.length} {t('errors')}</summary>
