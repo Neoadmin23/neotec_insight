@@ -1,3 +1,19 @@
+## v2.88.1 — 2026-10-05
+
+### Fixed: a Terraco reverse-charge import purchase not reflecting in the VAT return — plus a provision to recover a deleted VAT tag
+
+Two distinct problems reported together, from real screenshots of the Terraco VAT Return and VAT Settings' Classification screen — both real, but NOT the same mechanism, so both needed their own fix.
+
+**1. Box 9 ("Imports subject to VAT (reverse charge)") showing 0.00 for real reverse-charge purchases.** Traced to real Purchase Invoices from Terraco UAE (ACC-PINV-2026-00392/00396/00397, confirmed from the customer's own uploaded GL export) landing in box 7 ("Standard rated domestic purchases") instead. `_classify_purchase` decides the box from the Purchase Invoice's own `tax_category` field alone (`"reverse|rcm|عكس"` → box9) — nothing to do with VAT control account tagging. These invoices' Tax Category was never set (or was cleared), so they fell to the default box instead.
+
+There was no way to correct this short of fixing the ERPNext Tax Category on an already-submitted invoice. Added a third **Reclassify** action to the existing `Insight VAT Adjustment` doctype — the same governed, reason-required, audited mechanism Include/Exclude already use for period timing, now also usable to move a specific voucher into a different box (`box7`↔`box9`, etc.) without touching the invoice itself. Threaded through `_apply_adjustments` as a `_force_box` stamp read by `_sales_breakdown`/`_purchase_breakdown` AND `vat_box_drill`, so the drill-down for a box always matches what the summary line shows. Reclassify is independent of Include/Exclude — a voucher pulled in from another period can also have its box corrected, both at once, which is why the save now dedupes per-(voucher, action) instead of per-voucher.
+
+**2. "Give a provision to reset the settings" — the literal ask, after a VAT tag got deleted.** Root cause confirmed purely from the code: a TAG bypasses `_vat_accounts`'s root_type filter entirely (Output restricted to Liability, Input to Asset), which is exactly why a reverse-charge VAT control account — commonly booked as a Liability on BOTH sides in a KSA chart, since the self-assessed output and the matching input claim net off through the same contra account — vanishes rather than falls back to being found some other way once its tag is removed: heuristic #2 was never finding it, only the tag ever was. The Terraco screenshot's "No accounts resolved" on Input VAT is this exactly.
+
+New `suggest_vat_accounts` endpoint: every leaf account that reads as VAT-related by name or type, of **either** root type (not restricted the way the live heuristic is), each showing its current tag so the one that was tagged before stands out. Wired into the VAT Settings screen as a "🔧 Tag or reset an account" panel, plus a "Find and tag one" link directly on a side's "No accounts resolved" warning — re-tag in one click from the exact screen that reported the problem, instead of hunting the chart of accounts tree by eye in a separate tab.
+
+17 new backend tests (`test_vat_reclassify.py`) — `_is_vat_like` extracted and tested against the real account shape this bites (a Liability-type reverse-charge control account), the box lists, the three-way Include/Exclude/Reclassify split, and `_apply_adjustments` stamping `_force_box` including the case where one voucher carries both an Include and a Reclassify at once. 257 backend tests total, all green. Frontend typechecks clean against the existing baseline and builds.
+
 ## v2.88.0 — 2026-08-23
 
 ### Added: import Lines + Budget directly from the customer's own month-by-month statement — solves "no Lines exist yet, so nothing matches"

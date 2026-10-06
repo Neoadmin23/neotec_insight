@@ -1,14 +1,17 @@
 {
  "actions": [], "autoname": "format:VATADJ-{####}",
  "creation": "2026-07-13 00:00:00", "doctype": "DocType", "engine": "InnoDB",
- "field_order": ["company", "from_date", "to_date", "voucher_type", "voucher_no", "action", "reason"],
+ "field_order": ["company", "from_date", "to_date", "voucher_type", "voucher_no", "action", "target_box", "reason"],
  "fields": [
   {"fieldname": "company", "fieldtype": "Link", "label": "Company", "options": "Company", "reqd": 1, "in_list_view": 1},
   {"fieldname": "from_date", "fieldtype": "Date", "label": "Return Period From", "reqd": 1},
   {"fieldname": "to_date", "fieldtype": "Date", "label": "Return Period To", "reqd": 1, "in_list_view": 1},
   {"fieldname": "voucher_type", "fieldtype": "Select", "label": "Voucher Type", "options": "Sales Invoice\nPurchase Invoice", "reqd": 1},
   {"fieldname": "voucher_no", "fieldtype": "Data", "label": "Voucher No", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "action", "fieldtype": "Select", "label": "Action", "options": "Include\nExclude", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "action", "fieldtype": "Select", "label": "Action", "options": "Include\nExclude\nReclassify", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "target_box", "fieldtype": "Data", "label": "Target Box",
+   "description": "Only set when Action = Reclassify, e.g. 'box9' for Imports subject to VAT (reverse charge).",
+   "depends_on": "eval:doc.action=='Reclassify'"},
   {"fieldname": "reason", "fieldtype": "Small Text", "label": "Reason", "reqd": 1}
  ],
  "links": [], "modified": "2026-07-13 00:00:00", "module": "Neotec Insight",

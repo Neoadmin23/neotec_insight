@@ -51,6 +51,26 @@ _PURCHASE_CATEGORY_RULES = [
     (r"zero|0\s*%|صفر", "box10"),
 ]
 
+# The boxes a voucher can be manually reclassified into via a 'Reclassify'
+# Insight VAT Adjustment (see save_vat_adjustment / _force_box below).
+# Deliberately excludes box1_2 (GTPL-governed, not a manual choice) and the
+# system totals box6/box12 — this is for the per-voucher category split
+# ordinarily decided by tax_category, nothing else.
+_SALES_RECLASSIFY_BOXES = {
+    "box1": "Standard rated sales",
+    "box2": "Private healthcare / education to citizens",
+    "box3": "Zero-rated domestic sales",
+    "box4": "Exports",
+    "box5": "Exempt sales",
+}
+_PURCHASE_RECLASSIFY_BOXES = {
+    "box7": "Standard rated domestic purchases",
+    "box8": "Imports subject to VAT (paid at customs)",
+    "box9": "Imports subject to VAT (reverse charge)",
+    "box10": "Zero-rated purchases",
+    "box11": "Exempt purchases",
+}
+
 
 # Tax-named accounts that are NOT VAT — never auto-detected (v2.27.1). These
 # were the source of real contamination: WHT accruals landed in Output VAT and
@@ -112,6 +132,23 @@ def _require_read() -> None:
         )
 
 
+def _is_vat_like(a: dict) -> bool:
+    """Name/type test for 'this account plausibly carries VAT', with no
+    opinion on root_type. Shared by `_vat_accounts` (which additionally
+    restricts Output to Liability / Input to Asset — right for the common
+    case) and `suggest_vat_accounts` (which deliberately does NOT restrict
+    by root_type — see that function for why)."""
+    text = f"{a.get('account_name') or ''} {a.get('name') or ''}"
+    if a.get("account_type") in _NEVER_VAT_TYPES:
+        return False
+    if _NOT_VAT.search(text):
+        return False
+    if a.get("account_type") == "Tax":
+        return True
+    low = text.lower()
+    return any(k in low for k in ("vat", "ضريبة", "ضريبه"))
+
+
 def _vat_accounts(company):
     """Output (Liability) and input (Asset) VAT control accounts.
 
@@ -119,7 +156,16 @@ def _vat_accounts(company):
       1. USER TAGS — accounts tagged Output VAT / Input VAT. Tagging ANY
          account on a side switches that side to STRICT mode: only tagged
          accounts count, heuristics off. Accounts tagged anything else
-         (including 'Not VAT') are always excluded.
+         (including 'Not VAT') are always excluded. A TAG BYPASSES THE
+         ROOT_TYPE FILTER BELOW ENTIRELY — which is exactly why removing a
+         tag can make an account vanish from a side rather than fall back
+         to being found some other way: an import/reverse-charge VAT
+         control account is frequently booked under Liability on BOTH
+         sides (the self-assessed output and the matching input claim net
+         off through the same contra account), so it was never found by
+         heuristic #2 below on the Input side — it was only ever found
+         because someone tagged it. See `suggest_vat_accounts` for the
+         recovery path once that tag is gone.
       2. HEURISTICS — account_type='Tax' or a VAT-ish name ('vat', 'ضريبة'),
          MINUS tax-named non-VAT accounts (WHT/withholding/استقطاع, zakat,
          income tax, settlement/تسوية/Sadad). The old matcher counted every
@@ -136,23 +182,12 @@ def _vat_accounts(company):
                            filters={"company": company, "is_group": 0},
                            fields=["name", "account_name", "account_type", "root_type"])
 
-    def is_vat(a):
-        text = f"{a.get('account_name') or ''} {a.get('name') or ''}"
-        if a.get("account_type") in _NEVER_VAT_TYPES:
-            return False
-        if _NOT_VAT.search(text):
-            return False
-        if a.get("account_type") == "Tax":
-            return True
-        low = text.lower()
-        return any(k in low for k in ("vat", "ضريبة", "ضريبه"))
-
     output = tagged_out if tagged_out else [
         a["name"] for a in accts
-        if a["root_type"] == "Liability" and a["name"] not in excluded and is_vat(a)]
+        if a["root_type"] == "Liability" and a["name"] not in excluded and _is_vat_like(a)]
     input_ = tagged_in if tagged_in else [
         a["name"] for a in accts
-        if a["root_type"] == "Asset" and a["name"] not in excluded and is_vat(a)]
+        if a["root_type"] == "Asset" and a["name"] not in excluded and _is_vat_like(a)]
 
     # v2.87.8 — accounts that ARE VAT-adjacent by name but are excluded from
     # output/input specifically by the settlement/reconciliation half of
@@ -163,6 +198,54 @@ def _vat_accounts(company):
     clearing = [a["name"] for a in accts
                if _VAT_CLEARING.search(f"{a.get('account_name') or ''} {a.get('name') or ''}")]
     return output, input_, clearing
+
+
+@frappe.whitelist()
+def suggest_vat_accounts(company=None):
+    """Candidate VAT control accounts, for re-tagging after a tag is lost —
+    the recovery path `_vat_accounts` points to in its own docstring.
+
+    `_vat_accounts` restricts Output to Liability and Input to Asset once a
+    side is untagged — right for the ordinary case, but it means a side can
+    show 'No accounts resolved' even though the right account is sitting
+    right there in the chart, just under the 'wrong' root_type for a
+    heuristic that was never actually finding it (a tag was). A
+    reverse-charge / import VAT control account is the account this bites
+    hardest: KSA charts commonly book it as a Liability on both the
+    self-assessed output side and the matching input claim, since the two
+    net off through the same contra account.
+
+    So this list is deliberately NOT root-type-restricted — every leaf
+    account that reads as VAT-related by name or type, of either Asset or
+    Liability, so a user can re-tag directly from the 'No accounts
+    resolved' warning instead of hunting the chart of accounts by eye. Each
+    row carries its CURRENT tag (if any) and a `reverse_charge` flag so a
+    reverse/RCM-named account stands out without this endpoint trying to
+    guess which SIDE it belongs on — that choice stays with the user.
+    """
+    _require_read()
+    company = company or _default_company()
+    from .classify import tag_map
+    tags = tag_map(company)
+    accts = frappe.get_all(
+        "Account", filters={"company": company, "is_group": 0},
+        fields=["name", "account_name", "account_number", "account_type", "root_type"],
+        order_by="account_number, name", limit_page_length=0)
+    out = []
+    for a in accts:
+        if not _is_vat_like(a):
+            continue
+        text = f"{a.get('account_name') or ''} {a.get('name') or ''}"
+        out.append({
+            "account": a["name"],
+            "label": a.get("account_name") or a["name"],
+            "number": a.get("account_number") or "",
+            "root_type": a["root_type"],
+            "account_type": a.get("account_type") or "",
+            "tag": tags.get(a["name"], ""),
+            "reverse_charge": bool(re.search(r"reverse|rcm|عكس", text, re.I)),
+        })
+    return {"company": company, "accounts": out}
 
 
 # Vouchers that must NEVER feed the non-invoice VAT lines: invoices are already
@@ -400,7 +483,9 @@ def _sales_breakdown(company, from_date, to_date, government=None, split=True):
         fields=_si_fields)
     invoices, _ = _apply_adjustments(invoices, "Sales Invoice", company, from_date, to_date, _si_fields)
     for si in invoices:
-        box = sales_box(_classify_sales(si, country_cache), si.get("customer"), government, split)
+        forced = si.get("_force_box")
+        box = forced if forced in _SALES_RECLASSIFY_BOXES else sales_box(
+            _classify_sales(si, country_cache), si.get("customer"), government, split)
         net = flt(si["base_net_total"])
         if si.get("is_return"):
             boxes[box]["adjustment"] += net
@@ -421,7 +506,8 @@ def _purchase_breakdown(company, from_date, to_date):
         fields=_pi_fields)
     invoices, _ = _apply_adjustments(invoices, "Purchase Invoice", company, from_date, to_date, _pi_fields)
     for pi in invoices:
-        box = _classify_purchase(pi)
+        forced = pi.get("_force_box")
+        box = forced if forced in _PURCHASE_RECLASSIFY_BOXES else _classify_purchase(pi)
         net = flt(pi["base_net_total"])
         if pi.get("is_return"):
             boxes[box]["adjustment"] += net
@@ -611,14 +697,21 @@ def vat_box_drill(company=None, from_date=None, to_date=None, box=None):
     country_cache: dict = {}
 
     def _sales_box(r):
+        forced = r.get("_force_box")
+        if forced in _SALES_RECLASSIFY_BOXES:
+            return forced
         return sales_box(_classify_sales(r, country_cache), r.get("customer"), government, gov_split)
+
+    def _purchase_box(r):
+        forced = r.get("_force_box")
+        return forced if forced in _PURCHASE_RECLASSIFY_BOXES else _classify_purchase(r)
 
     if is_sales:
         filtered = [r for r in rows if _sales_box(r) == target]
         excluded = [r for r in removed if _sales_box(r) == target]
     else:
-        filtered = [r for r in rows if _classify_purchase(r) == target]
-        excluded = [r for r in removed if _classify_purchase(r) == target]
+        filtered = [r for r in rows if _purchase_box(r) == target]
+        excluded = [r for r in removed if _purchase_box(r) == target]
 
     # Boxes 1 and 7 also carry non-invoice VAT (clubbed in by vat_return) — append
     # those vouchers, each tagged with its own doctype, so the drill reconciles
@@ -646,17 +739,24 @@ def _period_adjustments(company, from_date, to_date, voucher_type):
     rows = frappe.get_all("Insight VAT Adjustment",
                           filters={"company": company, "from_date": from_date,
                                    "to_date": to_date, "voucher_type": voucher_type},
-                          fields=["voucher_no", "action", "reason"], limit_page_length=0)
+                          fields=["voucher_no", "action", "reason", "target_box"], limit_page_length=0)
     include = {r["voucher_no"]: r["reason"] for r in rows if r["action"] == "Include"}
     exclude = {r["voucher_no"]: r["reason"] for r in rows if r["action"] == "Exclude"}
-    return include, exclude
+    # A voucher can carry an Include/Exclude decision AND a Reclassify decision
+    # at once — timing and box are independent questions (see save_vat_adjustment).
+    reclassify = {r["voucher_no"]: r["target_box"] for r in rows
+                 if r["action"] == "Reclassify" and r.get("target_box")}
+    return include, exclude, reclassify
 
 
 def _apply_adjustments(invoices, doctype, company, from_date, to_date, fields):
-    """Drop excluded invoices; append included out-of-period ones. Each
-    appended row is tagged _adj='in'; excluded rows are returned separately
-    so registers can show them (red) without counting them."""
-    include, exclude = _period_adjustments(company, from_date, to_date, doctype)
+    """Drop excluded invoices; append included out-of-period ones; stamp a
+    `_force_box` on any voucher carrying a Reclassify decision. Each appended
+    row is tagged _adj='in'; excluded rows are returned separately so
+    registers can show them (red) without counting them. Reclassify applies
+    regardless of in/out-of-period status — a voucher included from another
+    period can just as well need its box corrected."""
+    include, exclude, reclassify = _period_adjustments(company, from_date, to_date, doctype)
     kept, removed = [], []
     for inv in invoices:
         if inv["name"] in exclude:
@@ -673,6 +773,9 @@ def _apply_adjustments(invoices, doctype, company, from_date, to_date, fields):
             inv["_adj"] = "in"
             inv["_adj_reason"] = include[inv["name"]]
             kept.append(inv)
+    for inv in kept:
+        if inv["name"] in reclassify:
+            inv["_force_box"] = reclassify[inv["name"]]
     return kept, removed
 
 
@@ -683,13 +786,40 @@ def list_vat_adjustments(company=None, from_date=None, to_date=None):
     return frappe.get_all("Insight VAT Adjustment",
                           filters={"company": company, "from_date": from_date, "to_date": to_date},
                           fields=["name", "voucher_type", "voucher_no", "action", "reason",
-                                  "owner", "creation"],
+                                  "target_box", "owner", "creation"],
                           order_by="creation desc", limit_page_length=200)
 
 
 @frappe.whitelist()
+def vat_reclassify_boxes(voucher_type=None):
+    """The boxes `save_vat_adjustment`'s Reclassify action will accept for
+    this voucher type — one source of truth for the frontend's dropdown
+    rather than a second copy of the box list kept in sync by hand."""
+    _require_read()
+    if voucher_type == "Purchase Invoice":
+        boxes = _PURCHASE_RECLASSIFY_BOXES
+    elif voucher_type == "Sales Invoice":
+        boxes = _SALES_RECLASSIFY_BOXES
+    else:
+        frappe.throw(_("Voucher type must be Sales Invoice or Purchase Invoice."))
+    return [{"box": k, "label": v} for k, v in boxes.items()]
+
+
+@frappe.whitelist()
 def save_vat_adjustment(company=None, from_date=None, to_date=None,
-                        voucher_type=None, voucher_no=None, action=None, reason=None):
+                        voucher_type=None, voucher_no=None, action=None, reason=None,
+                        target_box=None):
+    """Include/Exclude move a voucher across the period boundary; Reclassify
+    (v2.88.1) moves it across a BOX boundary instead — e.g. a reverse-charge
+    import purchase whose Tax Category never got set, or got cleared, and so
+    defaulted to 'Standard rated domestic purchases' instead of box 9. Both
+    are per-voucher, both need a reason, both are governed the same way —
+    this is the same doctype and the same audit trail, not a second
+    mechanism next to it.
+
+    Reclassify is independent of Include/Exclude: a voucher can carry one of
+    each at once (its timing AND its box both corrected), so the two are
+    deduplicated separately rather than one replacing the other."""
     if not frappe.has_permission("Insight VAT Adjustment", "write"):
         frappe.throw(_("Not permitted."))
     company = company or _default_company()
@@ -699,22 +829,35 @@ def save_vat_adjustment(company=None, from_date=None, to_date=None,
         frappe.throw(_("{0} {1} not found (must be submitted, same company).").format(_(voucher_type), voucher_no))
     if not (reason or "").strip():
         frappe.throw(_("A reason is required — it is the audit trail."))
-    posting = frappe.db.get_value(voucher_type, voucher_no, "posting_date")
-    in_period = str(from_date) <= str(posting) <= str(to_date)
-    if action == "Exclude" and not in_period:
-        frappe.throw(_("{0} is dated {1} — outside this period, nothing to exclude.").format(voucher_no, posting))
-    if action == "Include" and in_period:
-        frappe.throw(_("{0} is dated {1} — already inside this period.").format(voucher_no, posting))
+    if action not in ("Include", "Exclude", "Reclassify"):
+        frappe.throw(_("Unknown adjustment action."))
+
+    if action == "Reclassify":
+        valid_boxes = (_PURCHASE_RECLASSIFY_BOXES if voucher_type == "Purchase Invoice"
+                       else _SALES_RECLASSIFY_BOXES)
+        if target_box not in valid_boxes:
+            frappe.throw(_("Choose a box to reclassify this {0} into.").format(_(voucher_type)))
+    else:
+        target_box = None
+        posting = frappe.db.get_value(voucher_type, voucher_no, "posting_date")
+        in_period = str(from_date) <= str(posting) <= str(to_date)
+        if action == "Exclude" and not in_period:
+            frappe.throw(_("{0} is dated {1} — outside this period, nothing to exclude.").format(voucher_no, posting))
+        if action == "Include" and in_period:
+            frappe.throw(_("{0} is dated {1} — already inside this period.").format(voucher_no, posting))
+
     existing = frappe.get_all("Insight VAT Adjustment",
                               filters={"company": company, "from_date": from_date, "to_date": to_date,
-                                       "voucher_type": voucher_type, "voucher_no": voucher_no},
+                                       "voucher_type": voucher_type, "voucher_no": voucher_no,
+                                       "action": action},
                               pluck="name")
     for n in existing:
         frappe.delete_doc("Insight VAT Adjustment", n, ignore_permissions=True)
     frappe.get_doc({"doctype": "Insight VAT Adjustment", "company": company,
                     "from_date": from_date, "to_date": to_date,
                     "voucher_type": voucher_type, "voucher_no": voucher_no,
-                    "action": action, "reason": reason.strip()}).insert(ignore_permissions=True)
+                    "action": action, "reason": reason.strip(),
+                    "target_box": target_box}).insert(ignore_permissions=True)
     frappe.db.commit()
     return {"ok": True}
 
@@ -759,7 +902,7 @@ def _adjustment_summary(company, from_date, to_date):
     header chip and the pack reconciliation block."""
     out = {"included": [], "excluded": [], "net_vat_effect": 0.0}
     for vtype in ("Sales Invoice", "Purchase Invoice"):
-        include, exclude = _period_adjustments(company, from_date, to_date, vtype)
+        include, exclude, _reclassify = _period_adjustments(company, from_date, to_date, vtype)
         for names, kind in ((include, "included"), (exclude, "excluded")):
             if not names:
                 continue

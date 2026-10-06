@@ -19,6 +19,13 @@ export default function VatAdjustments({ company, fromDate, toDate, onClose }: {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  // v2.88.1 — a voucher's TIMING (Include/Exclude) and its BOX (Reclassify)
+  // are independent questions; once an invoice is picked the user chooses
+  // which kind of correction this one is, rather than it being inferred
+  // purely from in/out-of-period the way Include/Exclude always was.
+  const [mode, setMode] = useState<'period' | 'box'>('period');
+  const [boxChoices, setBoxChoices] = useState<{ box: string; label: string }[]>([]);
+  const [targetBox, setTargetBox] = useState('');
 
   const refresh = () => api.listVatAdjustments(company || null, fromDate, toDate).then(setList).catch(() => {});
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [company, fromDate, toDate]);
@@ -31,18 +38,25 @@ export default function VatAdjustments({ company, fromDate, toDate, onClose }: {
 
   const inPeriod = (d: string) => fromDate <= String(d) && String(d) <= toDate;
 
+  function pick(h: any) {
+    setPicked(h); setMsg(''); setMode('period'); setTargetBox('');
+    api.vatReclassifyBoxes(vtype).then(setBoxChoices).catch(() => setBoxChoices([]));
+  }
+
   async function save() {
     if (!picked) return;
     if (!reason.trim()) { setMsg(t('A reason is required — it is the audit trail.')); return; }
+    if (mode === 'box' && !targetBox) { setMsg(t('Choose the box to reclassify this voucher into.')); return; }
     setBusy(true); setMsg('');
     try {
       await api.saveVatAdjustment({
         company: company || null, from_date: fromDate, to_date: toDate,
         voucher_type: vtype, voucher_no: picked.name,
-        action: inPeriod(picked.posting_date) ? 'Exclude' : 'Include',
+        action: mode === 'box' ? 'Reclassify' : (inPeriod(picked.posting_date) ? 'Exclude' : 'Include'),
+        target_box: mode === 'box' ? targetBox : undefined,
         reason: reason.trim(),
       });
-      setPicked(null); setReason(''); setHits([]); setQuery('');
+      setPicked(null); setReason(''); setHits([]); setQuery(''); setTargetBox('');
       refresh();
     } catch (e: any) { setMsg(String(e?.message || e)); }
     finally { setBusy(false); }
@@ -86,8 +100,8 @@ export default function VatAdjustments({ company, fromDate, toDate, onClose }: {
                   <td>{h.party}</td>
                   <td className="num">{fmtD(h.base_total_taxes_and_charges, 2)}</td>
                   <td>
-                    <button className="studio-ghost" onClick={() => { setPicked(h); setMsg(''); }}>
-                      {inPeriod(h.posting_date) ? t('Defer out') : t('Include in period')}
+                    <button className="studio-ghost" onClick={() => pick(h)}>
+                      {t('Adjust')}
                     </button>
                   </td>
                 </tr>
@@ -99,12 +113,32 @@ export default function VatAdjustments({ company, fromDate, toDate, onClose }: {
         {picked && (
           <div className="studio-card" style={{ padding: 12, marginTop: 10 }}>
             <div style={{ marginBottom: 8 }}>
-              <span className={'cls-badge' + (inPeriod(picked.posting_date) ? '' : '')}>
-                {inPeriod(picked.posting_date) ? t('EXCLUDE (defer)') : t('INCLUDE (add)')}
-              </span>{' '}
               <b>{picked.name}</b> · {String(picked.posting_date)} · {picked.party} · {t('VAT')} {fmtD(picked.base_total_taxes_and_charges, 2)}
             </div>
-            <input placeholder={t('Reason — e.g. “SWA invoice 2025, paid in February 2026 — VAT due on payment”')}
+
+            <div className="studio-frow" style={{ gap: 12, marginBottom: 8 }}>
+              <label><input type="radio" checked={mode === 'period'} onChange={() => setMode('period')} />{' '}
+                {inPeriod(picked.posting_date) ? t('Defer to another period (Exclude)') : t('Pull into this period (Include)')}
+              </label>
+              <label><input type="radio" checked={mode === 'box'} onChange={() => setMode('box')} />{' '}
+                {t('Reclassify into a different box')}
+              </label>
+            </div>
+
+            {mode === 'period' &&
+              <div style={{ marginBottom: 8 }}>
+                <span className="cls-badge">{inPeriod(picked.posting_date) ? t('EXCLUDE (defer)') : t('INCLUDE (add)')}</span>
+              </div>}
+
+            {mode === 'box' &&
+              <select value={targetBox} onChange={(e) => setTargetBox(e.target.value)} style={{ marginBottom: 8, width: '100%' }}>
+                <option value="">{t('Choose a box…')}</option>
+                {boxChoices.map((b) => <option key={b.box} value={b.box}>{b.box.replace('box', t('Box') + ' ')} — {t(b.label)}</option>)}
+              </select>}
+
+            <input placeholder={mode === 'box'
+                ? t('Reason — e.g. “Reverse-charge import, Tax Category was never set on this invoice”')
+                : t('Reason — e.g. “SWA invoice 2025, paid in February 2026 — VAT due on payment”')}
               value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: '100%' }} />
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button className="studio-run" onClick={save} disabled={busy}>{busy ? t('Saving…') : t('Save adjustment')}</button>
@@ -119,7 +153,11 @@ export default function VatAdjustments({ company, fromDate, toDate, onClose }: {
           <tbody>
             {list.map((a) => (
               <tr key={a.name}>
-                <td><span className="cls-badge" style={a.action === 'Exclude' ? { background: 'var(--neg-bg)', borderColor: 'var(--neg)', color: 'var(--neg)' } : {}}>{t(a.action)}</span></td>
+                <td>
+                  <span className="cls-badge" style={a.action === 'Exclude' ? { background: 'var(--neg-bg)', borderColor: 'var(--neg)', color: 'var(--neg)' } : {}}>
+                    {t(a.action)}{a.action === 'Reclassify' && a.target_box ? ` → ${a.target_box.replace('box', t('Box') + ' ')}` : ''}
+                  </span>
+                </td>
                 <td>{a.voucher_no} <span className="cls-root">{t(a.voucher_type)}</span></td>
                 <td className="sched-recip" title={a.reason}>{a.reason}</td>
                 <td className="cls-type">{a.owner}</td>

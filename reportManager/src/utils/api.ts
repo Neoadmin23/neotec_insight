@@ -299,6 +299,10 @@ export const api = {
     call<any>('vat.clear_vat_adjustment', { company: company ?? null, from_date: fromDate, to_date: toDate, voucher_type: voucherType, voucher_no: voucherNo }, 'POST'),
   vatFindVouchers: (company: string | null, voucherType: string, query: string) =>
     call<any[]>('vat.find_vouchers', { company: company ?? null, voucher_type: voucherType, query }),
+  vatReclassifyBoxes: (voucherType: string) =>
+    call<{ box: string; label: string }[]>('vat.vat_reclassify_boxes', { voucher_type: voucherType }),
+  vatSuggestAccounts: (company?: string | null) =>
+    call<any>('vat.suggest_vat_accounts', { company: company ?? null }),
 
   arApAgeing: (company: string | null, asOf: string, partyType: string, basedOn: string, mode: string, slabs: string, topN: number, excludeParties?: string[], allocation?: string, includeParties?: string[]) =>
     call<any>('ageing.ar_ap_ageing', { company: company ?? null, as_of: asOf, party_type: partyType, based_on: basedOn, mode, slabs, top_n: topN, exclude_parties: JSON.stringify(excludeParties || []), allocation: allocation || 'actual', include_parties: JSON.stringify(includeParties || []) }),

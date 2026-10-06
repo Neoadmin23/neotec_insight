@@ -113,6 +113,40 @@ export default function VatSettings() {
     finally { setBusy(false); }
   }
 
+  // v2.88.1 — "give a provision to reset the settings": when a tag that was
+  // carrying a side gets removed (by accident or otherwise), that side can
+  // drop to 'No accounts resolved' with no obvious way back short of opening
+  // the full Classification tab and hunting the chart of accounts by eye —
+  // this is exactly the complaint a deleted VAT 15% Reverse Charge tag
+  // produced. `suggest_vat_accounts` widens the search (any root type, not
+  // just the Liability/Asset split the live heuristic uses) so the likely
+  // candidates — including the one that was tagged before — surface right
+  // here, re-tagged in one click.
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+
+  async function openSuggest() {
+    setSuggestOpen(true); setSuggestBusy(true); setErr('');
+    try { setSuggestions((await api.vatSuggestAccounts(company))?.accounts || []); }
+    catch (e: any) { setErr(String(e?.message || e)); }
+    finally { setSuggestBusy(false); }
+  }
+
+  async function tagAccount(account: string, tag: 'output_vat' | 'input_vat' | '') {
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      await api.saveClassification(company, { [account]: tag });
+      setMsg(tag
+        ? t('{0} tagged {1}.').replace('{0}', account)
+            .replace('{1}', tag === 'output_vat' ? t('Output VAT') : t('Input VAT'))
+        : t('{0} untagged.').replace('{0}', account));
+      setSuggestions((rows) => rows.map((r) => r.account === account ? { ...r, tag } : r));
+      load(company);
+    } catch (e: any) { setErr(String(e?.message || e)); }
+    finally { setBusy(false); }
+  }
+
   const acc = data?.accounts;
   const rules: any[] = data?.gtpl_rules || [];
   const adjustments: any[] = data?.adjustments || [];
@@ -146,10 +180,63 @@ export default function VatSettings() {
         <>
           {/* ---------------- VAT accounts ---------------- */}
           <section className="vs-card">
-            <h3>{t('VAT control accounts')}</h3>
+            <div className="vs-card-h">
+              <h3>{t('VAT control accounts')}</h3>
+              {data.can_write &&
+                <button className="vs-btn ghost" onClick={() => suggestOpen ? setSuggestOpen(false) : openSuggest()}>
+                  {suggestOpen ? t('Hide') : '🔧 ' + t('Tag or reset an account')}
+                </button>}
+            </div>
             <p className="theme-hint">
               {t('Set in the Classification tab, not here — tagging any account as Output VAT or Input VAT switches that side to strict mode, and only tagged accounts count. Untagged, the engine matches on account type and name, which is a guess.')}
             </p>
+
+            {suggestOpen && (
+              <div className="vs-editor" style={{ marginBottom: 12 }}>
+                <p className="theme-hint">
+                  {t('Every account that reads as VAT-related by name or type, of any root type — including ones a side\'s own "No accounts resolved" guess misses, because that guess only looks at Liability for Output and Asset for Input. A tag bypasses that restriction entirely, which is exactly why removing one can make an account disappear rather than fall back to being found some other way. Pick the side to restore it to.')}
+                </p>
+                {suggestBusy && <div className="fh-loading">{t('Loading…')}</div>}
+                {!suggestBusy && suggestions.length === 0 &&
+                  <div className="vs-empty">{t('No VAT-like account names found in this chart of accounts.')}</div>}
+                {!suggestBusy && suggestions.length > 0 && (
+                  <table className="studio-table vs-table">
+                    <thead><tr>
+                      <th>{t('Account')}</th><th>{t('Type')}</th><th>{t('Current tag')}</th><th />
+                    </tr></thead>
+                    <tbody>
+                      {suggestions.map((s) => (
+                        <tr key={s.account}>
+                          <td>
+                            {s.number && <span className="cls-num">{s.number}</span>}
+                            {s.label}
+                            {s.reverse_charge && <span className="vs-pill warn" style={{ marginInlineStart: 6 }}>{t('reverse charge')}</span>}
+                          </td>
+                          <td className="cls-root">{s.root_type}{s.account_type ? ` · ${s.account_type}` : ''}</td>
+                          <td>
+                            {s.tag === 'output_vat' && <span className="vs-pill ok">{t('Output VAT')}</span>}
+                            {s.tag === 'input_vat' && <span className="vs-pill ok">{t('Input VAT')}</span>}
+                            {s.tag === 'not_vat' && <span className="vs-pill warn">{t('Not VAT')}</span>}
+                            {!s.tag && <em className="studio-hint">{t('none')}</em>}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {s.tag !== 'output_vat' &&
+                              <button className="vat-drill-link" disabled={busy} onClick={() => tagAccount(s.account, 'output_vat')}>{t('Set Output VAT')}</button>}
+                            {' · '}
+                            {s.tag !== 'input_vat' &&
+                              <button className="vat-drill-link" disabled={busy} onClick={() => tagAccount(s.account, 'input_vat')}>{t('Set Input VAT')}</button>}
+                            {s.tag && <>{' · '}
+                              <button className="vat-drill-link" disabled={busy} onClick={() => tagAccount(s.account, '')}>{t('Clear tag')}</button>
+                            </>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
             <div className="vs-grid">
               {(['output', 'input'] as const).map((side) => {
                 const s = acc?.[side];
@@ -167,7 +254,11 @@ export default function VatSettings() {
                         {t('Check this list. Anything here that is not a VAT control account is being counted as VAT — its ledger entries feed the return.')}
                       </div>}
                     {(s?.accounts || []).length === 0
-                      ? <div className="vs-empty">{t('No accounts resolved. The return will show no VAT on this side.')}</div>
+                      ? <div className="vs-empty">
+                          {t('No accounts resolved. The return will show no VAT on this side.')}
+                          {data.can_write && !suggestOpen &&
+                            <> {' '}<button className="vat-drill-link" onClick={openSuggest}>{t('Find and tag one')}</button></>}
+                        </div>
                       : <ul className="vs-acc-list">
                           {s.accounts.map((a: any) => (
                             <li key={a.name} className="vs-acc-row">
@@ -471,7 +562,9 @@ export default function VatSettings() {
                       <tr key={a.name}>
                         <td style={{ whiteSpace: 'nowrap' }}>{a.from_date} → {a.to_date}</td>
                         <td>{a.voucher_no}</td>
-                        <td><span className={a.action === 'Include' ? 'vs-pill ok' : 'vs-pill warn'}>{t(a.action)}</span></td>
+                        <td><span className={a.action === 'Include' ? 'vs-pill ok' : 'vs-pill warn'}>
+                          {t(a.action)}{a.action === 'Reclassify' && a.target_box ? ` → ${a.target_box.replace('box', t('Box') + ' ')}` : ''}
+                        </span></td>
                         <td className="vs-reason">{a.reason}</td>
                       </tr>
                     ))}
