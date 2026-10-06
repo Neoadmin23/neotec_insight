@@ -260,3 +260,50 @@ class TestApplyAdjustmentsStampsForceBox(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestRealTerracoReverseChargeInvoices(unittest.TestCase):
+    """The three real invoices from the customer's Terraco site: blank Tax
+    Category, template 'KSA VAT RC 15% - T', template row rate 0 so ERPNext
+    recorded VAT = 0. Previously landed in box 10 with no VAT."""
+
+    def setUp(self):
+        ns = _load_pure_members("STANDARD_RATE", "_PURCHASE_CATEGORY_RULES", "_classify",
+                                "_RC_TEMPLATE", "_classify_purchase", "_rc_self_assessed")
+        ns["flt"] = lambda v, p=None: round(float(v or 0), p) if p is not None else float(v or 0)
+        self.ns = ns
+
+    def inv(self, net, **kw):
+        d = {"name": "ACC-PINV-2026-00392", "tax_category": "", "taxes_and_charges": "KSA VAT RC 15% - T",
+             "base_net_total": net, "base_total_taxes_and_charges": 0}
+        d.update(kw)
+        return d
+
+    def test_template_alone_routes_to_box9(self):
+        self.assertEqual(self.ns["_classify_purchase"](self.inv(11664.75)), "box9")
+
+    def test_self_assessed_vat_is_15_percent_of_net(self):
+        pi = self.inv(11664.75)
+        self.assertEqual(self.ns["_rc_self_assessed"]("box9", pi), 1749.71)
+        pi = self.inv(90083.41915)
+        self.assertEqual(self.ns["_rc_self_assessed"]("box9", pi), 13512.51)
+
+    def test_recorded_vat_is_left_alone(self):
+        pi = self.inv(1000, base_total_taxes_and_charges=150)
+        self.assertEqual(self.ns["_rc_self_assessed"]("box9", pi), 0.0)
+
+    def test_other_boxes_never_self_assess(self):
+        self.assertEqual(self.ns["_rc_self_assessed"]("box10", self.inv(1000)), 0.0)
+
+    def test_plain_zero_vat_purchase_still_box10(self):
+        pi = self.inv(500, taxes_and_charges="KSA VAT 15% - T")
+        pi["taxes_and_charges"] = ""
+        self.assertEqual(self.ns["_classify_purchase"](pi), "box10")
+
+    def test_ordinary_template_not_mistaken_for_rc(self):
+        pi = self.inv(500, taxes_and_charges="KSA VAT 15% - T", base_total_taxes_and_charges=75)
+        self.assertEqual(self.ns["_classify_purchase"](pi), "box7")
+
+    def test_tax_category_still_wins(self):
+        pi = self.inv(500, tax_category="Imports customs", taxes_and_charges="")
+        self.assertEqual(self.ns["_classify_purchase"](pi), "box8")

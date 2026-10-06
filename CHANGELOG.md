@@ -1,3 +1,16 @@
+## v2.88.2 — 2026-10-06
+
+### Fixed: reverse-charge purchases still showing nothing — the real invoices carry no VAT and no Tax Category
+
+Read the three actual Terraco invoices (ACC-PINV-2026-00392/396/397). All three: `tax_category` blank, template **"KSA VAT RC 15% - T"**, one tax row on "VAT 15% Reverse Charge - T" with **rate 0 / amount 0** (its description even reads "WHT 15 %"), so ERPNext recorded `base_total_taxes_and_charges = 0`. v2.88.1 assumed a Tax Category existed; it never did. With no category and zero VAT they fell to box 10 (zero-rated) — which is where the 235,946.93 in the screenshot came from — and there was no VAT figure in the ledger to show anywhere.
+
+- A Purchase Invoice is now reverse-charge when its **Tax Category or its taxes template** says so (`reverse|rcm|RC`). Category still wins when both exist.
+- A reverse-charge invoice that recorded **zero VAT** now has 15% of its net self-assessed into box 9 (1,749.71 / 6,582.83 / 13,512.51 for the three). Invoices that already carry VAT are untouched.
+- Self-assessed VAT is both deductible (it sits in box 9 and total purchases) and due, so it is added to total VAT due as well — net effect zero, as reverse charge requires. Shown as `net.rc_self_assessed`. The box 9 drill shows the computed figure so it reconciles.
+- 7 new tests built from the real invoice values; 264 total, all green.
+
+**Root fix still belongs in ERPNext:** the "KSA VAT RC 15%" template row should be 15% with an Add row and a Deduct row on the reverse-charge account, so the ledger carries the VAT.
+
 ## v2.88.1 — 2026-10-05
 
 ### Fixed: a Terraco reverse-charge import purchase not reflecting in the VAT return — plus a provision to recover a deleted VAT tag

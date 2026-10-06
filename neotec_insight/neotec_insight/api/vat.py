@@ -417,6 +417,15 @@ def _classify_sales(si, country_cache):
     return "box4" if _is_foreign(country) else "box3"
 
 
+# A Purchase Invoice is reverse-charge when its Tax Category OR its Purchase
+# Taxes and Charges template says so. The template matters: the real Terraco
+# import invoices (ACC-PINV-2026-00392/396/397) have a blank Tax Category but
+# carry the template "KSA VAT RC 15% - T" — so keying on tax_category alone
+# sent them to box 10 (zero-rated; their recorded VAT is 0). `\brc\b` catches
+# the common "RC" abbreviation without matching words that merely contain it.
+_RC_TEMPLATE = re.compile(r"reverse|rcm|\brc\b|عكس", re.I)
+
+
 def _classify_purchase(pi):
     """Return the input box (box7..box11) for one Purchase Invoice.
 
@@ -428,8 +437,25 @@ def _classify_purchase(pi):
     vat = flt(pi.get("base_total_taxes_and_charges"))
     default = "box7" if abs(vat) > 0.005 else "box10"
     if cat:
-        return _classify(cat, _PURCHASE_CATEGORY_RULES, default)
+        box = _classify(cat, _PURCHASE_CATEGORY_RULES, None)
+        if box:
+            return box
+    tpl = pi.get("taxes_and_charges")
+    if tpl and _RC_TEMPLATE.search(tpl):
+        return "box9"
     return default
+
+
+def _rc_self_assessed(box, pi):
+    """VAT to self-assess on a reverse-charge purchase whose invoice recorded
+    none. ERPNext computed 0 for the Terraco imports (template row rate 0), so
+    there is no VAT figure anywhere in the ledger to read; the return must
+    still declare 15% of the net. Only ever applies to box 9 with zero
+    recorded VAT — a reverse-charge invoice that already carries VAT is left
+    exactly as before."""
+    if box == "box9" and abs(flt(pi.get("base_total_taxes_and_charges"))) < 0.005:
+        return flt(flt(pi.get("base_net_total")) * STANDARD_RATE / 100.0, 2)
+    return 0.0
 
 
 def _government_customers(company, as_of):
@@ -498,8 +524,11 @@ def _sales_breakdown(company, from_date, to_date, government=None, split=True):
 def _purchase_breakdown(company, from_date, to_date):
     boxes = {b: {"amount": 0.0, "adjustment": 0.0, "vat": 0.0}
              for b in ("box7", "box8", "box9", "box10", "box11")}
+    # Self-assessed reverse-charge VAT: deductible as input (it is in box 9 /
+    # box 12) AND due as output, so it must also reach "total VAT due".
+    boxes["_rc_due"] = 0.0
     _pi_fields = ["name", "base_net_total", "base_total_taxes_and_charges", "tax_category",
-                  "supplier", "is_return"]
+                  "taxes_and_charges", "supplier", "is_return"]
     invoices = frappe.get_all(
         "Purchase Invoice",
         filters={"company": company, "docstatus": 1, "posting_date": ["between", [from_date, to_date]]},
@@ -513,7 +542,11 @@ def _purchase_breakdown(company, from_date, to_date):
             boxes[box]["adjustment"] += net
         else:
             boxes[box]["amount"] += net
-        boxes[box]["vat"] += flt(pi["base_total_taxes_and_charges"])
+        rc = _rc_self_assessed(box, pi)
+        if pi.get("is_return"):
+            rc = -abs(rc)
+        boxes[box]["vat"] += flt(pi["base_total_taxes_and_charges"]) + rc
+        boxes["_rc_due"] += rc
     return boxes
 
 
@@ -535,6 +568,7 @@ def vat_return(company=None, from_date=None, to_date=None):
     gov_split = bool((gtpl_rule or {}).get("target_box") or "")
     sales = _sales_breakdown(company, from_date, to_date, government, gov_split)
     purch = _purchase_breakdown(company, from_date, to_date)
+    rc_due = round(purch.pop("_rc_due", 0.0), 2)
 
     # Non-invoice VAT (Payment Entries, Journal Entries, custom Expenses Entry apps,
     # …) is CLUBBED INTO the same lines as invoices — box 7 for input, box 1 for
@@ -613,8 +647,9 @@ def vat_return(company=None, from_date=None, to_date=None):
     box6 = {"box": 6, "label": "Total sales", "amount": sales_amount, "adjustment": sales_adjustment, "vat": round(sales_vat, 2), "system": True}
     box12 = {"box": 12, "label": "Total purchases", "amount": purch_amount, "adjustment": purch_adjustment, "vat": round(purch_vat, 2), "system": True}
 
-    box13 = round(sales_vat - purch_vat, 2)
+    box13 = round(sales_vat + rc_due - purch_vat, 2)
     net = {
+        "rc_self_assessed": rc_due,  # reverse-charge VAT computed (not in ledger), due AND deductible
         "box13": box13,            # total VAT due this period
         "box14": 0.0,              # corrections (user-entered)
         "box15": 0.0,              # credit carried forward (user-entered)
@@ -674,7 +709,7 @@ def vat_box_drill(company=None, from_date=None, to_date=None, box=None):
     doctype = "Sales Invoice" if is_sales else "Purchase Invoice"
     party_field = "customer" if is_sales else "supplier"
     fields = ["name", "posting_date", party_field, "base_net_total",
-              "base_total_taxes_and_charges", "tax_category", "is_return"]
+              "base_total_taxes_and_charges", "tax_category", "taxes_and_charges", "is_return"]
     rows = frappe.get_all(
         doctype,
         filters={"company": company, "docstatus": 1, "posting_date": ["between", [from_date, to_date]]},
@@ -712,6 +747,12 @@ def vat_box_drill(company=None, from_date=None, to_date=None, box=None):
     else:
         filtered = [r for r in rows if _purchase_box(r) == target]
         excluded = [r for r in removed if _purchase_box(r) == target]
+        # show the self-assessed VAT so the drill reconciles with the box
+        for r in filtered:
+            rc = _rc_self_assessed(target, r)
+            if rc:
+                r["base_total_taxes_and_charges"] = -abs(rc) if r.get("is_return") else rc
+                r["_rc_computed"] = True
 
     # Boxes 1 and 7 also carry non-invoice VAT (clubbed in by vat_return) — append
     # those vouchers, each tagged with its own doctype, so the drill reconciles
