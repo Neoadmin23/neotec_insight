@@ -88,7 +88,11 @@ def get_grid(rule, year, company=None):
     cells: dict[str, dict] = {}
     basis_by_cc: dict[str, str] = {}
     pool: dict[int, float] = {}
+    # v2.88.5 — cost centres opted out of this rule are not part of the grid.
+    excluded = sorted({d.cost_center for d in (doc.excluded_ccs or []) if d.cost_center})
     for r in rows:
+        if r["cost_center"] in excluded:
+            continue
         pm = r["period_month"]
         m = pm.month if hasattr(pm, "month") else int(str(pm)[5:7])
         cells.setdefault(r["cost_center"], {})[m] = {
@@ -110,6 +114,7 @@ def get_grid(rule, year, company=None):
         "year": year,
         "months": MONTH_LABELS,
         "cost_centers": sorted(cells.keys()),
+        "excluded": excluded,
         "cells": cells,
         "basis": basis_by_cc,
         "manual_pool": pool,
@@ -422,13 +427,39 @@ def capture_preview(rule, year, months=None):
 
 
 @frappe.whitelist()
-def capture_commit(rule, year, months=None, freeze=0):
-    """Accept a capture. Frozen and overridden rows are left alone."""
+def capture_status(rule, year):
+    """Which months are empty, manual, captured or frozen — for the picker."""
+    _guard()
+    from neotec_insight.neotec_insight.utils import driver_capture
+    return driver_capture.month_status(rule, int(year))
+
+
+@frappe.whitelist()
+def capture_commit(rule, year, months=None, freeze=0, refresh_drift=0):
+    """Accept a capture. Frozen and overridden rows are left alone, unless
+    refresh_drift is set to re-open and rewrite frozen rows that differ."""
     _guard(write=True)
     from neotec_insight.neotec_insight.utils import driver_capture
     if isinstance(months, str):
         months = json.loads(months or "null")
-    return driver_capture.commit(rule, int(year), months, freeze=bool(int(freeze or 0)))
+    return driver_capture.commit(rule, int(year), months, freeze=bool(int(freeze or 0)),
+                                 refresh_drift=bool(int(refresh_drift or 0)))
+
+
+@frappe.whitelist()
+def set_cc_excluded(rule, cost_center, excluded=1, reason=None):
+    """Take a cost centre out of (or put it back into) a rule's allocation."""
+    _guard(write=True)
+    doc = frappe.get_doc("Insight Allocation Rule", rule)
+    keep = [d for d in (doc.excluded_ccs or []) if d.cost_center != cost_center]
+    if int(excluded):
+        keep.append(frappe._dict(cost_center=cost_center, reason=(reason or "")[:140]))
+    doc.set("excluded_ccs", [])
+    for d in keep:
+        doc.append("excluded_ccs", {"cost_center": d.cost_center, "reason": d.get("reason") or ""})
+    doc.save()
+    frappe.db.commit()
+    return {"ok": True, "excluded": [d.cost_center for d in doc.excluded_ccs]}
 
 
 @frappe.whitelist()

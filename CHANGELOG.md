@@ -1,3 +1,34 @@
+## v2.88.5 — 2026-10-12
+
+### Fixed: frozen zero rows never got captured; Added: exclude cost centres from an allocation
+
+- **Red "drift" rows (Aug 2026 showed Stored 0 vs Counted 5-7 and were skipped).** Those rows had been frozen while holding 0 and were never captured. A frozen, never-captured, zero, hand-entered row is now treated as a placeholder, so capture writes it (action "update"). Frozen rows that hold a real figure still report drift and are left alone.
+- New "Also re-open and overwrite N drifted (frozen) rows" option in the capture dialog (`capture_commit(..., refresh_drift=1)`) for the deliberate case. Rewritten rows are re-opened unless "Freeze these months" is ticked.
+- Month chips show ◐ for a partly frozen month, and the "captured, not frozen" warning now covers it (previously the banner said "not frozen" for a month with some frozen rows).
+- **Exclude cost centres.** New "Excluded Cost Centres" table on Insight Allocation Rule (child doctype `Insight Allocation Excluded CC`) and an Exclude / Include button on every row of the capture dialog (`allocation.set_cc_excluded`). An excluded cost centre is not captured, has no head count in the denominator, gets no share, and is hidden from the driver grid. Stored values are kept, so including it again restores it.
+- Run `bench migrate` to create the new child doctype.
+- 10 new tests; 280 total.
+
+## v2.88.4 — 2026-10-12
+
+### Health check: three latent crashes fixed
+
+Static analysis of every backend file, a frontend-to-backend endpoint cross-check (224 frontend calls, all have a matching whitelisted method), JSON validity of every doctype, config-backup coverage, typecheck and build.
+
+- `reconcile.reconciliation_bridge` raised NameError when no `as_of` was passed (`nowdate` was never imported).
+- `report.account_tree` and the P&L drill-down raised NameError when called without a company (`_default_company` was never imported in `report.py`).
+- Fiscal-year fallback lookup had a duplicate dict key, so its lower date bound was silently dropped; now a proper two-condition filter.
+- 3 regression tests; 270 total.
+
+## v2.88.3 — 2026-10-12
+
+### Changed: HR head-count capture is chosen month by month, and earlier captures are visible
+
+- The capture dialog no longer previews or writes anything until you pick the month(s); only those months are touched. Head count is counted as of each picked month's end.
+- New month status on the picker (`allocation.capture_status`): 🔒 captured and frozen, ✓ captured but still open, ✎ entered by hand. Hover shows when it was captured.
+- Picking a month that is captured but not frozen shows a warning that capturing again replaces it with today's count; freeze it once reviewed. Frozen months only ever report drift.
+- 3 new tests, 267 total.
+
 ## v2.88.2 — 2026-10-06
 
 ### Fixed: reverse-charge purchases still showing nothing — the real invoices carry no VAT and no Tax Category

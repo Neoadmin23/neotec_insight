@@ -1775,7 +1775,7 @@ def _resolve_fiscal_year_start(fiscal_year: str | int, company: str | None = Non
         try:
             rows = frappe.get_all(
                 "Fiscal Year",
-                filters={"year_start_date": [">=", f"{yr - 1}-12-31"], "year_start_date": ["<=", f"{yr}-12-31"]},
+                filters=[["year_start_date", ">=", f"{yr - 1}-12-31"], ["year_start_date", "<=", f"{yr}-12-31"]],
                 fields=["year_start_date"], limit_page_length=1,
             )
             if rows:
@@ -4306,6 +4306,7 @@ def account_tree(company=None):
     accounts (via the nested-set lft/rgt range). Ordered by lft so the caller can
     build the hierarchy directly."""
     _require_read()
+    from .health import _default_company
     company = company or _default_company()
     if not company:
         return []
@@ -4354,6 +4355,7 @@ def pl_hierarchy(
     from frappe.utils import flt
     from neotec_insight.neotec_insight.utils.fiscal_year import resolve_date_bounds
 
+    from .health import _default_company
     company = company or _default_company()
     if not company:
         frappe.throw("company is required.")

@@ -23,6 +23,7 @@
   "include_status",
   "include_on_leave",
   "dept_map",
+  "excluded_ccs",
   "cb_lead",
   "lead_cc_field",
   "lead_assigned_only",
@@ -169,6 +170,13 @@
    "options": "Insight Allocation Dept Map",
    "label": "Department \u2192 Cost Centre",
    "depends_on": "eval:doc.driver_source=='employee_headcount'"
+  },
+  {
+   "fieldname": "excluded_ccs",
+   "fieldtype": "Table",
+   "options": "Insight Allocation Excluded CC",
+   "label": "Excluded Cost Centres",
+   "description": "Cost centres that are not part of this allocation. They are not captured, carry no head count into the denominator and receive no share."
   },
   {
    "fieldname": "cb_lead",

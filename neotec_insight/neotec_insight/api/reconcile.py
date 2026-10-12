@@ -17,7 +17,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import flt, getdate, nowdate
 
 _SINV_RE = re.compile(r"\bS?INV[\s/_-]*\d{4}[\s/_-]*\d{3,6}\b", re.I)
 _IBAN_RE = re.compile(r"\bSA\d{22}\b")

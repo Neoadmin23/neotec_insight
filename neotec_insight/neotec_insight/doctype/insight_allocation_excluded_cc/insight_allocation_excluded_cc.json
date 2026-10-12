@@ -1,0 +1,14 @@
+{
+ "actions": [], "creation": "2026-10-12 00:00:00", "doctype": "DocType",
+ "engine": "InnoDB", "istable": 1, "editable_grid": 1,
+ "field_order": ["cost_center", "reason"],
+ "fields": [
+  {"fieldname": "cost_center", "fieldtype": "Link", "options": "Cost Center", "label": "Cost Centre",
+   "in_list_view": 1, "columns": 4, "reqd": 1},
+  {"fieldname": "reason", "fieldtype": "Data", "label": "Reason",
+   "in_list_view": 1, "columns": 6}
+ ],
+ "links": [], "modified": "2026-10-12 00:00:00", "module": "Neotec Insight",
+ "name": "Insight Allocation Excluded CC", "owner": "Administrator",
+ "permissions": [], "sort_field": "modified", "sort_order": "DESC"
+}

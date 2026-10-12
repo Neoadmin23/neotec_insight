@@ -4363,6 +4363,8 @@ tr:hover .row-livegroup { opacity: 1; }
 .cap-write td, .cap-update td { background: var(--pos-bg, #eef7f2); }
 .cap-kept td { background: var(--warn-bg, #fdf6e7); }
 .cap-drift td { background: var(--neg-bg, #fdeeee); color: var(--neg); }
+.cap-excluded td { opacity: .55; text-decoration: line-through; }
+.cap-excluded td:last-child { text-decoration: none; }
 .cap-unchanged td, .cap-frozen td { color: var(--text-faint); }
 .cap-foot { flex-wrap: wrap; align-items: center; gap: 10px; }
 .cap-sum { font-size: 11px; color: var(--text-faint); margin-inline-start: auto; }

@@ -806,11 +806,18 @@ export const api = {
     });
   },
   // v2.63.0 — driver capture & audit evidence
+  allocationCaptureStatus: (rule: string, year: number) =>
+    call<any>('allocation.capture_status', { rule, year }),
   allocationCapturePreview: (rule: string, year: number, months?: number[] | null) =>
     call<any>('allocation.capture_preview', { rule, year, months: JSON.stringify(months || null) }),
-  allocationCaptureCommit: (rule: string, year: number, months?: number[] | null, freeze?: boolean) =>
+  allocationCaptureCommit: (rule: string, year: number, months?: number[] | null, freeze?: boolean,
+    refreshDrift?: boolean) =>
     call<any>('allocation.capture_commit',
-      { rule, year, months: JSON.stringify(months || null), freeze: freeze ? 1 : 0 }, 'POST'),
+      { rule, year, months: JSON.stringify(months || null), freeze: freeze ? 1 : 0,
+        refresh_drift: refreshDrift ? 1 : 0 }, 'POST'),
+  allocationSetExcluded: (rule: string, cost_center: string, excluded: boolean, reason?: string) =>
+    call<any>('allocation.set_cc_excluded',
+      { rule, cost_center, excluded: excluded ? 1 : 0, reason: reason || '' }, 'POST'),
   allocationUnassigned: (rule: string, year: number) =>
     call<any>('allocation.unassigned_employees', { rule, year }),
   allocationEvidence: (rule: string, cost_center: string, year: number, month: number) =>

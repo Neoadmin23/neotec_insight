@@ -377,12 +377,105 @@ def _lead_config(rule) -> dict:
     }
 
 
+def excluded_set(rule) -> set[str]:
+    """Cost centres the rule has opted out of (v2.88.5)."""
+    return {d.cost_center for d in (getattr(rule, "excluded_ccs", None) or [])
+            if getattr(d, "cost_center", None)}
+
+
+def drop_excluded(hc: dict, excluded: set[str]) -> dict:
+    """Move excluded cost centres out of counts/evidence into `excluded_counts`.
+
+    Pure. They stay visible (so they can be included again) but no longer count
+    towards anything, including the unassigned-people distortion maths."""
+    hc["excluded_counts"] = {}
+    hc["excluded_evidence"] = {}
+    for cc in list(hc.get("counts", {})):
+        if cc in excluded:
+            hc["excluded_counts"][cc] = hc["counts"].pop(cc)
+            hc["excluded_evidence"][cc] = hc["evidence"].pop(cc, [])
+    return hc
+
+
 def _count_for_month(rule, year: int, month: int) -> dict:
     """Dispatch to whichever source the rule uses."""
     src = getattr(rule, "driver_source", None) or "manual"
     if src == "crm_leads":
-        return leadcount_for_month(rule.company, year, month, **_lead_config(rule))
-    return headcount_for_month(rule.company, year, month, **_rule_config(rule))
+        hc = leadcount_for_month(rule.company, year, month, **_lead_config(rule))
+    else:
+        hc = headcount_for_month(rule.company, year, month, **_rule_config(rule))
+    return drop_excluded(hc, excluded_set(rule))
+
+
+def row_action(ex: dict | None, counted: float, *, excluded: bool = False) -> str:
+    """The action for one (cost centre, month). Pure.
+
+    A frozen row that was never captured and holds 0 is a placeholder, not an
+    accepted figure: freezing it protects nothing, and treating it as drift is
+    what left August showing Stored 0 vs Counted 5-7 with no way to write it.
+    """
+    if excluded:
+        return "excluded"
+    stored = flt(ex.get("driver_value")) if ex else None
+    frozen = bool(ex and ex.get("is_frozen"))
+    override = bool(ex and ex.get("is_override"))
+    placeholder = (frozen and stored == 0 and not ex.get("captured_on")
+                   and (ex.get("source") or "manual") == "manual")
+    if frozen and not placeholder:
+        return "drift" if stored is not None and abs(stored - counted) > 0.0001 else "frozen"
+    if override:
+        return "kept"
+    if stored is None:
+        return "write"
+    if abs(stored - counted) > 0.0001:
+        return "update"
+    return "unchanged"
+
+
+def status_by_month(entries: list[dict]) -> dict[int, dict]:
+    """Per-month state of a rule's entries, for the capture picker.
+
+    frozen   - every entry closed (nothing a capture can change)
+    partial  - some entries closed, some open
+    captured - at least one entry came from a capture and the month is open,
+               so re-capturing it would update it
+    manual   - entries exist but all were typed by hand
+    empty    - no entries
+    Pure so it can be tested without a database."""
+    by_m: dict[int, list[dict]] = {}
+    for e in entries:
+        pm = e["period_month"]
+        m = pm.month if hasattr(pm, "month") else int(str(pm)[5:7])
+        by_m.setdefault(m, []).append(e)
+    out = {}
+    for m in range(1, 13):
+        rows = by_m.get(m, [])
+        if not rows:
+            out[m] = {"state": "empty", "entries": 0, "captured_on": None}
+            continue
+        captured = [r for r in rows if r.get("captured_on") or (r.get("source") or "manual") != "manual"]
+        if all(r.get("is_frozen") for r in rows):
+            state = "frozen"
+        elif any(r.get("is_frozen") for r in rows):
+            state = "partial"
+        elif captured:
+            state = "captured"
+        else:
+            state = "manual"
+        last = max((str(r["captured_on"]) for r in captured if r.get("captured_on")), default=None)
+        out[m] = {"state": state, "entries": len(rows), "captured_on": last,
+                  "captured": bool(captured)}
+    return out
+
+
+def month_status(rule_name: str, year: int) -> dict:
+    entries = frappe.get_all(
+        "Insight Allocation Entry",
+        filters={"rule": rule_name,
+                 "period_month": ["between", [month_start(year, 1), month_end(year, 12)]]},
+        fields=["period_month", "source", "is_frozen", "captured_on"],
+        limit_page_length=0)
+    return {"rule": rule_name, "year": year, "months": status_by_month(entries)}
 
 
 def preview(rule_name: str, year: int, months: list[int] | None = None) -> dict:
@@ -395,6 +488,7 @@ def preview(rule_name: str, year: int, months: list[int] | None = None) -> dict:
     cfg = _rule_config(rule)
     company = rule.company
     months = months or list(range(1, 13))
+    excluded = excluded_set(rule)
 
     existing = {}
     for e in frappe.get_all(
@@ -402,7 +496,7 @@ def preview(rule_name: str, year: int, months: list[int] | None = None) -> dict:
         filters={"rule": rule_name,
                  "period_month": ["between", [month_start(year, 1), month_end(year, 12)]]},
         fields=["name", "cost_center", "period_month", "basis", "driver_value",
-                "source", "is_override", "is_frozen", "captured_value"],
+                "source", "is_override", "is_frozen", "captured_value", "captured_on"],
         limit_page_length=0,
     ):
         pm = e["period_month"]
@@ -415,7 +509,8 @@ def preview(rule_name: str, year: int, months: list[int] | None = None) -> dict:
     # yet frozen is flagged so the caller can lock it before running.
     unprotected = sorted({
         m for (cc, m) in existing
-        if not existing[(cc, m)].get("is_frozen")
+        if cc not in excluded
+        and not existing[(cc, m)].get("is_frozen")
         and (existing[(cc, m)].get("source") or "manual") == "manual"
     })
 
@@ -423,7 +518,7 @@ def preview(rule_name: str, year: int, months: list[int] | None = None) -> dict:
     for m in months:
         hc = _count_for_month(rule, year, m)
         rows = []
-        seen = set(hc["counts"].keys())
+        seen = set(hc["counts"].keys()) | set(hc.get("excluded_counts", {}))
         # Cost centres already on the rule but with nobody counted this month
         # still need a row, or a headcount that fell to zero would look like
         # no data rather than like zero.
@@ -432,25 +527,19 @@ def preview(rule_name: str, year: int, months: list[int] | None = None) -> dict:
                 seen.add(cc)
         for cc in sorted(seen):
             ex = existing.get((cc, m))
-            counted = hc["counts"].get(cc, 0)
+            is_ex = cc in excluded
+            counted = (hc.get("excluded_counts", {}) if is_ex else hc["counts"]).get(cc, 0)
             stored = flt(ex.get("driver_value")) if ex else None
-            frozen = bool(ex and ex.get("is_frozen"))
-            override = bool(ex and ex.get("is_override"))
-            if frozen:
-                action = "drift" if stored is not None and abs(stored - counted) > 0.0001 else "frozen"
-            elif override:
-                action = "kept"
-            elif stored is None:
-                action = "write"
-            elif abs(stored - counted) > 0.0001:
-                action = "update"
-            else:
-                action = "unchanged"
+            action = row_action(ex, counted, excluded=is_ex)
             rows.append({
                 "cost_center": cc, "counted": counted, "stored": stored,
                 "delta": None if stored is None else round(counted - stored, 4),
-                "action": action, "frozen": frozen, "override": override,
-                "members": hc["evidence"].get(cc, []),
+                "action": action,
+                "frozen": bool(ex and ex.get("is_frozen")) and action not in ("update", "write"),
+                "was_frozen": bool(ex and ex.get("is_frozen")),
+                "override": bool(ex and ex.get("is_override")),
+                "excluded": is_ex,
+                "members": (hc.get("excluded_evidence", {}) if is_ex else hc["evidence"]).get(cc, []),
             })
         out_months.append({
             "month": m, "as_of": hc["as_of"], "rows": rows,
@@ -462,14 +551,17 @@ def preview(rule_name: str, year: int, months: list[int] | None = None) -> dict:
         "rule": rule_name, "title": rule.title, "company": company, "year": year,
         "driver_source": getattr(rule, "driver_source", "manual"),
         "unprotected_manual_months": unprotected,
+        "excluded": sorted(excluded),
         "config": {k: v for k, v in cfg.items() if k != "dept_map"},
         "months": out_months,
     }
 
 
 def commit(rule_name: str, year: int, months: list[int] | None = None,
-           freeze: bool = False) -> dict:
-    """Write what preview proposed. Never touches frozen or overridden rows."""
+           freeze: bool = False, refresh_drift: bool = False) -> dict:
+    """Write what preview proposed. Never touches frozen or overridden rows,
+    unless `refresh_drift` is set, which is the explicit way to re-open frozen
+    rows whose count has moved and write the counted value."""
     rule = frappe.get_doc("Insight Allocation Rule", rule_name)
     cfg = _rule_config(rule)
     pv = preview(rule_name, year, months)
@@ -480,10 +572,10 @@ def commit(rule_name: str, year: int, months: list[int] | None = None,
     for mblock in pv["months"]:
         m = mblock["month"]
         for row in mblock["rows"]:
-            if row["action"] in ("frozen", "kept", "unchanged"):
+            if row["action"] in ("frozen", "kept", "unchanged", "excluded"):
                 skipped += 1
                 continue
-            if row["action"] == "drift":
+            if row["action"] == "drift" and not refresh_drift:
                 drifted += 1
                 continue
             name = frappe.db.exists("Insight Allocation Entry", {
@@ -510,6 +602,8 @@ def commit(rule_name: str, year: int, months: list[int] | None = None,
             })
             if freeze:
                 doc.is_frozen = 1
+            elif row.get("was_frozen"):
+                doc.is_frozen = 0          # re-opened, so it can be reviewed
             doc.save()
             written += 1
 

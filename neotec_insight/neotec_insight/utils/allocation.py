@@ -70,8 +70,19 @@ def load_entries(rule: str, company: str | None, year: int) -> dict:
         fields=["cost_center", "period_month", "basis", "driver_value", "amount", "manual_pool"],
         limit_page_length=0,
     )
+    # v2.88.5 — cost centres the rule opted out of take no part: no share and
+    # no head count in the denominator, whatever is stored against them.
+    try:
+        skip = {d["cost_center"] for d in frappe.get_all(
+            "Insight Allocation Excluded CC", filters={"parent": rule,
+            "parenttype": "Insight Allocation Rule"}, fields=["cost_center"],
+            limit_page_length=0)}
+    except Exception:
+        skip = set()
     out: dict[int, dict] = {}
     for r in rows:
+        if r["cost_center"] in skip:
+            continue
         pm = r["period_month"]
         m = pm.month if isinstance(pm, date) else int(str(pm)[5:7])
         basis = r.get("basis") or "head_count"

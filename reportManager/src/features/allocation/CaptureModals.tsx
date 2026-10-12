@@ -23,6 +23,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const ACTION_LABEL: Record<string, string> = {
   write: 'write', update: 'update', unchanged: 'unchanged',
   kept: 'kept — set by hand', frozen: 'frozen', drift: 'drift',
+  excluded: 'excluded',
 };
 
 interface Props { rule: string; year: number; ccLabel: (cc: string) => string; onClose: () => void; onSaved: () => void; }
@@ -32,23 +33,49 @@ export function CaptureModal({ rule, year, ccLabel, onClose, onSaved }: Props) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [freeze, setFreeze] = useState(false);
+  const [refresh, setRefresh] = useState(false);
+  const [togglingCc, setTogglingCc] = useState('');
   const [msg, setMsg] = useState('');
   const [locking, setLocking] = useState(false);
+  // v2.88.3 — the user chooses which month(s) to capture. Head count changes
+  // every month, so capture is month-by-month: nothing is previewed or written
+  // until at least one month is picked, and only the picked months are touched.
+  const [sel, setSel] = useState<number[]>([]);
+  // Which months already hold values, so earlier captures are visible and a
+  // re-capture is a deliberate choice rather than a surprise.
+  const [status, setStatus] = useState<Record<string, any>>({});
+  const loadStatus = () => api.allocationCaptureStatus(rule, year)
+    .then((r: any) => setStatus(r?.months || {})).catch(() => setStatus({}));
+  useEffect(() => { loadStatus(); /* eslint-disable-next-line */ }, [rule, year]);
 
   useEffect(() => {
-    setErr('');
-    api.allocationCapturePreview(rule, year)
+    setErr(''); setMsg('');
+    if (!sel.length) { setData(null); return; }
+    api.allocationCapturePreview(rule, year, sel)
       .then(setData)
       .catch((e: any) => setErr(e?.message || t('Preview failed.')));
-  }, [rule, year]);
+  }, [rule, year, sel]);
+
+  async function setExcluded(cc: string, excluded: boolean) {
+    setTogglingCc(cc); setErr('');
+    try {
+      await api.allocationSetExcluded(rule, cc, excluded);
+      setData(await api.allocationCapturePreview(rule, year, sel));
+      onSaved();
+    } catch (e: any) { setErr(e?.message || t('Could not update the exclusion.')); }
+    finally { setTogglingCc(''); }
+  }
+
+  const toggle = (m: number) =>
+    setSel((cur) => cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m].sort((a, b) => a - b));
 
   async function commit() {
     setBusy(true); setErr('');
     try {
-      const r: any = await api.allocationCaptureCommit(rule, year, null, freeze);
+      const r: any = await api.allocationCaptureCommit(rule, year, sel, freeze, refresh);
       setMsg(`${r.written} ${t('written')} · ${r.skipped} ${t('left alone')}`
         + (r.drifted ? ` · ${r.drifted} ${t('drifted')}` : ''));
-      onSaved();
+      onSaved(); loadStatus();
     } catch (e: any) {
       setErr(e?.message || t('Capture failed.'));
     } finally { setBusy(false); }
@@ -72,8 +99,30 @@ export function CaptureModal({ rule, year, ccLabel, onClose, onSaved }: Props) {
           <button className="fh-x" onClick={onClose} aria-label={t('Close')}>×</button>
         </div>
         <div className="cap-body">
+          <div className="cap-months" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            <strong style={{ marginInlineEnd: 6 }}>{t('Month to capture')}:</strong>
+            {MONTHS.map((n, i) => (
+              <button key={n} type="button" className={'vs-chip' + (sel.includes(i + 1) ? ' on' : '')}
+                title={status[i + 1]?.captured_on ? `${t('Captured')} ${String(status[i + 1].captured_on).slice(0, 16)}` : ''}
+                onClick={() => toggle(i + 1)}>
+                {t(n)}{' '}
+                {status[i + 1]?.state === 'frozen' ? '🔒' : status[i + 1]?.state === 'partial' ? '◐' : status[i + 1]?.state === 'captured' ? '✓'
+                  : status[i + 1]?.state === 'manual' ? '✎' : ''}
+              </button>
+            ))}
+          </div>
+          <p className="bk-hint" style={{ marginTop: -4 }}>
+            🔒 {t('captured and frozen — safe, only drift is reported')} · ◐ {t('partly frozen')} · ✓ {t('captured, still open — capturing again updates it')} · ✎ {t('entered by hand')}
+          </p>
+          {sel.some((m) => ['captured', 'partial'].includes(status[m]?.state)) && (
+            <div className="alloc-warn">
+              {sel.filter((m) => ['captured', 'partial'].includes(status[m]?.state)).map((m) => t(MONTHS[m - 1])).join(', ')}
+              {' '}{t('already captured and not fully frozen. Capturing again replaces the open rows with today\'s count. Freeze a month once reviewed to keep it fixed.')}
+            </div>
+          )}
+          {!sel.length && <p className="bk-hint">{t('Pick the month (or months) to capture. Head count is counted as of that month only; every other month is left untouched.')}</p>}
           {err && <div className="alloc-warn">{err}</div>}
-          {!data && !err && <p className="bk-hint">{t('Counting…')}</p>}
+          {sel.length > 0 && !data && !err && <p className="bk-hint">{t('Counting…')}</p>}
 
           {data && data.driver_source !== 'employee_headcount' && (
             <div className="alloc-warn">
@@ -97,7 +146,7 @@ export function CaptureModal({ rule, year, ccLabel, onClose, onSaved }: Props) {
                     setLocking(true);
                     try {
                       await api.allocationFreeze(rule, year, data.unprotected_manual_months, true);
-                      const r = await api.allocationCapturePreview(rule, year);
+                      const r = await api.allocationCapturePreview(rule, year, sel);
                       setData(r);
                     } catch (e: any) { setErr(e?.message || t('Could not freeze.')); }
                     finally { setLocking(false); }
@@ -145,7 +194,16 @@ export function CaptureModal({ rule, year, ccLabel, onClose, onSaved }: Props) {
                       <td className="num">{r.stored === null ? '—' : r.stored}</td>
                       <td className="num">{r.counted}</td>
                       <td className="num">{r.delta === null ? '' : (r.delta > 0 ? '+' : '') + r.delta}</td>
-                      <td>{t(ACTION_LABEL[r.action] || r.action)}</td>
+                      <td>
+                        {t(ACTION_LABEL[r.action] || r.action)}{' '}
+                        <button type="button" className="bk-btn" style={{ padding: '0 6px', fontSize: 11 }}
+                          disabled={togglingCc === r.cost_center}
+                          title={r.excluded ? t('Count this cost centre in the allocation again')
+                            : t('Not part of this allocation — leave it out of capture and the split')}
+                          onClick={() => setExcluded(r.cost_center, !r.excluded)}>
+                          {r.excluded ? t('Include') : t('Exclude')}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -165,6 +223,12 @@ export function CaptureModal({ rule, year, ccLabel, onClose, onSaved }: Props) {
               <input type="checkbox" checked={freeze} onChange={(e) => setFreeze(e.target.checked)} />
               {' '}{t('Freeze these months — later captures report drift instead of changing them')}
             </label>
+            {(totals.drift || 0) > 0 && (
+              <label className="chk" title={t('Frozen rows whose count has moved are normally left alone.')}>
+                <input type="checkbox" checked={refresh} onChange={(e) => setRefresh(e.target.checked)} />
+                {' '}{t('Also re-open and overwrite')} {totals.drift} {t('drifted (frozen) rows')}
+              </label>
+            )}
             <span className="cap-sum">
               {Object.entries(totals).map(([k, v]) => `${v} ${t(ACTION_LABEL[k] || k)}`).join(' · ')}
             </span>
