@@ -14,7 +14,7 @@
    "depends_on": "eval:doc.action=='Reclassify'"},
   {"fieldname": "reason", "fieldtype": "Small Text", "label": "Reason", "reqd": 1}
  ],
- "links": [], "modified": "2026-07-13 00:00:00", "module": "Neotec Insight",
+ "links": [], "modified": "2026-10-12 00:00:00", "module": "Neotec Insight",
  "name": "Insight VAT Adjustment", "owner": "Administrator",
  "permissions": [
   {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},

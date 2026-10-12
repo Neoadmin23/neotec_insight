@@ -1,3 +1,27 @@
+## v2.88.8 — 2026-10-12
+
+### Fixed: Allocation showed "No rules defined" when the company list failed to load
+
+The Allocation page requested rules only after a company was selected. `report.list_companies` returns an empty list on any database error (it logs and swallows it), so a transient failure left the Company dropdown blank, no rules were ever requested, and the page said "No rules defined" with no error.
+
+- The company list is retried twice before giving up, and a failure now shows "Could not load the company list."
+- With no company selected the page now requests every active rule and takes the company from the first one, so the rule picker no longer depends on the company call succeeding.
+- The empty-state diagnosis also works without a company.
+
+## v2.88.7 — 2026-10-12
+
+### Fixed: doctype changes in 2.88.x were not applied on migrate
+
+Frappe re-syncs a doctype only when its JSON `modified` is newer than the database copy. 2.88.1 (VAT Adjustment: Reclassify, target_box) and 2.88.5 (Allocation Rule: Excluded Cost Centres) changed the JSON without bumping it, so a site could keep the old definition: the Reclassify option and Target Box field missing, and the exclusion list not saved.
+
+- `modified` bumped on Insight Allocation Rule and Insight VAT Adjustment.
+- New patch `patches.v2_88.reload_changed_doctypes` force-reloads the four affected doctypes, so it no longer depends on timestamps.
+- Allocation grid and exclusion no longer assume the field exists, and say "Run Migrate Database" if it does not.
+
+## v2.88.6 — 2026-10-12
+
+- Allocation tab: when the rule picker is empty it now says why (`allocation.rules_diagnostic`): every rule on the site with its company and Active flag, or the read error, or a note that the Excluded Cost Centres table is missing and Migrate Database must be run. Previously "No rules defined" gave no clue whether nothing existed, the filter hid it, or a read failed.
+
 ## v2.88.5 — 2026-10-12
 
 ### Fixed: frozen zero rows never got captured; Added: exclude cost centres from an allocation

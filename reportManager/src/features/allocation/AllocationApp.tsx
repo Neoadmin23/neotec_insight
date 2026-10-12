@@ -97,19 +97,43 @@ export function AllocationApp() {
 
   useEffect(() => { setActiveCompany(company); }, [company]);
 
-  useEffect(() => {
+  // v2.88.8 — the company list is what the rest of the page waits on, and the
+  // server returns an empty list (not an error) when it hits a database
+  // hiccup. A blank company used to mean no rules were ever requested, so a
+  // transient failure looked like "No rules defined". Retry, and if it still
+  // fails fall back to the rules themselves, which carry their own company.
+  const loadCompanies = useCallback((attempt = 0) => {
     api.listCompanies()
-      .then((cs: any[]) => { setCompanies(cs || []); if (cs?.length && !company) setCompany(cs[0].name); })
-      .catch(() => { /* company stays blank; the rule carries its own */ });
+      .then((cs: any[]) => {
+        if (cs?.length) { setCompanies(cs); setCompany((cur) => cur || cs[0].name); return; }
+        if (attempt < 2) setTimeout(() => loadCompanies(attempt + 1), 1500);
+        else setErr(t('Could not load the company list.'));
+      })
+      .catch(() => {
+        if (attempt < 2) setTimeout(() => loadCompanies(attempt + 1), 1500);
+        else setErr(t('Could not load the company list.'));
+      });
   }, []);
+  useEffect(() => { loadCompanies(); }, [loadCompanies]);
 
   useEffect(() => {
-    if (!company) return;
-    api.allocationRules(company)
-      .then((rs) => { setRules(rs || []); if (rs?.length && !rs.some((r) => r.name === rule)) setRule(rs[0].name); })
+    // No company yet (list still loading or failed): ask for every active rule.
+    api.allocationRules(company || null)
+      .then((rs) => {
+        setRules(rs || []);
+        if (rs?.length && !rs.some((r) => r.name === rule)) setRule(rs[0].name);
+        if (!company && rs?.length && (rs[0] as any).company) setCompany((rs[0] as any).company);
+      })
       .catch((e: any) => setErr(e?.message || t('Could not load allocation rules.')));
-    api.allocationCostCenters(company).then(setCcOptions).catch(() => setCcOptions([]));
+    if (company) api.allocationCostCenters(company).then(setCcOptions).catch(() => setCcOptions([]));
   }, [company]);
+
+  // When the picker is empty, say why instead of implying nothing is set up.
+  const [diag, setDiag] = useState<any>(null);
+  useEffect(() => {
+    if (rules.length) { setDiag(null); return; }
+    api.allocationRulesDiagnostic(company || '').then(setDiag).catch((e: any) => setDiag({ error: e?.message || String(e) }));
+  }, [company, rules.length]);
 
   const run = useCallback(() => {
     if (!rule) return;
@@ -405,6 +429,16 @@ export function AllocationApp() {
               specific to one company's cost structure, and a guessed default
               would put invented numbers into management accounts. But "not set
               up yet" should not look like "failed to load", so link the way in. */}
+          {diag && (
+            <p className="bk-hint" style={{ textAlign: 'start' }}>
+              <strong>{t('Diagnosis')}:</strong>{' '}
+              {diag.error ? `${t('Could not read rules')} — ${diag.error}`
+                : !diag.rules?.length ? t('No Insight Allocation Rule exists on this site.')
+                : diag.rules.map((r: any) => `${r.name} (${r.company || t('no company')}, ${r.is_active ? t('active') : t('inactive')})`).join(' · ')
+                  + ` — ${t('shown only when Active and the company matches')}: ${company}`}
+              {diag.excluded_doctype === false && ` · ${t('The Excluded Cost Centres table is missing: run Migrate Database.')}`}
+            </p>
+          )}
           <p><a className="vs-btn" href="/app/insight-allocation-rule/new" target="_blank" rel="noopener noreferrer">
             {t('Create an allocation rule')}</a></p>
         </div>

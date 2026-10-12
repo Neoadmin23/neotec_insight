@@ -51,6 +51,21 @@ def list_rules(company=None):
 
 
 @frappe.whitelist()
+def rules_diagnostic(company=None):
+    """Why the rule picker is empty: every rule on the site, however filtered."""
+    _guard()
+    out = {"company": company, "rules": [], "error": None,
+           "excluded_doctype": bool(frappe.db.exists("DocType", "Insight Allocation Excluded CC"))}
+    try:
+        out["rules"] = frappe.get_all(
+            "Insight Allocation Rule", fields=["name", "company", "is_active"],
+            limit_page_length=0)
+    except Exception as e:
+        out["error"] = str(e)[:300]
+    return out
+
+
+@frappe.whitelist()
 def list_cost_centers(company=None):
     """Leaf cost centres — the report spreads across these, horizontally."""
     _guard()
@@ -89,7 +104,7 @@ def get_grid(rule, year, company=None):
     basis_by_cc: dict[str, str] = {}
     pool: dict[int, float] = {}
     # v2.88.5 — cost centres opted out of this rule are not part of the grid.
-    excluded = sorted({d.cost_center for d in (doc.excluded_ccs or []) if d.cost_center})
+    excluded = sorted({d.cost_center for d in (getattr(doc, "excluded_ccs", None) or []) if d.cost_center})
     for r in rows:
         if r["cost_center"] in excluded:
             continue
@@ -451,7 +466,9 @@ def set_cc_excluded(rule, cost_center, excluded=1, reason=None):
     """Take a cost centre out of (or put it back into) a rule's allocation."""
     _guard(write=True)
     doc = frappe.get_doc("Insight Allocation Rule", rule)
-    keep = [d for d in (doc.excluded_ccs or []) if d.cost_center != cost_center]
+    if not frappe.get_meta("Insight Allocation Rule").get_field("excluded_ccs"):
+        frappe.throw(_("The Excluded Cost Centres field is not installed yet. Run Migrate Database."))
+    keep = [d for d in (getattr(doc, "excluded_ccs", None) or []) if d.cost_center != cost_center]
     if int(excluded):
         keep.append(frappe._dict(cost_center=cost_center, reason=(reason or "")[:140]))
     doc.set("excluded_ccs", [])

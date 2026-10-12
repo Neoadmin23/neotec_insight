@@ -815,6 +815,8 @@ export const api = {
     call<any>('allocation.capture_commit',
       { rule, year, months: JSON.stringify(months || null), freeze: freeze ? 1 : 0,
         refresh_drift: refreshDrift ? 1 : 0 }, 'POST'),
+  allocationRulesDiagnostic: (company?: string | null) =>
+    call<any>('allocation.rules_diagnostic', { company: company || '' }),
   allocationSetExcluded: (rule: string, cost_center: string, excluded: boolean, reason?: string) =>
     call<any>('allocation.set_cc_excluded',
       { rule, cost_center, excluded: excluded ? 1 : 0, reason: reason || '' }, 'POST'),
