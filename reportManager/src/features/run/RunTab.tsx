@@ -1462,6 +1462,24 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
           </div>
         </div>
       )}
+      {lastRun && (() => {
+        // v2.89.6 — when NO source row has an account bound, the report is
+        // not "zero", it has lost its account map. Say so once, at the top,
+        // and open the place to bring it back.
+        const meta: Record<string, any> = (lastRun as any).binding_meta || {};
+        const flags = Object.keys(meta);
+        if (!flags.length || flags.some((f) => meta[f]?.has_binding)) return null;
+        return (
+          <div className="alloc-warn" style={{ margin: '8px 0' }}>
+            <strong>{t('This report has no account mappings, so every row is 0.')}</strong>{' '}
+            {t('The accounts assigned to its rows are missing — usually deleted, not a reporting error.')}{' '}
+            <button type="button" className="bk-btn bk-primary"
+              onClick={() => window.dispatchEvent(new CustomEvent('ni:open-backup', { detail: { tab: 'recover' } }))}>
+              {t('Recover mappings')}
+            </button>
+          </div>
+        );
+      })()}
       {viewMode === 'period' && lastRun && <KpiRow run={lastRun} monthsAll={monthsAll} decimals={decimals} />}
       {viewMode === 'period' && lastRun && groups.length > 0 && (
         <div style={{ position: 'relative' }}>

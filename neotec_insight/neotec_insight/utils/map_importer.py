@@ -140,9 +140,14 @@ def apply_map_to_report(
         else:
             frappe.throw(f"Report '{report}' not found (neither by name nor by slug).")
 
-    if replace:
-        frappe.db.delete("Account Flag Mapping", {"report": report_name})
-        frappe.db.commit()  # ensure the delete is visible before we start inserting
+    # v2.89.6 — replace used to raw-delete every mapping of the report and
+    # COMMIT before inserting the new ones. A sheet that matched nothing left
+    # the report with no mappings at all, every row "Unmapped", and no trace in
+    # the Deleted Document log. Now: nothing is deleted up front. The sheet is
+    # applied as an upsert, and only afterwards are the report's mappings that
+    # the sheet did not mention removed — through delete_doc (logged,
+    # restorable), after a snapshot, and only if the sheet matched something.
+    replace_requested = bool(replace)
 
     created = 0
     updated = 0
@@ -232,10 +237,32 @@ def apply_map_to_report(
                     )
 
     frappe.db.commit()
+    removed = 0
+    if replace_requested:
+        if not seen_in_this_run:
+            warnings.append("Replace skipped: the sheet matched no accounts, so the existing "
+                            "mappings were left as they are.")
+        else:
+            stale = [m["name"] for m in frappe.get_all(
+                "Account Flag Mapping", filters={"report": report_name},
+                fields=["name", "account"], limit_page_length=0)
+                if m["account"] not in seen_in_this_run]
+            if stale:
+                try:
+                    from neotec_insight.neotec_insight.utils import snapshots
+                    snapshots.guard("pre_change", sections=["Account Flag Mapping"],
+                                    label=f"Before replacing the account map of {report_name}")
+                except Exception:
+                    pass
+                for nm in stale:
+                    frappe.delete_doc("Account Flag Mapping", nm, ignore_permissions=True, force=1)
+                    removed += 1
+
     return {
         "created": created,
         "updated": updated,
         "skipped_no_flag": skipped_no_flag,
         "skipped_no_match": skipped_no_match,
         "warnings": warnings,
+        "removed": removed,
     }

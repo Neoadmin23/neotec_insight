@@ -1,3 +1,27 @@
+## v2.89.6 — 2026-10-13
+
+### Fixed: an Account Map import could wipe a report's mappings with no trace
+
+`map_importer.apply_map_to_report` (replace mode, the default) raw-deleted every Account Flag Mapping of the report, committed, and only then inserted the sheet's rows. A sheet whose codes or names matched no account left the report with no mappings: every row showed *Unmapped* and 0. A raw delete also writes nothing to the Deleted Document log, so the lost mappings could not be recovered from it.
+
+Replace is now applied safely:
+- The sheet is applied as an upsert first.
+- Only then are the report's mappings the sheet did not mention removed, after a snapshot and through `delete_doc`, so they are logged and restorable.
+- If the sheet matched no account, nothing is removed and a warning says so.
+
+### Added: recover a report's account mappings
+
+- **Backup → Recover → Account mappings of this report** shows how many accounts are mapped now, and every place the mappings can be brought back from: the Deleted Document log, and each snapshot that holds them, with its count and date.
+- **Restore** adds the missing mappings. Accounts already mapped are left as they are, and nothing is deleted.
+- **Snapshot indexes** now carry mappings per report.
+- **Endpoints:** `recovery.mapping_sources`, `recovery.restore_mappings`.
+
+### Added: the Run screen says when a report has lost its account map
+
+When no source row of a report has any account bound, the Run screen shows one warning at the top: "This report has no account mappings, so every row is 0." A **Recover mappings** button opens Backup → Recover directly. Previously this looked like a report with no activity.
+
+6 new tests; 415 total.
+
 ## v2.89.5 — 2026-10-13
 
 ### Found: why the report rows, the pool and the allocation all went together

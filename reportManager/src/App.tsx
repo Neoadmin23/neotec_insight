@@ -232,6 +232,14 @@ export default function App() {
   // Bilingual EN/AR. Layout stays LTR; only display text is translated.
   const [lang, setLang] = useState<Lang>(getLang());
   const [showConfigBackup, setShowConfigBackup] = useState(false);
+  // v2.89.6 — other screens can open Backup on a given tab (e.g. Run's
+  // "no account mappings" warning opens Recover).
+  const [backupTab, setBackupTab] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const h = (e: Event) => { setBackupTab((e as CustomEvent).detail?.tab); setShowConfigBackup(true); };
+    window.addEventListener('ni:open-backup', h);
+    return () => window.removeEventListener('ni:open-backup', h);
+  }, []);
   const [showThemePicker, setShowThemePicker] = useState(false);
   // v2.24.1 — two-level navigation: primary SECTIONS on top, and the active
   // section's tabs in an always-visible sub-menu row underneath. Nothing is
@@ -417,7 +425,8 @@ export default function App() {
         );
       })()}
 
-      {showConfigBackup && <ConfigBackupModal onClose={() => setShowConfigBackup(false)} />}
+      {showConfigBackup && <ConfigBackupModal initialTab={backupTab as any}
+        onClose={() => { setShowConfigBackup(false); setBackupTab(undefined); }} />}
       {showThemePicker && <ThemePicker onClose={() => setShowThemePicker(false)} />}
       {showMenuSetup && (
         <MenuSetupModal initialNumFormat={(savedMenu as any)?.num_format}

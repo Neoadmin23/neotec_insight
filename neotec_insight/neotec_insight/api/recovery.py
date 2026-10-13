@@ -277,3 +277,105 @@ def restore_deleted(names, on_conflict="skip"):
             out["errors"].append(f"{d['deleted_doctype']} {d['deleted_name']}: {str(e)[:200]}")
     frappe.db.commit()
     return out
+
+
+# ── account mappings of one report (v2.89.6) ─────────────────────────────────
+
+AFM = "Account Flag Mapping"
+MAP_FIELDS = ("report", "account", "is_group_binding", "account_code", "account_name", "flag",
+              "dimension_filters_json", "scope_summary", "auto_suggested", "source")
+
+
+def _deleted_mappings(report: str) -> list[dict]:
+    out = []
+    for d in frappe.get_all("Deleted Document",
+                            filters={"deleted_doctype": AFM, "restored": 0,
+                                     "data": ["like", f"%{report}%"]},
+                            fields=["name", "data", "creation"], order_by="creation desc",
+                            limit_page_length=0):
+        try:
+            data = json.loads(d["data"] or "{}")
+        except Exception:
+            continue
+        if data.get("report") == report:
+            out.append({"dd": d["name"], "when": str(d["creation"])[:16], "data": data})
+    return out
+
+
+def _snapshot_mappings(name: str, report: str) -> list[dict]:
+    from neotec_insight.neotec_insight.utils import snapshots
+    b = snapshots.load(name)
+    return [m for m in (b.get("data") or {}).get(AFM) or [] if m.get("report") == report]
+
+
+@frappe.whitelist()
+def mapping_sources(report):
+    """Where this report's account mappings can be brought back from."""
+    _sm()
+    current = frappe.db.count(AFM, {"report": report})
+    sources = []
+    dl = _deleted_mappings(report)
+    if dl:
+        sources.append({"kind": "deleted", "ref": "", "count": len(dl),
+                        "when": f"{dl[-1]['when']} → {dl[0]['when']}",
+                        "label": "Deleted Document log"})
+    try:
+        from neotec_insight.neotec_insight.utils import snapshots
+        if snapshots._store_ready():
+            for s in frappe.get_all(snapshots.DT, fields=["name", "creation", "index_json", "label"],
+                                    order_by="creation desc", limit_page_length=60):
+                idx = json.loads(s.get("index_json") or "{}")
+                if "mappings_by_report" in idx:
+                    n = int((idx["mappings_by_report"] or {}).get(report) or 0)
+                else:                      # snapshot made before the index carried it
+                    try:
+                        n = len(_snapshot_mappings(s["name"], report))
+                    except Exception:
+                        n = 0
+                if n:
+                    sources.append({"kind": "snapshot", "ref": s["name"], "count": n,
+                                    "when": str(s["creation"])[:16], "label": s.get("label") or ""})
+    except Exception:
+        pass
+    return {"report": report, "current": current, "sources": sources}
+
+
+@frappe.whitelist(methods=["POST"])
+def restore_mappings(report, kind, ref=None):
+    """Bring a report's account mappings back. Adds what is missing; an account
+    already mapped on this report is left as it is. Never deletes."""
+    _sm()
+    from neotec_insight.neotec_insight.utils import snapshots
+    pre = snapshots.guard("pre_restore", sections=[AFM], label=f"Before restoring mappings of {report}")
+    if kind == "deleted":
+        items = [(x["dd"], x["data"]) for x in _deleted_mappings(report)]
+    elif kind == "snapshot" and ref:
+        items = [(None, m) for m in _snapshot_mappings(ref, report)]
+    else:
+        frappe.throw(_("Unknown source."))
+    mapped = {(m["account"], m["flag"]) for m in frappe.get_all(
+        AFM, filters={"report": report}, fields=["account", "flag"], limit_page_length=0)}
+    mapped_accounts = {a for a, _f in mapped}
+    out = {"restored": 0, "already_mapped": 0, "errors": [], "pre_restore_snapshot": pre}
+    for dd, data in items:
+        acct = data.get("account")
+        if acct in mapped_accounts:
+            out["already_mapped"] += 1
+            if dd:
+                frappe.db.set_value("Deleted Document", dd, "restored", 1)
+            continue
+        try:
+            doc = frappe.get_doc(dict({k: data.get(k) for k in MAP_FIELDS if k in data}, doctype=AFM))
+            doc.flags.ignore_links = True
+            name = data.get("name")
+            doc.insert(ignore_permissions=True,
+                       set_name=name if name and not frappe.db.exists(AFM, name) else None)
+            mapped_accounts.add(acct)
+            out["restored"] += 1
+            if dd:
+                frappe.db.set_value("Deleted Document", dd, {"restored": 1, "new_name": doc.name})
+        except Exception as e:
+            out["errors"].append(f"{acct}: {str(e)[:160]}")
+    frappe.db.commit()
+    out["now"] = frappe.db.count(AFM, {"report": report})
+    return out

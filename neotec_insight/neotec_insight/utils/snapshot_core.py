@@ -60,8 +60,12 @@ def build_index(bundle: dict) -> dict:
         y = str(e.get("period_month") or "")[:4]
         per_rule_year.setdefault(r, {})
         per_rule_year[r][y] = per_rule_year[r].get(y, 0) + 1
+    maps: dict[str, int] = {}
+    for m in (bundle.get("data") or {}).get("Account Flag Mapping") or []:
+        maps[m.get("report") or ""] = maps.get(m.get("report") or "", 0) + 1
     return {"allocation_entries_by_rule": per_rule,
-            "allocation_entries_by_rule_year": per_rule_year}
+            "allocation_entries_by_rule_year": per_rule_year,
+            "mappings_by_report": maps}
 
 
 def to_prune(rows: list[dict], retention: dict[str, int] | None = None) -> list[str]:

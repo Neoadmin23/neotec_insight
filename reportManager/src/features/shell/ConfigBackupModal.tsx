@@ -66,8 +66,8 @@ function RestoreSummary({ s }: { s: any }) {
   );
 }
 
-export function ConfigBackupModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('file');
+export function ConfigBackupModal({ onClose, initialTab }: { onClose: () => void; initialTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(initialTab || 'file');
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);

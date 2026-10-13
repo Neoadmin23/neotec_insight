@@ -12,6 +12,7 @@ export function RecoverPanel() {
   const [reports, setReports] = useState<any[]>([]);
   const [report, setReport] = useState('');
   const [vers, setVers] = useState<any>(null);
+  const [maps, setMaps] = useState<any>(null);
   const [summary, setSummary] = useState<any[] | null>(null);
   const [dt, setDt] = useState('');
   const [list, setList] = useState<any[] | null>(null);
@@ -31,8 +32,9 @@ export function RecoverPanel() {
   }, []);
   useEffect(() => {
     if (!report) return;
-    setVers(null);
+    setVers(null); setMaps(null);
     api.recoveryReportVersions(report).then(setVers).catch((e: any) => setErr(String(e?.message || e)));
+    api.recoveryMappingSources(report).then(setMaps).catch((e: any) => setErr(String(e?.message || e)));
   }, [report]);
   useEffect(() => {
     if (!dt) return;
@@ -83,6 +85,34 @@ export function RecoverPanel() {
                 setVers(await api.recoveryReportVersions(report));
                 return `${t('Restored')}: ${r.summary.rows} ${t('rows')} (${t(r.from)}, ${r.when}). ${t('Reload the page to see it.')}`;
               })}>{busy === 'r' + v.id ? t('Restoring…') : t('Restore')}</button>
+          </div>
+        ))}
+      </section>
+
+      <section style={{ borderTop: '1px solid var(--border,#eee)', paddingTop: 14 }}>
+        <div className="flbl" style={{ marginBottom: 6 }}>{t('Account mappings of this report')}</div>
+        {maps && (
+          <p style={{ fontSize: 12.5, margin: '0 0 6px' }}>
+            {t('Mapped accounts now')}: <b style={{ color: maps.current ? undefined : '#b3261e' }}>{maps.current}</b>
+            {!maps.current && <> — {t('every source row shows Unmapped and 0.')}</>}
+          </p>
+        )}
+        {maps && !maps.sources.length && (
+          <p className="bk-hint">{t('No deleted mappings or snapshots with mappings were found for this report. They have to be mapped again (Account map), or imported from a backup file made before they were lost (Export / Import → Merge).')}</p>
+        )}
+        {maps?.sources.map((s: any) => (
+          <div key={s.kind + s.ref} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border,#eee)' }}>
+            <div style={{ flex: 1, fontSize: 12.5 }}>
+              <b>{s.count}</b> {t('mappings')} · {t(s.kind === 'deleted' ? 'Deleted Document log' : 'snapshot')} {s.ref} · {s.when}
+              {s.label ? ` · ${s.label}` : ''}
+            </div>
+            <button className="bk-btn bk-primary" disabled={!!busy}
+              onClick={() => act('m' + s.kind + s.ref, async () => {
+                const r = await api.recoveryRestoreMappings(report, s.kind, s.ref);
+                setMaps(await api.recoveryMappingSources(report));
+                return `${r.restored} ${t('mappings restored')} · ${r.already_mapped} ${t('already mapped')} · ${t('now')} ${r.now}`
+                  + (r.errors?.length ? ` · ${r.errors.length} ${t('errors')}` : '') + '. ' + t('Run the report again.');
+              })}>{t('Restore')}</button>
           </div>
         ))}
       </section>

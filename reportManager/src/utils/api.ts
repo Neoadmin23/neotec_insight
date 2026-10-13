@@ -265,6 +265,9 @@ export const api = {
   recoveryRestoreReport: (report: string, versionId: string) =>
     call<any>('recovery.restore_report_version', { report, version_id: versionId }, 'POST'),
   recoveryDeletedSummary: () => call<any[]>('recovery.deleted_summary'),
+  recoveryMappingSources: (report: string) => call<any>('recovery.mapping_sources', { report }),
+  recoveryRestoreMappings: (report: string, kind: string, ref?: string) =>
+    call<any>('recovery.restore_mappings', { report, kind, ref: ref || '' }, 'POST'),
   recoveryDeletedList: (doctype: string) => call<any[]>('recovery.deleted_list', { doctype }),
   recoveryRestoreDeleted: (names: string[], onConflict: 'skip' | 'replace') =>
     call<any>('recovery.restore_deleted', { names: JSON.stringify(names), on_conflict: onConflict }, 'POST'),
