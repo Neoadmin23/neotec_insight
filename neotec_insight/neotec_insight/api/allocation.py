@@ -50,11 +50,32 @@ def list_rules(company=None):
     )
 
 
+def classify_rules_state(company, rules, orphans, deleted, error=None):
+    """Why the rule picker is empty. Pure.
+
+    rules: [{name, company, is_active}]; orphans: [{rule, entries}] (entries whose
+    rule no longer exists); deleted: [{deleted_name, owner, creation, restored}]."""
+    if error:
+        return "read_error"
+    if rules:
+        active_here = [r for r in rules if r.get("is_active") and (not company or r.get("company") == company)]
+        if active_here:
+            return "ok"
+        if any(r.get("is_active") for r in rules):
+            return "other_company"
+        return "inactive_only"
+    if any(not d.get("restored") for d in deleted or []):
+        return "deleted"
+    if orphans:
+        return "orphan_entries"
+    return "none_exist"
+
+
 @frappe.whitelist()
 def rules_diagnostic(company=None):
     """Why the rule picker is empty: every rule on the site, however filtered."""
     _guard()
-    out = {"company": company, "rules": [], "error": None,
+    out = {"company": company, "rules": [], "orphans": [], "deleted": [], "error": None,
            "excluded_doctype": bool(frappe.db.exists("DocType", "Insight Allocation Excluded CC"))}
     try:
         out["rules"] = frappe.get_all(
@@ -62,7 +83,125 @@ def rules_diagnostic(company=None):
             limit_page_length=0)
     except Exception as e:
         out["error"] = str(e)[:300]
+    try:
+        known = {r["name"] for r in out["rules"]}
+        for r in frappe.db.sql(
+                "select `rule`, count(*) from `tabInsight Allocation Entry` group by `rule`"):
+            if r[0] and r[0] not in known:
+                out["orphans"].append({"rule": r[0], "entries": int(r[1])})
+    except Exception:
+        pass
+    try:
+        out["deleted"] = [
+            {"name": d["name"], "deleted_name": d["deleted_name"], "owner": d["owner"],
+             "creation": str(d["creation"])[:16], "restored": int(d.get("restored") or 0)}
+            for d in frappe.get_all(
+                "Deleted Document", filters={"deleted_doctype": "Insight Allocation Rule"},
+                fields=["name", "deleted_name", "owner", "creation", "restored"],
+                order_by="creation desc", limit_page_length=20)]
+    except Exception:
+        pass
+    out["reason"] = classify_rules_state(company, out["rules"], out["orphans"], out["deleted"], out["error"])
     return out
+
+
+def classify_entries_state(own, orphans, deleted):
+    """What to tell someone whose rule has no head-count entries. Pure.
+
+    own: entries attached to this rule (any year); orphans: [{rule, entries}]
+    entries whose rule no longer exists; deleted: [{rule, entries}] from the
+    Deleted Document log that are not yet restored."""
+    if own:
+        return "ok"
+    if any(d.get("entries") for d in deleted or []):
+        return "deleted"
+    if any(o.get("entries") for o in orphans or []):
+        return "orphans"
+    return "none"
+
+
+@frappe.whitelist()
+def entries_diagnostic(rule, year=None):
+    """Where a rule's head-count entries went, when its grid comes back empty."""
+    _guard()
+    out = {"rule": rule, "own": 0, "orphans": [], "other_rules": [], "deleted": [], "error": None}
+    try:
+        out["own"] = frappe.db.count("Insight Allocation Entry", {"rule": rule})
+        known = {r["name"] for r in frappe.get_all("Insight Allocation Rule", fields=["name"],
+                                                   limit_page_length=0)}
+        for r in frappe.db.sql(
+                "select `rule`, count(*) from `tabInsight Allocation Entry` group by `rule`"):
+            if not r[0] or r[0] == rule:
+                continue
+            (out["other_rules"] if r[0] in known else out["orphans"]).append(
+                {"rule": r[0], "entries": int(r[1])})
+    except Exception as e:
+        out["error"] = str(e)[:300]
+    try:
+        by_rule = {}
+        for d in frappe.get_all(
+                "Deleted Document",
+                filters={"deleted_doctype": "Insight Allocation Entry", "restored": 0},
+                fields=["name", "data", "owner", "creation"], limit_page_length=5000):
+            try:
+                rn = (json.loads(d["data"]) or {}).get("rule")
+            except Exception:
+                continue
+            g = by_rule.setdefault(rn, {"rule": rn, "entries": 0, "owner": d["owner"],
+                                        "creation": str(d["creation"])[:16]})
+            g["entries"] += 1
+        out["deleted"] = sorted(by_rule.values(), key=lambda g: -g["entries"])
+    except Exception:
+        pass
+    out["state"] = classify_entries_state(out["own"], out["orphans"], out["deleted"])
+    return out
+
+
+@frappe.whitelist()
+def reattach_entries(from_rule, to_rule):
+    """Point orphaned entries (their rule no longer exists) at an existing rule."""
+    frappe.only_for("System Manager")
+    if frappe.db.exists("Insight Allocation Rule", from_rule):
+        frappe.throw(_("{0} still exists as a rule; only entries of a missing rule can be moved.").format(from_rule))
+    if not frappe.db.exists("Insight Allocation Rule", to_rule):
+        frappe.throw(_("Target rule {0} does not exist.").format(to_rule))
+    moved = skipped = 0
+    for e in frappe.get_all("Insight Allocation Entry", filters={"rule": from_rule},
+                            fields=["name", "cost_center", "period_month"], limit_page_length=0):
+        if frappe.db.exists("Insight Allocation Entry", {
+                "rule": to_rule, "cost_center": e["cost_center"], "period_month": e["period_month"]}):
+            skipped += 1
+            continue
+        frappe.db.set_value("Insight Allocation Entry", e["name"], "rule", to_rule)
+        moved += 1
+    frappe.db.commit()
+    return {"ok": True, "moved": moved, "skipped": skipped}
+
+
+@frappe.whitelist()
+def restore_deleted_entries(rule):
+    """Restore deleted head-count entries of one rule from the Deleted Document log."""
+    frappe.only_for("System Manager")
+    if not frappe.db.exists("Insight Allocation Rule", rule):
+        frappe.throw(_("Rule {0} does not exist; restore or create it first.").format(rule))
+    from frappe.core.doctype.deleted_document.deleted_document import restore
+    restored = failed = 0
+    errors = []
+    for d in frappe.get_all(
+            "Deleted Document",
+            filters={"deleted_doctype": "Insight Allocation Entry", "restored": 0},
+            fields=["name", "data"], limit_page_length=5000):
+        try:
+            if (json.loads(d["data"]) or {}).get("rule") != rule:
+                continue
+            restore(d["name"], alert=False)
+            restored += 1
+        except Exception as e:
+            failed += 1
+            if len(errors) < 5:
+                errors.append(str(e)[:160])
+    frappe.db.commit()
+    return {"ok": True, "restored": restored, "failed": failed, "errors": errors}
 
 
 @frappe.whitelist()

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
+import { NoRulesModal } from './NoRulesModal';
+import { EntriesRecoveryModal } from './EntriesRecoveryModal';
 import { fmtD } from '../../utils/format';
 import { setActiveCompany } from '../../utils/activeCompany';
 import { ExportBar } from '../ExportBar';
@@ -67,6 +69,11 @@ export function AllocationApp() {
   const [company, setCompany] = useState('');
   const [rules, setRules] = useState<Rule[]>([]);
   const [rule, setRule] = useState('');
+  const [diag, setDiag] = useState<any>(null);
+  const [why, setWhy] = useState(false);
+  const [gridLoaded, setGridLoaded] = useState(false);
+  const [recoverOpen, setRecoverOpen] = useState(false);
+  const [tick, setTick] = useState(0);
   const [year, setYear] = useState(new Date().getFullYear());
   const [decimals, setDecimals] = useState(0);
 
@@ -126,14 +133,15 @@ export function AllocationApp() {
       })
       .catch((e: any) => setErr(e?.message || t('Could not load allocation rules.')));
     if (company) api.allocationCostCenters(company).then(setCcOptions).catch(() => setCcOptions([]));
-  }, [company]);
+  }, [company, tick]);
 
   // When the picker is empty, say why instead of implying nothing is set up.
-  const [diag, setDiag] = useState<any>(null);
   useEffect(() => {
-    if (rules.length) { setDiag(null); return; }
-    api.allocationRulesDiagnostic(company || '').then(setDiag).catch((e: any) => setDiag({ error: e?.message || String(e) }));
-  }, [company, rules.length]);
+    if (rules.length) { setDiag(null); setWhy(false); return; }
+    api.allocationRulesDiagnostic(company || '')
+      .then((d: any) => { setDiag(d); if (d?.reason && d.reason !== 'ok') setWhy(true); })
+      .catch((e: any) => { setDiag({ reason: 'read_error', error: e?.message || String(e) }); setWhy(true); });
+  }, [company, rules.length, tick]);
 
   const run = useCallback(() => {
     if (!rule) return;
@@ -153,6 +161,7 @@ export function AllocationApp() {
         setBasis(g.basis || {});
         setManualPool(g.manual_pool || {});
         setGridCcs(g.cost_centers || []);
+        setGridLoaded(true);
         setRemoved([]);
         setDirty(false); setSaveMsg('');
       })
@@ -421,6 +430,20 @@ export function AllocationApp() {
         </div>
       )}
 
+      {rule && gridLoaded && !gridCcs.length && (
+        <div className="alloc-warn" style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>
+            <strong>{t('No head-count or amount entries are stored for')} {rule} {t('in')} {year}.</strong>{' '}
+            {t('The rule exists but its figures are missing, so nothing can be allocated.')}
+          </span>
+          <button type="button" className="bk-btn" onClick={() => setRecoverOpen(true)}>{t('Find my data')}</button>
+        </div>
+      )}
+      {recoverOpen && rule && (
+        <EntriesRecoveryModal rule={rule} year={year} onClose={() => setRecoverOpen(false)}
+          onDone={() => { loadGrid(); run(); }} />
+      )}
+
       {!rules.length && (
         <div className="alloc-empty">
           <h3>{t('No allocation rules yet')}</h3>
@@ -430,18 +453,20 @@ export function AllocationApp() {
               would put invented numbers into management accounts. But "not set
               up yet" should not look like "failed to load", so link the way in. */}
           {diag && (
-            <p className="bk-hint" style={{ textAlign: 'start' }}>
-              <strong>{t('Diagnosis')}:</strong>{' '}
-              {diag.error ? `${t('Could not read rules')} — ${diag.error}`
-                : !diag.rules?.length ? t('No Insight Allocation Rule exists on this site.')
-                : diag.rules.map((r: any) => `${r.name} (${r.company || t('no company')}, ${r.is_active ? t('active') : t('inactive')})`).join(' · ')
-                  + ` — ${t('shown only when Active and the company matches')}: ${company}`}
-              {diag.excluded_doctype === false && ` · ${t('The Excluded Cost Centres table is missing: run Migrate Database.')}`}
+            <p>
+              <button type="button" className="bk-btn" onClick={() => setWhy(true)}>
+                ⚠ {t('Why is this empty?')}
+              </button>
             </p>
           )}
           <p><a className="vs-btn" href="/app/insight-allocation-rule/new" target="_blank" rel="noopener noreferrer">
             {t('Create an allocation rule')}</a></p>
         </div>
+      )}
+
+      {why && diag && (
+        <NoRulesModal diag={diag} company={company} onClose={() => setWhy(false)}
+          onRetry={() => { setWhy(false); setTick((n) => n + 1); }} />
       )}
 
       {view === 'report' && result && (

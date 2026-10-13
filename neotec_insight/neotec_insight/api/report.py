@@ -33,6 +33,7 @@ from neotec_insight.neotec_insight.utils.report_structure_importer import (
 from neotec_insight.neotec_insight.utils.config_backup_registry import (
     CONFIG_REGISTRY,
     EXCLUDED_FROM_CONFIG_BACKUP,
+    natural_key,
     compute_coverage,
 )
 
@@ -2331,6 +2332,11 @@ def _app_version():
         return ""
 
 
+def _doctypes_to_clear(data: dict) -> list[str]:
+    """Registry doctypes a replace-import may clear: only those present in the bundle."""
+    return [dt for dt in _IMPORT_ORDER if dt in (data or {})]
+
+
 @frappe.whitelist()
 def import_configuration(payload=None, mode="replace"):
     """Restore an Insight configuration bundle produced by export_configuration.
@@ -2352,7 +2358,11 @@ def import_configuration(payload=None, mode="replace"):
 
     # 1) Replace mode: clear existing config (children/dependents first).
     if mode == "replace":
-        for dt in reversed(_IMPORT_ORDER):
+        # v2.88.9 — only clear what the bundle actually carries. Clearing every
+        # registry doctype wiped areas the bundle knew nothing about (e.g.
+        # Allocation Rules, added to the registry in 2.87.3, when restoring an
+        # older bundle) and then restored nothing in their place.
+        for dt in reversed(_doctypes_to_clear(data)):
             try:
                 for nm in frappe.get_all(dt, pluck="name"):
                     frappe.delete_doc(dt, nm, force=1, ignore_permissions=True)
@@ -2366,8 +2376,17 @@ def import_configuration(payload=None, mode="replace"):
             try:
                 d = dict(raw)
                 d["doctype"] = dt
-                if mode == "merge" and d.get("name") and frappe.db.exists(dt, d["name"]):
-                    existing = frappe.get_doc(dt, d["name"])
+                existing_name = None
+                if mode == "merge":
+                    # Match by meaning first where names are random hashes
+                    # (allocation entries), else by name.
+                    nk = natural_key(dt, d)
+                    if nk:
+                        existing_name = frappe.db.get_value(dt, nk, "name")
+                    if not existing_name and d.get("name") and frappe.db.exists(dt, d["name"]):
+                        existing_name = d["name"]
+                if existing_name:
+                    existing = frappe.get_doc(dt, existing_name)
                     existing.update({k: v for k, v in d.items() if k not in ("doctype", "name")})
                     existing.save(ignore_permissions=True)
                 else:

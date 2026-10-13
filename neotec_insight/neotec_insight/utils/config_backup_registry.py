@@ -46,7 +46,12 @@ CONFIG_REGISTRY: list[dict] = [
     # inferred from names AND the code that builds/uses each one, same as
     # everything above.
     {"doctype": "Insight Account Tag", "area": "Account classification tags"},
-    {"doctype": "Insight Allocation Rule", "area": "Allocation rules"},
+    # v2.88.11 — rules AND their driver values travel together. The head counts
+    # (manual and captured, with frozen flags and evidence) are figures people
+    # key in and report from; a backup that kept the rule but not the numbers
+    # restored an empty allocation. Rule first: entries link to it.
+    {"doctype": "Insight Allocation Rule", "area": "Allocation rules & driver values"},
+    {"doctype": "Insight Allocation Entry", "area": "Allocation rules & driver values"},
     {"doctype": "Insight GTPL Rule", "area": "GTPL rules"},
     {"doctype": "Insight Menu Settings", "area": "Menu layout", "is_single": True},
     {"doctype": "Insight Report Schedule", "area": "Report schedules"},
@@ -70,12 +75,9 @@ CONFIG_REGISTRY: list[dict] = [
 # site's actual transactions. A reason is required for every entry; "not
 # obviously configuration" is not a reason, an actual justification is.
 EXCLUDED_FROM_CONFIG_BACKUP: dict[str, str] = {
-    "Insight Allocation Entry":
-        "Posted allocation results and driver figures tied to specific historical "
-        "periods on this site — not portable config.",
     "Insight Cash Flow Override":
         "Confirmed classification decisions tied to specific real vouchers on this "
-        "site — not portable config, same treatment as Insight Allocation Entry above.",
+        "site — not portable config.",
     "Insight Bank Slip":
         "Staged/reconciled bank statement records tied to this site's real bank activity.",
     "Insight Payment Order":
@@ -87,6 +89,21 @@ EXCLUDED_FROM_CONFIG_BACKUP: dict[str, str] = {
         "actually used. Appears to be a specific period's adjustment entry rather than "
         "reusable setup. Flagged for the app owner to confirm, not asserted.",
 }
+
+
+# Doctypes whose record names are random hashes, so a merge must recognise an
+# existing record by what it means rather than by name.
+NATURAL_KEYS: dict[str, tuple[str, ...]] = {
+    "Insight Allocation Entry": ("rule", "cost_center", "period_month"),
+}
+
+
+def natural_key(doctype: str, record: dict) -> dict | None:
+    """Filters identifying the same record under a different name. Pure."""
+    fields = NATURAL_KEYS.get(doctype)
+    if not fields or any(not record.get(f) for f in fields):
+        return None
+    return {f: str(record[f]) if f == "period_month" else record[f] for f in fields}
 
 
 def compute_coverage(all_doctypes: list[str], registry: list[dict] | None = None,

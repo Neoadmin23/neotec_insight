@@ -1,3 +1,48 @@
+## v2.88.12 — 2026-10-13
+
+### Added: find and recover head-count entries when a rule's grid is empty
+
+After a rule was restored, "GMO Allocations" came back with its pool and credit but an empty head-count table, so the report allocated nothing, with no hint why.
+
+- The Allocation tab shows a warning when the selected rule has no entries for the year, with a "Find my data" popup (`allocation.entries_diagnostic`).
+- It looks for entries left pointing at a rule name that no longer exists and offers "Move to this rule" (`allocation.reattach_entries`, System Manager; skips duplicates).
+- It looks for deleted entries in the Deleted Document log, shows who deleted them and when, and offers "Restore" (`allocation.restore_deleted_entries`, System Manager).
+- If neither exists it says so and lists the ways back: site backup, a v2.88.11+ configuration bundle, or Capture from HR.
+- 4 new tests; 302 total.
+
+## v2.88.11 — 2026-10-13
+
+### Fixed: allocation head-count values were not in the configuration backup
+
+The backup carried Insight Allocation Rule (with its department map and excluded cost centres) but `Insight Allocation Entry` was on the exclusion list, so the head counts (manual and captured, frozen flags, evidence) were left out. Restoring after a loss, or a replace-import, brought back an empty allocation.
+
+- `Insight Allocation Entry` is now registered, after the rule, and shares one backup checkbox with it: "Allocation rules & driver values".
+- Merge-import matches entries by rule + cost centre + month, not by name (entry names are random hashes), so merging a backup into a site that already has the same figures updates them instead of failing on the duplicate check.
+- 7 new tests; 298 total. Still excluded, with reasons: Cash Flow Override, Bank Slip, Payment Order, VAT Adjustment.
+
+## v2.88.10 — 2026-10-13
+
+### Added: a popup that explains why the Allocation rule picker is empty
+
+"No rules defined" was the only message whether nothing existed, the rule had been deleted, it belonged to another company, it was inactive, or the read had failed. The Allocation tab now opens an alert explaining which it is (`allocation.rules_diagnostic` now returns a `reason`):
+
+- **Deleted**: lists the rule, who deleted it and when from the Deleted Document log, with a link to restore it.
+- **Rule missing, data kept**: head-count entries with no rule; shows the exact title to create so they reattach.
+- **Other company / inactive**: lists the rules that exist and why they are hidden.
+- **Read error**: shows the server error and what it usually means.
+- **None exist**: says so, and that this may be a different site from where the rules were set up.
+- A "Why is this empty?" button reopens it; "Check again" re-runs the check.
+- 8 new tests; 291 total.
+
+## v2.88.9 — 2026-10-12
+
+### Fixed: a replace-import could wipe configuration the bundle did not contain
+
+`import_configuration(mode="replace")` cleared every doctype in the backup registry, then restored only what the bundle held. A bundle made before an area existed (Allocation Rules joined the registry in 2.87.3) therefore deleted that area's records and put nothing back. It now clears only the doctypes present in the bundle.
+
+- 3 new tests; 283 total.
+- If rules were lost this way: Desk > Deleted Document > filter DocType = Insight Allocation Rule > Restore.
+
 ## v2.88.8 — 2026-10-12
 
 ### Fixed: Allocation showed "No rules defined" when the company list failed to load

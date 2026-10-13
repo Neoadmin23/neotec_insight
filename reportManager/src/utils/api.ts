@@ -817,6 +817,12 @@ export const api = {
         refresh_drift: refreshDrift ? 1 : 0 }, 'POST'),
   allocationRulesDiagnostic: (company?: string | null) =>
     call<any>('allocation.rules_diagnostic', { company: company || '' }),
+  allocationEntriesDiagnostic: (rule: string, year?: number) =>
+    call<any>('allocation.entries_diagnostic', { rule, year }),
+  allocationReattachEntries: (from_rule: string, to_rule: string) =>
+    call<any>('allocation.reattach_entries', { from_rule, to_rule }, 'POST'),
+  allocationRestoreEntries: (rule: string) =>
+    call<any>('allocation.restore_deleted_entries', { rule }, 'POST'),
   allocationSetExcluded: (rule: string, cost_center: string, excluded: boolean, reason?: string) =>
     call<any>('allocation.set_cc_excluded',
       { rule, cost_center, excluded: excluded ? 1 : 0, reason: reason || '' }, 'POST'),
