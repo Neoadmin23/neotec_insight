@@ -153,7 +153,7 @@
   }
  ],
  "links": [],
- "modified": "2026-08-02 00:00:00",
+ "modified": "2026-10-13 00:00:01",
  "module": "Neotec Insight",
  "name": "Insight Allocation Entry",
  "owner": "Administrator",
@@ -181,5 +181,6 @@
   }
  ],
  "sort_field": "period_month",
- "sort_order": "ASC"
+ "sort_order": "ASC",
+ "track_changes": 1
 }

@@ -23,7 +23,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const ACTION_LABEL: Record<string, string> = {
   write: 'write', update: 'update', unchanged: 'unchanged',
   kept: 'kept — set by hand', frozen: 'frozen', drift: 'drift',
-  excluded: 'excluded',
+  excluded: 'excluded', amount: 'amount table — not captured',
 };
 
 interface Props { rule: string; year: number; ccLabel: (cc: string) => string; onClose: () => void; onSaved: () => void; }

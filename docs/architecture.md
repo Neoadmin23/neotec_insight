@@ -129,3 +129,14 @@ Per-row access control on `Insight Report Definition` (owner-inherit + active-de
 - Trial Balance, AR Aging, AP Aging starter templates (only Consolidated P&L ships).
 
 These were deliberate cuts to keep v1.0 shippable. The DocType schema for `Insight Report Definition` already has room for currency config, and the scheduler tasks hook is wired; adding either is additive.
+
+## Backup, restore and snapshots (v2.89.0)
+
+- `utils/config_backup_registry.py` — pure. Labels, areas, kinds (config/data), the single exclusion (the snapshot store), natural keys for hash-named records, `build_plan` (registry plus auto-discovered doctypes in dependency order), `count_drops`, and `doctypes_to_clear`.
+- `utils/backup_engine.py` — the one export/restore implementation. `live_plan()` discovers the installed doctypes of the module and their Link/Table dependencies. `build_bundle()` exports. `restore_bundle()` merges or replaces, all-or-nothing by default.
+- `utils/snapshot_core.py` — pure. gzip+base64 encoding, fingerprint, index, retention.
+- `utils/snapshots.py` — takes and prunes snapshots, raises alerts, adopts file snapshots, and provides the hook entry points `daily`, `before_migrate` and `after_migrate`. None of them ever raises.
+- `api/backup.py` — Backup → Snapshots endpoints (System Manager).
+- `utils/allocation_guard.py` — pure. What a grid Save may do. `save_grid` only executes the plan.
+
+A new doctype needs no registration to be backed up. Registering it only gives it a label and a fixed place in the order.

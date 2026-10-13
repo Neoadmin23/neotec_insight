@@ -416,6 +416,11 @@ def row_action(ex: dict | None, counted: float, *, excluded: bool = False) -> st
     """
     if excluded:
         return "excluded"
+    # v2.89.0 — a cost centre on the Amount table (a fixed figure such as Main
+    # at 45,000) is not a head count. Capture used to write the counted
+    # employees into its driver column; it now leaves the row alone.
+    if ex and (ex.get("basis") or "head_count") == "amount":
+        return "amount"
     stored = flt(ex.get("driver_value")) if ex else None
     frozen = bool(ex and ex.get("is_frozen"))
     override = bool(ex and ex.get("is_override"))
@@ -572,7 +577,7 @@ def commit(rule_name: str, year: int, months: list[int] | None = None,
     for mblock in pv["months"]:
         m = mblock["month"]
         for row in mblock["rows"]:
-            if row["action"] in ("frozen", "kept", "unchanged", "excluded"):
+            if row["action"] in ("frozen", "kept", "unchanged", "excluded", "amount"):
                 skipped += 1
                 continue
             if row["action"] == "drift" and not refresh_drift:

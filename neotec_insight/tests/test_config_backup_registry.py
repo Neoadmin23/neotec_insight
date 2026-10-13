@@ -96,12 +96,18 @@ class TestRealRegistryIntegrity(unittest.TestCase):
                   "Insight Cash Flow Classification Rule", "Insight Cash Flow Settings"]:
             self.assertIn(dt, registered, f"{dt} must be in CONFIG_REGISTRY")
 
-    def test_cash_flow_override_is_explicitly_excluded_not_just_absent(self):
-        """The one Cash Flow Forecast doctype that should NOT be backed up
-        must be in the excluded dict with a reason — not simply missing
-        from the registry, which compute_coverage would (correctly) flag
-        as an untriaged gap rather than a deliberate choice."""
-        self.assertIn("Insight Cash Flow Override", reg.EXCLUDED_FROM_CONFIG_BACKUP)
+    def test_data_doctypes_are_backed_up_v2_89(self):
+        """v2.89.0 — data is part of the backup. The four doctypes that used to
+        be excluded as "transactional" are now registered as data areas."""
+        registered = {r["doctype"]: r for r in reg.CONFIG_REGISTRY}
+        for dt in ["Insight Cash Flow Override", "Insight VAT Adjustment",
+                   "Insight Payment Order", "Insight Bank Slip"]:
+            self.assertIn(dt, registered)
+            self.assertEqual(registered[dt].get("kind"), "data")
+            self.assertNotIn(dt, reg.EXCLUDED_FROM_CONFIG_BACKUP)
+
+    def test_only_the_snapshot_store_is_excluded(self):
+        self.assertEqual(set(reg.EXCLUDED_FROM_CONFIG_BACKUP), {"Insight Backup Snapshot"})
 
     def test_single_doctypes_are_flagged_is_single(self):
         singles = {"Insight AI Settings", "Insight Menu Settings", "Insight Cash Flow Settings"}

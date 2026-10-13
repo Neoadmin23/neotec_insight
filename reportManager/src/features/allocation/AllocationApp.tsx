@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 import { NoRulesModal } from './NoRulesModal';
 import { EntriesRecoveryModal } from './EntriesRecoveryModal';
+import { ImportHeadCountsModal } from './ImportHeadCountsModal';
+import { DiagnoseModal, candLabel } from './DiagnoseModal';
 import { fmtD } from '../../utils/format';
 import { setActiveCompany } from '../../utils/activeCompany';
 import { ExportBar } from '../ExportBar';
@@ -56,6 +58,52 @@ interface RunResult {
   formula: string; formula_errors: number[]; credit_back: number; pool_source: string;
   roles: Record<string, Basis | 'mixed' | 'credit'>;
   mixed: string[];
+  /** v2.89.2 — why the pool is empty, when it is. */
+  pool_status?: {
+    state: string; message: string; report?: string; row_key?: string; cost_center?: string;
+    candidates?: { key: string; label: string; jan?: number; ytd?: number }[];
+  };
+}
+
+/* v2.89.2 — the pool used to fall to zero with no reason shown: a report run
+ * that failed, a row key that no longer exists after the report was rebuilt,
+ * or a row that is genuinely zero all looked the same ("no pool"). */
+function PoolStatus({ status, rule, onFixed }: {
+  status: NonNullable<RunResult['pool_status']>; rule: string; onFixed: () => void;
+}) {
+  const [pick, setPick] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [filter, setFilter] = useState('');
+  if (!status || status.state === 'ok') return null;
+  if (status.state === 'relinked') return <div className="alloc-ok">{status.message}</div>;
+  const cands = (status.candidates || []).filter((c) =>
+    !filter || (c.label + ' ' + c.key).toLowerCase().includes(filter.toLowerCase()));
+  return (
+    <div className="alloc-warn">
+      <strong>{t('The pool could not be read, so every month shows no pool.')}</strong>{' '}
+      {status.message}
+      {status.state === 'error' && <> {t('Details are in the Error Log.')}</>}
+      {status.state === 'row_missing' && !!status.candidates?.length && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+          <input placeholder={t('Filter rows…')} value={filter} onChange={(e) => setFilter(e.target.value)}
+            style={{ width: 160 }} />
+          <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ minWidth: 280 }}>
+            <option value="">{t('Choose the row that holds the pool…')}</option>
+            {cands.map((c) => <option key={c.key} value={c.key}>{candLabel(c)}</option>)}
+          </select>
+          <button type="button" className="bk-btn bk-primary" disabled={!pick || busy}
+            onClick={async () => {
+              setBusy(true); setErr('');
+              try { await api.allocationSetPoolRow(rule, pick); onFixed(); }
+              catch (e: any) { setErr(e?.message || String(e)); }
+              finally { setBusy(false); }
+            }}>{busy ? t('Saving…') : t('Use this row')}</button>
+          {err && <span className="ni-exp-err">{err}</span>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 type Basis = 'head_count' | 'amount';
@@ -73,8 +121,22 @@ export function AllocationApp() {
   const [why, setWhy] = useState(false);
   const [gridLoaded, setGridLoaded] = useState(false);
   const [recoverOpen, setRecoverOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [year, setYear] = useState(new Date().getFullYear());
+  // v2.89.0 — the Year box used to reload on every keystroke, so typing 2026
+  // also loaded years 2, 20 and 202. Whichever reply came back last won, and
+  // an empty year-202 grid could land on a 2026 screen: the figures looked
+  // lost while they were still in the database. The box now only commits a
+  // complete year, and every load carries a sequence number so a late reply
+  // is ignored.
+  const [yearText, setYearText] = useState(String(new Date().getFullYear()));
+  const runSeq = useRef(0);
+  const gridSeq = useRef(0);
+  const [entryCount, setEntryCount] = useState<number | null>(null);
+  const [frozenCells, setFrozenCells] = useState<Set<string>>(new Set());
+  const [loadedKey, setLoadedKey] = useState('');
   const [decimals, setDecimals] = useState(0);
 
   const [result, setResult] = useState<RunResult | null>(null);
@@ -145,18 +207,29 @@ export function AllocationApp() {
 
   const run = useCallback(() => {
     if (!rule) return;
+    const seq = ++runSeq.current;
     setLoading(true); setErr('');
     api.allocationRun(rule, year, company)
-      .then((r) => setResult(r as RunResult))
-      .catch((e: any) => { setErr(e?.message || t('Run failed.')); setResult(null); })
-      .finally(() => setLoading(false));
+      .then((r) => { if (seq === runSeq.current) setResult(r as RunResult); })
+      .catch((e: any) => {
+        if (seq !== runSeq.current) return;
+        setErr(e?.message || t('Run failed.')); setResult(null);
+      })
+      .finally(() => { if (seq === runSeq.current) setLoading(false); });
   }, [rule, year, company]);
 
   const loadGrid = useCallback(() => {
     if (!rule) return;
+    const seq = ++gridSeq.current;
     setErr('');
+    setGridLoaded(false);
+    setLoadedKey('');
     api.allocationGrid(rule, year, company)
       .then((g: any) => {
+        if (seq !== gridSeq.current) return;     // a newer load has started
+        setEntryCount(typeof g.entry_count === 'number' ? g.entry_count : null);
+        setFrozenCells(new Set(g.frozen || []));
+        setLoadedKey(`${rule}|${year}`);
         setCells(g.cells || {});
         setBasis(g.basis || {});
         setManualPool(g.manual_pool || {});
@@ -165,7 +238,10 @@ export function AllocationApp() {
         setRemoved([]);
         setDirty(false); setSaveMsg('');
       })
-      .catch((e: any) => setErr(e?.message || t('Could not load the entry grid.')));
+      .catch((e: any) => {
+        if (seq !== gridSeq.current) return;
+        setErr(e?.message || t('Could not load the entry grid.'));
+      });
   }, [rule, year, company]);
 
   useEffect(() => { if (rule) { run(); loadGrid(); } }, [rule, year]);
@@ -236,7 +312,11 @@ export function AllocationApp() {
     setDirty(true);
   }
 
-  async function save() {
+  async function save(confirmBulk = false) {
+    if (loadedKey !== `${rule}|${year}`) {
+      setErr(t('This grid belongs to a different rule or year than the one selected. Press Reload.'));
+      return;
+    }
     setSaving(true); setSaveMsg(''); setErr('');
     try {
       // Send every cost centre on the grid, including ones emptied out — the
@@ -245,14 +325,36 @@ export function AllocationApp() {
       const payload: Cells = {};
       for (const cc of gridCcs) payload[cc] = cells[cc] || {};
       const res: any = await api.allocationSaveGrid(
-        rule, year, company, payload, manualPool, basis, removed);
+        rule, year, company, payload, manualPool, basis, removed, entryCount, confirmBulk);
       setDirty(false);
       setRemoved([]);
       setSaveMsg(t('Saved') + ` · ${res?.written ?? 0} ` + t('rows')
-        + (res?.deleted ? ` · ${res.deleted} ` + t('cleared') : ''));
+        + (res?.deleted ? ` · ${res.deleted} ` + t('cleared') : '')
+        + (res?.overrides ? ` · ${res.overrides} ` + t('marked as overridden') : '')
+        + (res?.skipped_frozen ? ` · ${res.skipped_frozen} ` + t('frozen cell(s) left unchanged') : ''));
+      if (res?.skipped_frozen) {
+        setErr(t('Frozen months are never changed by Save') + ': '
+          + (res.skipped_frozen_cells || []).join(', '));
+      }
+      loadGrid();
       run();
     } catch (e: any) {
-      setErr(e?.message || t('Save failed.'));
+      const m = String(e?.message || '');
+      if (m.includes('BULK_DELETE') && !confirmBulk) {
+        setSaving(false);
+        const detail = m.split('BULK_DELETE:')[1] || '';
+        if (confirm(t('Blank cells will delete stored figures.') + detail + '\n\n'
+          + t('A snapshot is taken first, so this can be undone from Backup > Snapshots. Continue?'))) {
+          return save(true);
+        }
+        setErr(t('Not saved.'));
+        return;
+      }
+      if (m.includes('GRID_STALE')) {
+        setErr((m.split('GRID_STALE:')[1] || m).trim());
+        return;
+      }
+      setErr(m || t('Save failed.'));
     } finally {
       setSaving(false);
     }
@@ -363,8 +465,14 @@ export function AllocationApp() {
             </select>
           </label>
           <label>{t('Year')}
-            <input type="number" value={year} min={2000} max={2100}
-              onChange={(e) => setYear(parseInt(e.target.value) || year)} />
+            <input type="number" value={yearText} min={2000} max={2100}
+              onChange={(e) => {
+                const v = e.target.value;
+                setYearText(v);
+                const n = parseInt(v, 10);
+                if (/^\d{4}$/.test(v) && n >= 2000 && n <= 2100) setYear(n);
+              }}
+              onBlur={() => setYearText(String(year))} />
           </label>
           <label>{t('Decimals')}
             <select value={decimals} onChange={(e) => setDecimals(parseInt(e.target.value))}>
@@ -375,15 +483,17 @@ export function AllocationApp() {
 
         <div className="action-row">
           <button onClick={run} disabled={!rule || loading}>{loading ? t('Running…') : t('Run')}</button>
+          <button onClick={() => setDiagOpen(true)} disabled={!rule} title={t('Check every step from stored figures to the allocated result')}>{t('Diagnose')}</button>
           {view === 'report' && (
             <ExportBar company={company} companyLabel={company} disabled={!result} getDoc={buildDoc} />
           )}
           {view === 'data' && (
             <>
-              <button onClick={save} disabled={!dirty || saving}>
+              <button onClick={() => save()} disabled={!dirty || saving}>
                 {saving ? t('Saving…') : t('Save')}
               </button>
               <button onClick={loadGrid} disabled={saving}>{t('Reload')}</button>
+              <button onClick={() => setImportOpen(true)} disabled={saving || !rule}>{t('Paste figures')}</button>
               {activeRule?.driver_source === 'employee_headcount' && (
                 <button onClick={() => setCaptureOpen(true)} disabled={saving}>
                   {t('Capture from HR')}
@@ -430,14 +540,32 @@ export function AllocationApp() {
         </div>
       )}
 
-      {rule && gridLoaded && !gridCcs.length && (
+      {result?.pool_status && result.pool_status.state !== 'ok' && rule && (
+        <PoolStatus status={result.pool_status} rule={rule} onFixed={run} />
+      )}
+
+      {rule && gridLoaded && loadedKey === `${rule}|${year}` && entryCount === 0 && (
         <div className="alloc-warn" style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
           <span>
             <strong>{t('No head-count or amount entries are stored for')} {rule} {t('in')} {year}.</strong>{' '}
             {t('The rule exists but its figures are missing, so nothing can be allocated.')}
+            {gridCcs.length > 0 && <> {t('Its cost centres are listed under Data entry, ready to type into or paste over.')}</>}
+            {' '}<button type="button" className="bk-btn" onClick={() => setDiagOpen(true)}>{t('Diagnose')}</button>
           </span>
-          <button type="button" className="bk-btn" onClick={() => setRecoverOpen(true)}>{t('Find my data')}</button>
+          <span style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="bk-btn" onClick={() => setRecoverOpen(true)}>{t('Find my data')}</button>
+            <button type="button" className="bk-btn" onClick={() => setImportOpen(true)}>{t('Paste figures')}</button>
+          </span>
         </div>
+      )}
+      {importOpen && rule && (
+        <ImportHeadCountsModal rule={rule} year={year} onClose={() => setImportOpen(false)}
+          onDone={() => { loadGrid(); run(); }} />
+      )}
+      {diagOpen && rule && (
+        <DiagnoseModal rule={rule} year={year} company={company} onClose={() => setDiagOpen(false)}
+          onChanged={() => { loadGrid(); run(); }}
+          onOpenRecovery={() => setRecoverOpen(true)} onOpenPaste={() => setImportOpen(true)} />
       )}
       {recoverOpen && rule && (
         <EntriesRecoveryModal rule={rule} year={year} onClose={() => setRecoverOpen(false)}
@@ -529,7 +657,10 @@ export function AllocationApp() {
                           <td className="sticky-l">{ccOptions.find((o) => o.name === cc)?.label || cc}</td>
                           {MONTHS.map((_, i) => (
                             <td key={i} className="num">
-                              <input type="number" step="any" className="alloc-in"
+                              <input type="number" step="any"
+                                className={'alloc-in' + (frozenCells.has(`${cc}|${i + 1}`) ? ' alloc-frozen' : '')}
+                                readOnly={frozenCells.has(`${cc}|${i + 1}`)}
+                                title={frozenCells.has(`${cc}|${i + 1}`) ? t('Frozen month — Save never changes it') : undefined}
                                 value={(isAmt ? cells[cc]?.[i + 1]?.amount : cells[cc]?.[i + 1]?.driver) ?? ''}
                                 onChange={(e) => setCell(cc, i + 1, e.target.value)} />
                             </td>

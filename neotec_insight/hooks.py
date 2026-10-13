@@ -18,7 +18,14 @@ add_to_apps_screen = [
 ]
 
 after_install = "neotec_insight.install.after_install"
-after_migrate = ["neotec_insight.install.after_migrate"]
+# v2.89.0 — a snapshot of everything Insight holds is taken before every
+# migrate, and after_migrate checks that no table lost its records. Both are
+# wrapped so they can never block a deploy.
+before_migrate = ["neotec_insight.neotec_insight.utils.snapshots.before_migrate"]
+after_migrate = [
+    "neotec_insight.install.after_migrate",
+    "neotec_insight.neotec_insight.utils.snapshots.after_migrate",
+]
 
 # v1.9.59 — when an admin changes a Company's year_start_date in ERPNext,
 # Insight's per-company FY cache must invalidate or subsequent report runs
@@ -40,6 +47,9 @@ has_permission = {
 
 scheduler_events = {
     "daily": ["neotec_insight.tasks.run_daily_report_schedules"],
+    # v2.89.0 — daily automatic backup snapshot (skipped when unchanged).
+    # v2.89.1 — on the long queue, so it never competes with short jobs.
+    "daily_long": ["neotec_insight.neotec_insight.utils.snapshots.daily"],
 }
 
 website_route_rules = [

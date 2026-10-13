@@ -15,8 +15,15 @@ export function EntriesRecoveryModal({ rule, year, onClose, onDone }: Props) {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
-  const load = () => api.allocationEntriesDiagnostic(rule, year).then(setD)
-    .catch((e: any) => setErr(e?.message || String(e)));
+  const [snaps, setSnaps] = useState<any[] | null>(null);
+  const load = () => {
+    api.allocationEntriesDiagnostic(rule, year).then(setD)
+      .catch((e: any) => setErr(e?.message || String(e)));
+    // v2.89.0 — automatic snapshots that still hold this rule's figures.
+    api.allocationSnapshotCandidates(rule, year)
+      .then((r: any) => setSnaps(r?.rows || []))
+      .catch(() => setSnaps([]));
+  };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [rule, year]);
 
   async function run(key: string, fn: () => Promise<any>, ok: (r: any) => string) {
@@ -40,6 +47,40 @@ export function EntriesRecoveryModal({ rule, year, onClose, onDone }: Props) {
           {msg && <div className="alloc-ok">{msg}</div>}
 
           {d && state === 'ok' && <p>{t('This rule now has entries. Close this and press Reload.')}</p>}
+
+          {!!snaps?.length && (
+            <>
+              <p><strong>{t('Automatic snapshots that hold figures for this rule:')}</strong>{' '}
+                {t('Restore adds the entries that are missing; figures already on the site and frozen months are left as they are.')}</p>
+              <table className="cap-table">
+                <thead><tr><th>{t('Taken')}</th><th>{t('Type')}</th><th className="num">{year}</th><th className="num">{t('All years')}</th><th /></tr></thead>
+                <tbody>
+                  {snaps.slice(0, 12).map((s: any) => (
+                    <tr key={s.name} title={s.label}>
+                      <td>{s.creation}</td><td>{t(s.type)}{s.alert ? ' ⚠' : ''}</td>
+                      <td className="num">{s.entries_year}</td><td className="num">{s.entries}</td>
+                      <td style={{ display: 'flex', gap: 6 }}>
+                        <button className="bk-btn" disabled={!!busy}
+                          onClick={() => run('snapcheck-' + s.name,
+                            () => api.allocationRestoreFromSnapshot(rule, s.name, null, false, true),
+                            (r) => `${t('Check')}: ${r.inserted} ${t('would be added')}, ${r.kept} ${t('already present')}, ${r.skipped_frozen} ${t('frozen')}`
+                              + (r.rule_restored ? ` · ${t('the rule itself would be restored')}` : ''))}>
+                          {t('Check')}
+                        </button>
+                        <button className="bk-btn bk-primary" disabled={!!busy}
+                          onClick={() => run('snap-' + s.name,
+                            () => api.allocationRestoreFromSnapshot(rule, s.name, null, false, false),
+                            (r) => `${r.inserted} ${t('restored')}, ${r.kept} ${t('already present')}`
+                              + (r.skipped_frozen ? `, ${r.skipped_frozen} ${t('frozen left as is')}` : ''))}>
+                          {busy === 'snap-' + s.name ? t('Restoring…') : t('Restore')}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
 
           {d && !!d.deleted?.length && (
             <>
@@ -88,12 +129,13 @@ export function EntriesRecoveryModal({ rule, year, onClose, onDone }: Props) {
             <p className="bk-hint">{t('Other rules still hold entries:')} {d.other_rules.map((o: any) => `${o.rule} (${o.entries})`).join(' · ')}. {t('Entries are not moved between existing rules automatically.')}</p>
           )}
 
-          {d && state === 'none' && (
+          {d && state === 'none' && !snaps?.length && (
             <>
               <p>{t('Nothing was found: no entries under another rule name, and none in the Deleted Document log. The head-count figures are no longer in this site\'s database.')}</p>
               <p>{t('Ways back, in order of accuracy:')}</p>
               <ol>
                 <li>{t('Restore a Frappe Cloud site backup from before they disappeared (or take the Insight Allocation Entry rows from it).')}</li>
+                <li>{t('Backup → Snapshots: restore an automatic snapshot (taken daily and before every upgrade from v2.89.0 on).')}</li>
                 <li>{t('Import an Insight configuration backup made with v2.88.11 or later (Backup → Import, Merge). Earlier backups do not contain the head counts.')}</li>
                 <li>{t('Capture from HR, month by month. It counts from Employee joining and relieving dates, so it can differ from figures that were typed by hand.')}</li>
               </ol>

@@ -71,24 +71,37 @@ CONFIG_REGISTRY: list[dict] = [
     {"doctype": "Insight Cash Flow Settings", "area": "Cash Flow Forecast — settings", "is_single": True},
 ]
 
-# Deliberately NOT portable config — real, dated activity tied to this
-# site's actual transactions. A reason is required for every entry; "not
-# obviously configuration" is not a reason, an actual justification is.
+# v2.89.0 — the four doctypes that used to be listed here as "transactional,
+# not portable" are now backed up too, as data areas: the request was that
+# everything the app holds is part of the backup, and a restore onto the SAME
+# site (the case that actually happens after a loss) needs them. They are
+# registered with kind="data" so the UI can label them and a sandbox export
+# can leave them out with one click.
+#
+# The only thing excluded is the snapshot store itself: a snapshot containing
+# every earlier snapshot would grow without bound.
 EXCLUDED_FROM_CONFIG_BACKUP: dict[str, str] = {
-    "Insight Cash Flow Override":
-        "Confirmed classification decisions tied to specific real vouchers on this "
-        "site — not portable config.",
-    "Insight Bank Slip":
-        "Staged/reconciled bank statement records tied to this site's real bank activity.",
-    "Insight Payment Order":
-        "LOWER CONFIDENCE — inferred from the name only, not verified against how it's "
-        "actually used. Appears to be a generated payment run tied to a specific period "
-        "rather than reusable setup. Flagged for the app owner to confirm, not asserted.",
-    "Insight VAT Adjustment":
-        "LOWER CONFIDENCE — inferred from the name only, not verified against how it's "
-        "actually used. Appears to be a specific period's adjustment entry rather than "
-        "reusable setup. Flagged for the app owner to confirm, not asserted.",
+    "Insight Backup Snapshot":
+        "The automatic snapshot store itself. Each snapshot already holds a full "
+        "bundle; nesting them would double the size of every backup, every day.",
 }
+
+# Data areas (v2.89.0). Kept separate from CONFIG_REGISTRY's list literal so
+# the config/data split stays obvious when reading either one.
+DATA_REGISTRY: list[dict] = [
+    {"doctype": "Insight VAT Adjustment", "area": "Data — VAT adjustments", "kind": "data"},
+    {"doctype": "Insight Payment Order", "area": "Data — payment orders", "kind": "data"},
+    {"doctype": "Insight Bank Slip", "area": "Data — bank slips", "kind": "data"},
+    {"doctype": "Insight Cash Flow Override", "area": "Data — cash flow classifications", "kind": "data"},
+]
+CONFIG_REGISTRY.extend(DATA_REGISTRY)
+
+# Anything in the module that is in neither list is NOT a gap any more: the
+# export discovers it and includes it under this area, so a doctype added by
+# a future release is in the backup the day it ships, before anyone edits this
+# file. Registering it here only gives it a friendlier label and a fixed place
+# in the restore order.
+AUTO_AREA = "Other (added automatically)"
 
 
 # Doctypes whose record names are random hashes, so a merge must recognise an
@@ -131,3 +144,94 @@ def compute_coverage(all_doctypes: list[str], registry: list[dict] | None = None
         "conflicting_registered_and_excluded": sorted(overlap),
         "fully_covered": not unaccounted and not overlap,
     }
+
+
+def order_by_dependencies(names: list[str], deps: dict[str, set] | None) -> list[str]:
+    """Stable topological order: a doctype comes after every doctype it links
+    to (Link / Table fields, including links held in its child tables). Pure.
+
+    Ties keep the incoming order, so the hand-written registry order is kept
+    wherever it is already consistent. Self-links and cycles cannot be ordered;
+    the remaining members of a cycle keep their incoming order (the restore
+    inserts them with link validation off, so either order works)."""
+    deps = deps or {}
+    present = set(names)
+    need = {n: {d for d in deps.get(n, ()) if d in present and d != n} for n in names}
+    out: list[str] = []
+    placed: set[str] = set()
+    pending = list(names)
+    while pending:
+        progressed = False
+        for n in list(pending):
+            if need[n] <= placed:
+                out.append(n)
+                placed.add(n)
+                pending.remove(n)
+                progressed = True
+                break
+        if not progressed:          # cycle: take the earliest one as-is
+            n = pending.pop(0)
+            out.append(n)
+            placed.add(n)
+    return out
+
+
+def build_plan(live: list[dict], deps: dict[str, set] | None = None,
+               registry: list[dict] | None = None,
+               excluded: dict | None = None) -> list[dict]:
+    """Everything the backup carries, in restore order. Pure.
+
+    live: [{"name", "is_single"}] for every non-child doctype of the module, as
+    installed (or as found in the doctype folder). Registered doctypes keep
+    their area and kind; unregistered, unexcluded ones are included under
+    AUTO_AREA with auto=True. Registered doctypes that are not installed are
+    dropped (an old registry line for a retired doctype must not break the
+    export)."""
+    registry = CONFIG_REGISTRY if registry is None else registry
+    excluded = EXCLUDED_FROM_CONFIG_BACKUP if excluded is None else excluded
+    by_name = {d["name"]: d for d in live}
+    plan: list[dict] = []
+    seen: set[str] = set()
+    for e in registry:
+        dt = e["doctype"]
+        if dt in by_name and dt not in excluded and dt not in seen:
+            plan.append({"kind": "config", **e,
+                         "is_single": bool(e.get("is_single") or by_name[dt].get("is_single"))})
+            seen.add(dt)
+    for d in sorted(live, key=lambda x: x["name"]):
+        dt = d["name"]
+        if dt in seen or dt in excluded:
+            continue
+        plan.append({"doctype": dt, "area": AUTO_AREA, "kind": "config",
+                     "is_single": bool(d.get("is_single")), "auto": True})
+        seen.add(dt)
+    singles = [p for p in plan if p["is_single"]]
+    multi = [p for p in plan if not p["is_single"]]
+    order = order_by_dependencies([p["doctype"] for p in multi], deps)
+    pos = {dt: i for i, dt in enumerate(order)}
+    multi.sort(key=lambda p: pos[p["doctype"]])
+    return multi + singles
+
+
+def count_drops(before: dict, after: dict, min_lost: int = 5,
+                ratio: float = 0.5) -> list[dict]:
+    """Doctypes whose record count fell sharply between two backups. Pure.
+
+    A fall is reported when at least `min_lost` records went AND either the
+    table emptied or it lost at least `ratio` of its rows. Small edits (a
+    deleted dashboard) stay quiet; a table going from 84 rows to 0 does not."""
+    out = []
+    for dt, b in (before or {}).items():
+        b = int(b or 0)
+        a = int((after or {}).get(dt) or 0)
+        lost = b - a
+        if lost >= min_lost and (a == 0 or lost >= ratio * b):
+            out.append({"doctype": dt, "before": b, "after": a, "lost": lost})
+    return sorted(out, key=lambda r: -r["lost"])
+
+
+def doctypes_to_clear(order: list[str], data: dict | None) -> list[str]:
+    """Doctypes a replace-restore may delete from: only those the bundle carries,
+    in restore order (the caller walks it in reverse). Pure. A bundle made
+    before an area existed must never wipe that area (v2.88.9)."""
+    return [dt for dt in order if dt in (data or {})]

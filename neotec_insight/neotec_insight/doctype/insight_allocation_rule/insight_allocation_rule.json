@@ -13,6 +13,7 @@
   "pool_mode",
   "pool_report",
   "pool_row_key",
+  "pool_row_label",
   "pool_cost_center",
   "pool_flag",
   "pool_sign",
@@ -37,7 +38,8 @@
   "credit_back",
   "credit_cost_center",
   "sb_note",
-  "description"
+  "description",
+  "layout_json"
  ],
  "fields": [
   {
@@ -66,7 +68,7 @@
    "fieldtype": "Data",
    "label": "Driver Label",
    "default": "Head count",
-   "description": "What the pro-rata is based on \u2014 Head count, Leads count, Floor area, ..."
+   "description": "What the pro-rata is based on — Head count, Leads count, Floor area, ..."
   },
   {
    "fieldname": "cb_pool",
@@ -78,7 +80,7 @@
    "label": "Pool Source",
    "options": "report_row\nflag\nmanual",
    "default": "report_row",
-   "description": "report_row: the pool is a row of an existing report, run with one cost centre filter \u2014 the number the P&L already shows. flag: read from account flags. manual: entered per month."
+   "description": "report_row: the pool is a row of an existing report, run with one cost centre filter — the number the P&L already shows. flag: read from account flags. manual: entered per month."
   },
   {
    "fieldname": "pool_report",
@@ -94,6 +96,14 @@
    "label": "Source Row",
    "depends_on": "eval:doc.pool_mode=='report_row'",
    "description": "Key of the row to read, e.g. total_expenses."
+  },
+  {
+   "fieldname": "pool_row_label",
+   "fieldtype": "Data",
+   "label": "Source Row Label",
+   "read_only": 1,
+   "depends_on": "eval:doc.pool_mode=='report_row'",
+   "description": "The row's label when it was chosen. If the report is rebuilt and the row gets a new key, the pool is found again by this label."
   },
   {
    "fieldname": "pool_cost_center",
@@ -168,7 +178,7 @@
    "fieldname": "dept_map",
    "fieldtype": "Table",
    "options": "Insight Allocation Dept Map",
-   "label": "Department \u2192 Cost Centre",
+   "label": "Department → Cost Centre",
    "depends_on": "eval:doc.driver_source=='employee_headcount'"
   },
   {
@@ -186,7 +196,7 @@
   {
    "fieldname": "lead_cc_field",
    "fieldtype": "Data",
-   "label": "Lead \u2192 Cost Centre Field",
+   "label": "Lead → Cost Centre Field",
    "default": "business_line",
    "depends_on": "eval:doc.driver_source=='crm_leads'",
    "description": "Fieldname on Lead that links to Cost Center. On this site that is business_line."
@@ -197,7 +207,7 @@
    "label": "Count assigned leads only",
    "default": "1",
    "depends_on": "eval:doc.driver_source=='crm_leads'",
-   "description": "Only leads that have actually been assigned to someone. Assignment means a ToDo record \u2014 lead_owner defaults to whoever created the lead, so it is not evidence of assignment."
+   "description": "Only leads that have actually been assigned to someone. Assignment means a ToDo record — lead_owner defaults to whoever created the lead, so it is not evidence of assignment."
   },
   {
    "fieldname": "lead_date_field",
@@ -206,7 +216,7 @@
    "options": "assignment\ncustom_creat_date\ncreation\ndate\nqualified_on\nwon_or_lost_date",
    "default": "assignment",
    "depends_on": "eval:doc.driver_source=='crm_leads'",
-   "description": "Which date places a lead in a month. 'assignment' uses when the lead was first assigned, read from ToDo \u2014 not the due date on it."
+   "description": "Which date places a lead in a month. 'assignment' uses when the lead was first assigned, read from ToDo — not the due date on it."
   },
   {
    "fieldname": "lead_exclude_status",
@@ -240,7 +250,7 @@
    "fieldtype": "Small Text",
    "label": "Allocation Formula",
    "default": "(pool - amount_total) * (driver / driver_total)",
-   "description": "Evaluated once per cost centre per month. Variables: pool, amount_total, distributable, driver, driver_total, month, year. Functions: IF ROUND ABS MIN MAX. driver_total is the sum of the driver table only \u2014 never a company-wide figure."
+   "description": "Evaluated once per cost centre per month. Variables: pool, amount_total, distributable, driver, driver_total, month, year. Functions: IF ROUND ABS MIN MAX. driver_total is the sum of the driver table only — never a company-wide figure."
   },
   {
    "fieldname": "sb_credit",
@@ -270,10 +280,18 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Notes"
+  },
+  {
+   "fieldname": "layout_json",
+   "fieldtype": "Long Text",
+   "label": "Cost Centre Layout",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "Cost centres on this rule and their table (head count / amount). Kept separately from the figures so the grid keeps its rows for a new year, and after figures are lost."
   }
  ],
  "links": [],
- "modified": "2026-10-12 00:00:00",
+ "modified": "2026-10-13 12:00:00",
  "module": "Neotec Insight",
  "name": "Insight Allocation Rule",
  "owner": "Administrator",

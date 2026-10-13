@@ -65,7 +65,12 @@ def load_entries(rule: str, company: str | None, year: int) -> dict:
         filters={
             "rule": rule,
             "period_month": ["between", [month_start(year, 1), month_end(year, 12)]],
-            **({"company": company} if company else {}),
+            # v2.89.3 — no company filter. An entry belongs to its rule and the
+            # rule to one company. Filtering by the company picked on screen
+            # hid every entry stamped with another company (restored, pasted
+            # or captured under a different selection): the Data entry grid,
+            # which never filtered, showed the figures while the Report
+            # allocated nothing.
         },
         fields=["cost_center", "period_month", "basis", "driver_value", "amount", "manual_pool"],
         limit_page_length=0,

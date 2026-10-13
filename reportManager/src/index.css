@@ -4305,6 +4305,7 @@ tr:hover .row-livegroup { opacity: 1; }
 }
 .alloc-in:hover { border-color: var(--border); }
 .alloc-in:focus { border-color: var(--info); background: var(--surface); outline: none; }
+.alloc-in.alloc-frozen { background: var(--surface-2, #f1efe9); color: var(--muted, #8a857c); cursor: not-allowed; }
 .alloc-add { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
 .alloc-add label { font-size: var(--text-xs); color: var(--text-muted); }
 .alloc-add select { margin-inline-start: 8px; }

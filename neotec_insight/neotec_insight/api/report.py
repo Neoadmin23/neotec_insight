@@ -31,9 +31,7 @@ from neotec_insight.neotec_insight.utils.report_structure_importer import (
     import_report_structure,
 )
 from neotec_insight.neotec_insight.utils.config_backup_registry import (
-    CONFIG_REGISTRY,
     EXCLUDED_FROM_CONFIG_BACKUP,
-    natural_key,
     compute_coverage,
 )
 
@@ -2189,139 +2187,66 @@ def gl_drill_entries(
 
 @frappe.whitelist()
 def export_configuration(sections=None):
-    """Bundle Insight configuration into one portable JSON object.
+    """Bundle everything Insight holds into one portable JSON object.
 
-    Every doctype in CONFIG_REGISTRY (utils/config_backup_registry.py) —
-    that ONE list is now the single source of truth this function, import_
-    configuration, and config_section_counts all read from, replacing what
-    used to be three independently hardcoded lists that could silently
-    drift out of sync, or all three simply never learn about a new
-    doctype. A coverage audit (see check_config_backup_coverage below)
-    found seven pre-existing doctypes unregistered in any of them before
-    this fix, on top of Cash Flow Forecast's own doctypes never having been
-    added either.
+    v2.89.0 — what goes in is discovered from the installed doctypes of the
+    module (utils/backup_engine.py), not from a hand-kept list: a doctype added
+    by a future release is in the backup without anyone remembering to add it.
+    The registry (utils/config_backup_registry.py) only gives areas their
+    labels and order. Data areas (VAT adjustments, payment orders, bank slips,
+    cash-flow classifications, allocation head counts) are included too.
 
-    Carry the file to another site and restore it with import_configuration.
-    Account/department names are kept as-is (intended for the SAME company
-    / chart).
-
-    `sections` (optional): JSON list of doctype keys to include. When
-    omitted, every area is exported. Useful for partial backups from a test
-    environment.
+    `sections` (optional): JSON list of doctypes to include; omitted = all.
     """
     frappe.only_for("System Manager")
-    if not frappe.has_permission("Insight Report Definition", "read"):
-        frappe.throw("Not permitted to export Insight configuration.")
-
-    VOLATILE = {"creation", "modified", "modified_by", "owner", "docstatus", "idx",
-                "lft", "rgt", "_user_tags", "_comments", "_assign", "_liked_by",
-                "parent", "parentfield", "parenttype", "_seen"}
-
-    def _clean(doc):
-        if isinstance(doc, dict):
-            out = {}
-            for k, v in doc.items():
-                if k in VOLATILE:
-                    continue
-                if isinstance(v, list):
-                    out[k] = [_clean(x) for x in v]
-                else:
-                    out[k] = v
-            # child rows: drop their name too (parent insert re-creates)
-            return out
-        return doc
-
-    def _dump(dt):
-        rows = []
-        for r in frappe.get_all(dt, pluck="name"):
-            d = frappe.get_doc(dt, r).as_dict()
-            rows.append(_clean(d))
-        return rows
-
-    data = {}
-    for entry in CONFIG_REGISTRY:
-        dt = entry["doctype"]
-        if entry.get("is_single"):
-            try:
-                data[dt] = [_clean(frappe.get_doc(dt).as_dict())]
-            except Exception:
-                data[dt] = []
-        else:
-            data[dt] = _dump(dt)
-
-    # optional section filter (partial backup)
+    from neotec_insight.neotec_insight.utils.backup_engine import build_bundle
     sel = None
     if sections:
         try:
-            sel = set(frappe.parse_json(sections) if isinstance(sections, str) else sections)
+            sel = frappe.parse_json(sections) if isinstance(sections, str) else sections
         except Exception:
             sel = None
-    if sel:
-        data = {k: v for k, v in data.items() if k in sel}
-
-    counts = {k: len(v) for k, v in data.items()}
-    return {
-        "app": "neotec_insight",
-        "version": _app_version(),
-        "exported_at": frappe.utils.now(),
-        "site": frappe.local.site,
-        "sections": sorted(data.keys()),
-        "counts": counts,
-        "data": data,
-    }
+    return build_bundle(sel or None)
 
 
 @frappe.whitelist()
 def config_areas():
-    """The registry, grouped by area, for the backup UI's checkbox list —
-    replaces the frontend's own previously-hardcoded AREAS array. Adding a
-    doctype to CONFIG_REGISTRY now makes it appear here with no frontend
-    change needed."""
+    """Backup areas for the checkbox list, grouped, each with its doctypes,
+    kind (config/data) and whether it was added automatically."""
     _require_read()
-    areas: dict[str, list[str]] = {}
-    for entry in CONFIG_REGISTRY:
-        areas.setdefault(entry["area"], []).append(entry["doctype"])
-    return [{"label": label, "doctypes": doctypes} for label, doctypes in areas.items()]
+    from neotec_insight.neotec_insight.utils.backup_engine import live_plan
+    areas: dict[str, dict] = {}
+    for entry in live_plan():
+        a = areas.setdefault(entry["area"], {"label": entry["area"], "doctypes": [],
+                                             "kind": entry.get("kind", "config"),
+                                             "auto": False})
+        a["doctypes"].append(entry["doctype"])
+        a["auto"] = a["auto"] or bool(entry.get("auto"))
+    return list(areas.values())
 
 
 @frappe.whitelist()
 def check_config_backup_coverage():
-    """Live diagnostic: every Insight doctype (module='Neotec Insight',
-    not a child table) against CONFIG_REGISTRY and EXCLUDED_FROM_CONFIG_
-    BACKUP. `unaccounted` should always be empty — the same check runs as
-    tests/test_config_backup_registry.py against the doctype/ folder
-    directly, so a real gap should already have been caught before this
-    ever reaches a live site; this endpoint is for confirming that on an
-    actual installed site, including any custom doctypes a specific
-    deployment might have added outside this app's own source."""
+    """Every Insight doctype (module='Neotec Insight', not a child table)
+    against the registry. Since v2.89.0 an unlabelled doctype is still backed
+    up (under "Other (added automatically)"); `unaccounted` lists those so they
+    can be given a proper label, and `plan` is exactly what an export carries."""
     frappe.only_for("System Manager")
+    from neotec_insight.neotec_insight.utils.backup_engine import live_plan
     live = frappe.get_all("DocType", filters={"module": "Neotec Insight", "istable": 0}, pluck="name")
-    return compute_coverage(live)
+    out = compute_coverage(live)
+    out["plan"] = [{k: e.get(k) for k in ("doctype", "area", "kind", "auto", "is_single")}
+                   for e in live_plan()]
+    out["excluded_reasons"] = {k: v for k, v in EXCLUDED_FROM_CONFIG_BACKUP.items()}
+    return out
 
 
 @frappe.whitelist()
 def config_section_counts():
-    """Record count per Insight configuration area, for the backup selector."""
+    """Record count per backed-up doctype, for the backup selector."""
     _require_read()
-    out = {}
-    for entry in CONFIG_REGISTRY:
-        dt = entry["doctype"]
-        try:
-            if entry.get("is_single"):
-                out[dt] = 1 if frappe.db.exists(dt, dt) else 0
-            else:
-                out[dt] = frappe.db.count(dt)
-        except Exception:
-            out[dt] = 0
-    return out
-
-
-# Non-Single doctypes, in registry order — parents/targets before the
-# records that link to them, same ordering guarantee _IMPORT_ORDER used to
-# provide as its own separately-maintained list. Derived from CONFIG_
-# REGISTRY now so there's exactly one place to add a new doctype, not two.
-_IMPORT_ORDER = [e["doctype"] for e in CONFIG_REGISTRY if not e.get("is_single")]
-_SINGLE_DOCTYPES = [e["doctype"] for e in CONFIG_REGISTRY if e.get("is_single")]
+    from neotec_insight.neotec_insight.utils.backup_engine import current_counts
+    return current_counts()
 
 
 def _app_version():
@@ -2332,95 +2257,31 @@ def _app_version():
         return ""
 
 
-def _doctypes_to_clear(data: dict) -> list[str]:
-    """Registry doctypes a replace-import may clear: only those present in the bundle."""
-    return [dt for dt in _IMPORT_ORDER if dt in (data or {})]
-
-
 @frappe.whitelist()
-def import_configuration(payload=None, mode="replace"):
-    """Restore an Insight configuration bundle produced by export_configuration.
+def import_configuration(payload=None, mode="replace", sections=None, allow_partial=0):
+    """Restore a bundle produced by export_configuration (or a snapshot).
 
-    mode='replace' (default) clears existing Insight config first (children
-    before parents) then inserts the bundle — an exact restore onto an empty
-    or stale site. mode='merge' inserts/updates without clearing. Each record
-    is wrapped in its own try/except so one bad link never aborts the whole
-    restore; a per-doctype summary of inserted/updated/failed is returned.
+    v2.89.0:
+    * A snapshot of the current state is taken first, so any restore can be
+      undone from Backup > Snapshots.
+    * All-or-nothing: if any record fails, nothing is changed (rolled back) and
+      the errors are returned. allow_partial=1 keeps what succeeded instead.
+    * replace updates matching records in place and deletes only records of
+      the bundle's own doctypes that the bundle does not hold; doctypes the
+      bundle does not carry are never touched.
+    * Doctypes this site does not have are skipped and listed, not fatal.
     """
     frappe.only_for("System Manager")
-    if isinstance(payload, str):
-        payload = json.loads(payload)
+    from neotec_insight.neotec_insight.utils.backup_engine import bundle_from_json, restore_bundle
+    from neotec_insight.neotec_insight.utils import snapshots
+    payload = bundle_from_json(payload)
     if not payload or "data" not in payload:
         frappe.throw("Invalid configuration bundle.")
-    data = payload["data"]
-
-    summary = {"inserted": {}, "failed": {}, "errors": [], "from_version": payload.get("version", "")}
-
-    # 1) Replace mode: clear existing config (children/dependents first).
-    if mode == "replace":
-        # v2.88.9 — only clear what the bundle actually carries. Clearing every
-        # registry doctype wiped areas the bundle knew nothing about (e.g.
-        # Allocation Rules, added to the registry in 2.87.3, when restoring an
-        # older bundle) and then restored nothing in their place.
-        for dt in reversed(_doctypes_to_clear(data)):
-            try:
-                for nm in frappe.get_all(dt, pluck="name"):
-                    frappe.delete_doc(dt, nm, force=1, ignore_permissions=True)
-            except Exception as e:
-                summary["errors"].append(f"clear {dt}: {e}")
-
-    # 2) Insert records in dependency order.
-    for dt in _IMPORT_ORDER:
-        ins = 0
-        for raw in (data.get(dt) or []):
-            try:
-                d = dict(raw)
-                d["doctype"] = dt
-                existing_name = None
-                if mode == "merge":
-                    # Match by meaning first where names are random hashes
-                    # (allocation entries), else by name.
-                    nk = natural_key(dt, d)
-                    if nk:
-                        existing_name = frappe.db.get_value(dt, nk, "name")
-                    if not existing_name and d.get("name") and frappe.db.exists(dt, d["name"]):
-                        existing_name = d["name"]
-                if existing_name:
-                    existing = frappe.get_doc(dt, existing_name)
-                    existing.update({k: v for k, v in d.items() if k not in ("doctype", "name")})
-                    existing.save(ignore_permissions=True)
-                else:
-                    doc = frappe.get_doc(d)
-                    doc.insert(ignore_permissions=True, set_name=d.get("name"))
-                ins += 1
-            except Exception as e:
-                summary["failed"][dt] = summary["failed"].get(dt, 0) + 1
-                if len(summary["errors"]) < 60:
-                    summary["errors"].append(f"{dt} [{raw.get('name', '?')}]: {e}")
-        summary["inserted"][dt] = ins
-
-    # 3) Single doctypes — every one in the registry, not just AI Settings.
-    # The old version of this function only ever handled AI Settings by
-    # name; Insight Menu Settings and Insight Cash Flow Settings (both
-    # Singles) would have silently never restored, the same class of
-    # silent gap the registry itself exists to close.
-    for dt in _SINGLE_DOCTYPES:
-        rows = data.get(dt) or []
-        if not rows:
-            continue
-        try:
-            doc = frappe.get_doc(dt)
-            src = dict(rows[0])
-            for k in ("doctype", "name"):
-                src.pop(k, None)
-            doc.update(src)
-            doc.save(ignore_permissions=True)
-            summary["inserted"][dt] = 1
-        except Exception as e:
-            summary["errors"].append(f"{dt}: {e}")
-
-    frappe.db.commit()
-    return summary
+    sel = frappe.parse_json(sections) if isinstance(sections, str) and sections else sections
+    pre = snapshots.guard("pre_restore", label=f"Before {mode} restore of a v{payload.get('version') or '?'} bundle")
+    out = restore_bundle(payload, mode=mode, sections=sel or None, atomic=not cint(allow_partial))
+    out["pre_restore_snapshot"] = pre
+    return out
 
 
 

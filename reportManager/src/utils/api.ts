@@ -255,9 +255,29 @@ export const api = {
   exportConfiguration: (sections?: string[]) =>
     call<any>('report.export_configuration', sections && sections.length ? { sections: JSON.stringify(sections) } : {}),
   configSectionCounts: () => call<any>('report.config_section_counts'),
-  configAreas: () => call<{ label: string; doctypes: string[] }[]>('report.config_areas'),
-  importConfiguration: (payload: any, mode: 'replace' | 'merge' = 'replace') =>
-    call<any>('report.import_configuration', { payload: JSON.stringify(payload), mode }, 'POST'),
+  configAreas: () => call<{ label: string; doctypes: string[]; kind?: string; auto?: boolean }[]>('report.config_areas'),
+  importConfiguration: (payload: any, mode: 'replace' | 'merge' = 'merge', allowPartial = false) =>
+    call<any>('report.import_configuration',
+      { payload: JSON.stringify(payload), mode, allow_partial: allowPartial ? 1 : 0 }, 'POST'),
+  configBackupCoverage: () => call<any>('report.check_config_backup_coverage'),
+  // v2.89.5 — Backup → Recover
+  recoveryReportVersions: (report: string) => call<any>('recovery.report_versions', { report }),
+  recoveryRestoreReport: (report: string, versionId: string) =>
+    call<any>('recovery.restore_report_version', { report, version_id: versionId }, 'POST'),
+  recoveryDeletedSummary: () => call<any[]>('recovery.deleted_summary'),
+  recoveryDeletedList: (doctype: string) => call<any[]>('recovery.deleted_list', { doctype }),
+  recoveryRestoreDeleted: (names: string[], onConflict: 'skip' | 'replace') =>
+    call<any>('recovery.restore_deleted', { names: JSON.stringify(names), on_conflict: onConflict }, 'POST'),
+  // v2.89.0 — automatic snapshots
+  snapshotList: () => call<{ ready: boolean; rows: any[] }>('backup.list_snapshots'),
+  snapshotTake: (label?: string) => call<any>('backup.take_snapshot', { label: label || '' }, 'POST'),
+  snapshotBundle: (name: string) => call<any>('backup.snapshot_bundle', { name }),
+  snapshotCompare: (name: string) => call<any>('backup.compare_snapshot', { name }),
+  snapshotRestore: (name: string, mode: 'merge' | 'replace', allowPartial = false) =>
+    call<any>('backup.restore_snapshot', { name, mode, allow_partial: allowPartial ? 1 : 0 }, 'POST'),
+  snapshotPin: (name: string, pinned: boolean) =>
+    call<any>('backup.pin_snapshot', { name, pinned: pinned ? 1 : 0 }, 'POST'),
+  snapshotDelete: (name: string) => call<any>('backup.delete_snapshot', { name }, 'POST'),
 
   // ── Report Studio (no-code BI) ──
   studioListSources: (search = '') => call<any[]>('studio.list_sources', { search }),
@@ -823,6 +843,10 @@ export const api = {
     call<any>('allocation.reattach_entries', { from_rule, to_rule }, 'POST'),
   allocationRestoreEntries: (rule: string) =>
     call<any>('allocation.restore_deleted_entries', { rule }, 'POST'),
+  allocationImportHeadCounts: (rule: string, year: number, text: string, overwrite: boolean, dryRun: boolean,
+    basis: 'head_count' | 'amount' = 'head_count') =>
+    call<any>('allocation.import_head_counts',
+      { rule, year, text, overwrite: overwrite ? 1 : 0, dry_run: dryRun ? 1 : 0, basis }, 'POST'),
   allocationSetExcluded: (rule: string, cost_center: string, excluded: boolean, reason?: string) =>
     call<any>('allocation.set_cc_excluded',
       { rule, cost_center, excluded: excluded ? 1 : 0, reason: reason || '' }, 'POST'),
@@ -842,12 +866,32 @@ export const api = {
   allocationGrid: (rule: string, year: number, company?: string | null) =>
     call<any>('allocation.get_grid', { rule, year, company: company || null }),
   allocationSaveGrid: (rule: string, year: number, company: string | null, cells: any,
-                       manual_pool: any, basis: any, remove?: string[]) =>
+                       manual_pool: any, basis: any, remove?: string[],
+                       loadedCount?: number | null, confirmBulk?: boolean) =>
     call<any>('allocation.save_grid', {
       rule, year, company: company || null,
       cells: JSON.stringify(cells || {}), manual_pool: JSON.stringify(manual_pool || {}),
       basis: JSON.stringify(basis || {}), remove: JSON.stringify(remove || []),
+      // v2.89.0 — lets the server refuse a grid that is out of date.
+      loaded_count: loadedCount ?? '', confirm_bulk: confirmBulk ? 1 : 0,
     }, 'POST'),
+  // v2.89.0 — recover a rule's entries from an automatic snapshot.
+  allocationSnapshotCandidates: (rule: string, year?: number | null) =>
+    call<any>('allocation.snapshot_candidates', { rule, year: year || null }),
+  allocationRestoreFromSnapshot: (rule: string, snapshot: string, year: number | null,
+                                  overwrite: boolean, dryRun: boolean) =>
+    call<any>('allocation.restore_from_snapshot', {
+      rule, snapshot, year: year || '', overwrite: overwrite ? 1 : 0, dry_run: dryRun ? 1 : 0,
+    }, 'POST'),
+  // v2.89.3 — diagnosis and moving figures between years.
+  allocationDiagnose: (rule: string, year: number, company?: string | null) =>
+    call<any>('allocation.diagnose', { rule, year, company: company || null }),
+  allocationMoveYear: (rule: string, fromYear: number, toYear: number, overwrite: boolean) =>
+    call<any>('allocation.move_entries_year',
+      { rule, from_year: fromYear, to_year: toYear, overwrite: overwrite ? 1 : 0 }, 'POST'),
+  // v2.89.2 — point the rule at a different row of its pool report.
+  allocationSetPoolRow: (rule: string, key: string) =>
+    call<any>('allocation.set_pool_row', { rule, key }, 'POST'),
   allocationRun: (rule: string, year: number, company?: string | null) =>
     call<any>('allocation.run', { rule, year, company: company || null }),
 

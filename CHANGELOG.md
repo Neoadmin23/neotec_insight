@@ -1,3 +1,195 @@
+## v2.89.5 — 2026-10-13
+
+### Found: why the report rows, the pool and the allocation all went together
+
+On the affected site, `consolidated-p-and-l` is now, row for row, the stock preset the app ships: it ends at *Net income = ebitda - total_below*. The rows the site had added are gone: *Total Expenses* (`fml_5aew2`, the GMO pool row), *Net Operating Income (Before Allocation)*, *GMO Allocation* (`alc_zorb3`), *Sales & Marketing Allocation* (`alc_xttqu`), and the allocation terms in Net income. A report linked from allocation rules, account mappings and budgets cannot be deleted normally, so it was force-deleted. The likeliest path is the backup Replace-import in v2.88.x:
+
+1. It deleted the report first and re-inserted it from the file, and kept going when an insert failed. That gap was closed in v2.89.0.
+2. The next migrate's preset sync found the slug free and re-created the stock preset under the same name.
+
+Without the pool row the allocation had nothing to spread.
+
+### Added: Backup → Recover
+
+- **Report versions.** Every earlier version of a report is collected from three places: its version history (every saved change keeps the previous definition), deleted copies in the Deleted Document log, and automatic snapshots.
+  - Each version shows its row count, allocation rows, which pool rows it holds or lacks, and its last formula.
+  - The version that still holds the rows the allocation rules read their pool from is listed first (★).
+  - One click puts it back over the current report, after a snapshot of the current one.
+- **Deleted records.** Every deleted, not-yet-restored record of every Insight doctype (allocation entries, account mappings, rules, budgets …) is listed by type with counts. Selected records can be restored. A record whose name is in use again is skipped, or written over if you choose.
+- **Diagnose:** when the pool row is missing and an earlier version of the report still has it, Diagnose now offers **Restore this version** before suggesting another row.
+- **Endpoints:** `recovery.report_versions`, `recovery.restore_report_version`, `recovery.deleted_summary`, `recovery.deleted_list`, `recovery.restore_deleted` (System Manager only).
+
+### Fixed: the stock preset no longer re-creates itself over a deleted report
+
+A preset is installed once. If the site had the report and it was deleted, after_migrate now leaves it missing and writes an Error Log entry pointing to Backup → Recover. It no longer puts the shipped original in its place without a trace.
+
+10 new tests replay the loss end to end: custom report, forced delete, stock preset re-seeded, then version found, restored and the pool readable again. 409 total.
+
+## v2.89.4 — 2026-10-13
+
+### Fixed: Paste figures looked filled in but was empty
+
+The grey example in the text box (`Audit & GRC,8,8…` / `GMO,16,16…`) looked like real figures, so it was taken for pasted data. The box was in fact empty, which kept Check and Import disabled. Import was also disabled until a separate Check had run, and the screen never said so.
+
+- **Example:** it now begins "Example — type or paste over this", uses neutral cost centres, and the window says when the box is empty.
+- **One step:** **Import** checks first, then imports only if every line matched a cost centre. Otherwise it lists the unmatched names and writes nothing.
+
+### Fixed: the Diagnose window drew transparent over the page
+
+It used class names that were not in the stylesheet. It now uses the same window style as Paste figures. A new test checks that every class used by the allocation and backup windows exists in the CSS.
+
+### Improved: picking the pool row
+
+Each row in the pool-row picker now shows its January and year-to-date figures, with rows that have figures listed first, so the right row can be recognised by its numbers. The same applies on the Report warning and in Diagnose.
+
+2 new tests; 400 total.
+
+## v2.89.3 — 2026-10-13
+
+### Fixed: figures shown on Data entry but missing from the Report
+
+The Report counted only allocation entries stamped with the company picked at the top of the screen; the Data entry grid counted all of the rule's entries. Any entry carrying a different company — restored, pasted or captured under another selection — appeared on the grid and was silently left out of the allocation. An entry belongs to its rule, and the rule to one company, so the Report now reads by rule only (`utils/allocation.load_entries`).
+
+### Added: Diagnose — where did the allocation go?
+
+A **Diagnose** button beside Run, also on the "no entries" warning, checks every link the Report depends on and offers a fix where one is broken:
+
+| Check | Fix offered |
+|---|---|
+| Rule exists and is active; screen company vs the rule's company | — |
+| Figures stored for the year: count, cost centres, head-count total, amount total | Paste figures |
+| Figures stored under an impossible year (e.g. 202 — saved while the Year box was half typed in v2.88.x) | Move to this year |
+| Figures stored in another year while this year is empty | Move to this year |
+| Figures carrying another company | Counted anyway (explained) |
+| Figures on excluded cost centres | Listed (ignored by design) |
+| The pool: found and how much, or why not | Pick the row |
+| The computed result: amount charged to cost centres, and months with a pool but no head count | — |
+| Snapshots holding this year's figures; deleted entries that can be restored | Find my data |
+
+- **Move between years:** new endpoint `allocation.move_entries_year`. It takes a snapshot first, keeps target months already filled unless told otherwise, and never touches frozen months.
+- **Endpoint:** `allocation.diagnose`.
+
+7 new tests; 398 total.
+
+## v2.89.2 — 2026-10-13
+
+### Fixed: the Allocation grid lost its cost centres along with the figures
+
+The grid built its rows only from stored figures, so when GMO Allocations' entries were gone, all seven cost centres (Audit & GRC … Main) went with them. There was nothing left to type into.
+
+- **The rule remembers its layout:** which cost centres it has and which table each is on (head count or amount). The layout is stored on the rule in a new hidden field, `layout_json`, which is also in every backup.
+- **Seeded automatically:** the first time a grid opens, the layout is built from every entry the rule has ever had, in any year.
+- **Kept up to date:** Save, Paste figures, Capture from HR and snapshot restore all update it. Removing a row with × takes it off.
+- **Rows survive missing figures:** they show with blank cells in a new year or after a loss. Excluded cost centres stay hidden.
+- **The "no entries stored" warning now depends on stored figures,** not on visible rows. It also tells you the rows are there to fill.
+
+### Fixed: an empty pool now says why
+
+Pool 0 in every month ("no pool") looked the same whatever the cause. The screen now names the cause:
+
+| Cause | What the screen shows |
+|---|---|
+| The pool report could not be run | The error (also logged) |
+| The row key is no longer in the report — usually because the report was rebuilt or re-imported, which gives rows new keys | A searchable list of the report's rows and **Use this row**; the choice is stored with its label |
+| The row was found but is zero for that cost centre and year | That |
+| The report or the row setting is missing | That |
+
+The rule also stores the chosen row's label (new field `pool_row_label`). If a later rebuild changes the key again, the pool is found by label and the key is updated on its own.
+
+`_pool_from_report_row` keeps its signature for the P&L engine. The new `_pool_with_status` returns the reason as well. New endpoint: `allocation.set_pool_row`.
+
+Patch `v2_89.allocation_rule_layout_fields` adds the two fields. 14 new tests, including pasting the original IRSAA head counts and the Main amounts by cost-centre name; 391 total.
+
+## v2.89.1 — 2026-10-13
+
+### Fixed: snapshot and recovery reads were heavy enough to tie up database connections
+
+Reported as `OperationalError (1040, 'Too many connections')` while opening a Deleted Document. 1040 is the database server's connection limit, so the request that fails is whichever one arrives when the server is full. Two things this app added made it likelier:
+
+- **The backup export read records one at a time:** one query per record plus one per child table. Harmless for an occasional manual export, but from v2.89.0 the export also runs automatically (daily, before every restore, before bulk allocation changes). On a site with tens of thousands of budget cells or flag mappings, one snapshot kept a connection busy for minutes while other requests queued behind it. It now reads each doctype in bulk: one query for the records and one per child table, whatever the record count. A test pins it at under 15 queries for 328 records.
+- **"Find my data" (allocation recovery)** read up to 5,000 full Deleted Document records on every open and every "Check again". It now reads only those that mention the rule.
+- **The daily snapshot runs on the long-job queue** (`daily_long`), so it never competes with the short jobs that keep the site responsive.
+
+Bundles are unchanged in format; v2.89.0 bundles and snapshots restore as before. 1 new test; 377 total.
+
+## v2.89.0 — 2026-10-13
+
+### Fixed for good: allocation figures can no longer disappear without a way back
+
+GMO Allocations lost its head-count and amount entries. The exact event could not be reconstructed from the code, but the review found every path that could remove or hide them without a trace. All are closed, and an automatic safety net now sits underneath.
+
+**Figures that looked lost but were not.** The Year box reloaded on every keystroke, so typing 2026 also requested years 2, 20 and 202. Whichever reply arrived last won: an empty year-202 grid could land on the 2026 screen and raise the "no entries" warning while the figures were still in the database. The box now commits only a complete four-digit year, and every grid and report load carries a sequence number so a late reply is discarded. Rule and company switches get the same protection.
+
+**Save can no longer erase figures unnoticed** (`utils/allocation_guard.py`, `allocation.save_grid`):
+- Refused if the rule-year changed since the grid was loaded (`get_grid` returns `entry_count`, the screen sends it back). An empty or out-of-date grid cannot be saved over real figures.
+- Frozen months are never changed or deleted by a Save. They show greyed and read-only, and are reported if touched.
+- More than one row's worth of deletions caused by blank cells needs an explicit confirmation.
+- Typing over a captured head count sets *Manually Overridden*, so the next capture keeps it. Typing the captured value back clears it.
+- Unchanged rows are not rewritten.
+- A snapshot of the rule's entries is taken before anything is deleted or overridden.
+- `Insight Allocation Entry` now keeps full version history (`track_changes`).
+
+**Capture from HR leaves Amount rows alone.** A cost centre on the Amount table (e.g. Main at 45,000) is no longer given a head count by a capture. It shows as "amount table — not captured".
+
+### Added: automatic snapshots (`Insight Backup Snapshot`)
+
+A compressed copy of everything Insight holds is kept on the site and restorable in one click from **Backup → Snapshots**.
+
+- **When they are taken:**
+  - daily, skipped when nothing changed;
+  - before every `bench migrate`;
+  - before every restore;
+  - before bulk allocation changes (save with deletions or overrides, capture, paste-overwrite).
+- **Retention:** 30 daily, 20 pre-migrate, 20 pre-restore, 60 pre-change and 50 manual snapshots are kept. Pinned snapshots are never removed.
+- **Loss alert:** every full snapshot compares record counts with the previous one. A table that empties, or loses half its rows, puts ⚠ on the snapshot and writes an Error Log. After every migrate the counts are checked against the pre-migrate snapshot.
+- **First upgrade:** the table does not exist yet during the first migrate onto 2.89.0, so that snapshot is written as a private file and adopted into the table by `after_migrate`.
+- **Recovery from the Allocation tab:** "Find my data" now lists the snapshots holding the rule's entries. You can check what a restore would add, then restore. Missing entries are added, existing ones are kept and frozen ones are never touched. If the rule itself is gone it is restored too (`allocation.snapshot_candidates`, `allocation.restore_from_snapshot`).
+- **Endpoints** (`api/backup.py`, all System Manager only): list, take, download, compare with now, restore (merge/replace), pin, delete.
+
+### Changed: the backup covers everything, including features not yet written
+
+- **Discovered, not listed.** The export is built from the installed doctypes of the module. The registry now only labels and orders areas. Any doctype a future release adds goes in under "Other (added automatically)" the day it ships.
+- **Data is part of the backup.** VAT Adjustments, Payment Orders, Bank Slips and Cash Flow classifications (Overrides) were previously excluded; they are now included as data areas. Only the snapshot store itself is excluded, since nesting snapshots would double every backup.
+- **Restore order is derived from Link/Table fields,** including links held in child tables, so a record is never restored before what it points to.
+- **Restore is all-or-nothing.** Any failing record rolls the whole restore back and the screen says so; `allow_partial=1` keeps what succeeded. A snapshot is taken before every restore.
+- **Replace keeps record history.** It updates matching records in place and deletes only records of the bundle's own doctypes that the bundle does not hold, so attachments, comments and version history survive. Doctypes the bundle does not carry are never touched.
+- **Older bundles still restore.** Doctypes in a bundle that this site lacks are skipped and listed, not fatal.
+- **Backup screen:**
+  - three tabs: Export / Import, Snapshots, Coverage;
+  - Merge (now the default) or Replace on import;
+  - a "Setup only (no data)" shortcut for sandbox exports;
+  - the Coverage tab lists every doctype backed up and the reason for each exclusion.
+
+### Health check (full report: `docs/HEALTH_CHECK_v2.89.0.md`)
+
+- Seven Cash Flow Forecast doctype folders had no `__init__.py`. They imported only as implicit namespace packages, which a non-editable install can drop. Added.
+- No compile errors, no undefined names, every doctype JSON valid with matching controller, every child table reference valid, every hook path resolvable. All frontend API calls resolve to a whitelisted backend method; this check is now a test. Typecheck clean against baseline; build reproducible.
+
+### Tests
+
+64 new; 376 total, all green.
+- `test_v2_89_data_safety.py`: backup plan covers every doctype, link order, snapshot helpers, save planner, endpoint cross-check.
+- `test_v2_89_end_to_end.py`: export, merge, replace, rollback, snapshots, migrate hooks, guarded save and snapshot recovery, run end to end against an in-memory site (`tests/_fakefrappe.py`) with real commit/rollback.
+
+### Upgrade
+
+Push to GitHub; Frappe Cloud migrates. The patch `v2_89.install_snapshot_store` creates the snapshot store. A first snapshot is taken on that migrate.
+
+## v2.88.14 — 2026-10-13
+
+- The paste importer can write the **Amount** table as well as Head count (a radio in the dialog; `import_head_counts(..., basis="amount")`), so fixed amounts such as Main at 45,000 a month can be restored. The button is now "Paste figures".
+
+## v2.88.13 — 2026-10-13
+
+### Added: paste head counts into an allocation rule
+
+The head-count entries for GMO Allocations were gone from the database (nothing under another rule name, nothing in the Deleted Document log), so they have to be re-entered.
+
+- New "Paste head counts" button on Allocation > Data entry, and next to "Find my data" on the missing-entries warning (`allocation.import_head_counts`). One cost centre per line: name, then Jan..Dec, comma or tab separated, so a copy from Excel works.
+- Cost centres are matched by name, ignoring case and spacing around hyphens, against the display name, the full name and the name without its company suffix. Unmatched or ambiguous names are listed and skipped.
+- Blank months are skipped (so they can be filled by Capture from HR); frozen entries are never touched; existing values are only replaced when ticked; "Check" shows the result before anything is written.
+- 10 new tests; 312 total.
+
 ## v2.88.12 — 2026-10-13
 
 ### Added: find and recover head-count entries when a rule's grid is empty

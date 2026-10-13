@@ -29,6 +29,18 @@ def sync_default_app_report_presets() -> None:
             continue
         if frappe.db.exists("Insight Report Definition", {"slug": slug}):
             continue
+        # v2.89.5 — a preset is installed once. If this site had the report
+        # and it was deleted, re-creating the stock preset under the same name
+        # silently replaced a customised report with the shipped original:
+        # rows added since (Total Expenses, allocation rows) vanished and
+        # nothing said so. Leave it missing and say where to restore it from.
+        if _was_deleted(slug):
+            frappe.log_error(
+                title=f"Insight: report {slug} was deleted — preset not re-created",
+                message=(f"The report '{slug}' existed on this site and was deleted. The stock "
+                         "preset was NOT installed over it, so a customised version is not "
+                         "hidden. Restore it from Insight > Backup > Recover > Report versions."))
+            continue
         doc = frappe.new_doc("Insight Report Definition")
         doc.report_name = preset.get("report_name") or slug
         doc.slug = slug
@@ -43,3 +55,11 @@ def sync_default_app_report_presets() -> None:
         doc.column_schema_json = json.dumps(preset.get("columns", []), indent=2, sort_keys=True)
         doc.filter_schema_json = json.dumps(preset.get("filters", []), indent=2, sort_keys=True)
         doc.insert(ignore_permissions=True)
+
+
+def _was_deleted(slug: str) -> bool:
+    try:
+        return bool(frappe.db.exists("Deleted Document", {
+            "deleted_doctype": "Insight Report Definition", "deleted_name": slug}))
+    except Exception:
+        return False
