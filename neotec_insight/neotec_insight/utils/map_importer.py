@@ -248,12 +248,10 @@ def apply_map_to_report(
                 fields=["name", "account"], limit_page_length=0)
                 if m["account"] not in seen_in_this_run]
             if stale:
-                try:
-                    from neotec_insight.neotec_insight.utils import snapshots
-                    snapshots.guard("pre_change", sections=["Account Flag Mapping"],
-                                    label=f"Before replacing the account map of {report_name}")
-                except Exception:
-                    pass
+                # v2.90.0 — required: no mapping is removed without a snapshot.
+                from neotec_insight.neotec_insight.utils import snapshots
+                snapshots.guard("pre_change", sections=["Account Flag Mapping"],
+                                label=f"Before replacing the account map of {report_name}", required=True)
                 for nm in stale:
                     frappe.delete_doc("Account Flag Mapping", nm, ignore_permissions=True, force=1)
                     removed += 1

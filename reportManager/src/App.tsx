@@ -129,7 +129,7 @@ function foldLegacyPerformance(sections: MenuSectionCfg[]): MenuSectionCfg[] {
     const sec = sections.find((s) => s.key === k)!;
     const have = (sec.tabs || []).map((tb) => tb.ws);
     const want = LEGACY_PERF[k];
-    if (have.length !== want.length || want.some((w) => !have.includes(w))) return sections;
+    if (have.length !== want.length || want.some((w) => !(have as string[]).includes(w))) return sections;
   }
   const merged: MenuSectionCfg = {
     key: PERFORMANCE_KEY,

@@ -27,10 +27,11 @@ import frappe
 from frappe.utils import cint
 
 
-# Cache the resolved fiscal-year start month per company so we don't hit the
-# DB for every report run. Cleared if the admin changes the company's year
-# start in ERPNext (which is rare).
-_company_fy_start_month_cache: dict[str, int] = {}
+# v2.90.0 — cached per site (utils/site_cache.py), not in a process-wide dict
+# keyed by company name: that dict was shared across sites served by the same
+# worker and an edit cleared it in one worker only.
+def _fy_key(company: str) -> str:
+    return f"fy_start:{company}"
 
 
 def get_company_fy_start_month(company: str | None, override: int | None = None) -> int:
@@ -62,8 +63,11 @@ def get_company_fy_start_month(company: str | None, override: int | None = None)
             pass
     if not company:
         return 1
-    if company in _company_fy_start_month_cache:
-        return _company_fy_start_month_cache[company]
+    from neotec_insight.neotec_insight.utils.site_cache import cached
+    return int(cached(_fy_key(company), lambda: _read_fy_start_month(company)))
+
+
+def _read_fy_start_month(company: str) -> int:
     try:
         yr_start = frappe.db.get_value("Company", company, "year_start_date")
         if yr_start:
@@ -71,11 +75,9 @@ def get_company_fy_start_month(company: str | None, override: int | None = None)
                 yr_start = datetime.date.fromisoformat(yr_start[:10])
             m = int(yr_start.month)
             if 1 <= m <= 12:
-                _company_fy_start_month_cache[company] = m
                 return m
     except Exception:
         pass
-    _company_fy_start_month_cache[company] = 1
     return 1
 
 
@@ -83,11 +85,12 @@ def clear_company_fy_cache(company: str | None = None) -> None:
     """Invalidate the company fiscal-year cache. Called from a hook on
     Company-doc save so admins editing their fiscal year see the change
     on the next report run."""
-    global _company_fy_start_month_cache
+    from neotec_insight.neotec_insight.utils.site_cache import invalidate
     if company:
-        _company_fy_start_month_cache.pop(company, None)
+        invalidate(_fy_key(company))
     else:
-        _company_fy_start_month_cache.clear()
+        for c in frappe.get_all("Company", pluck="name"):
+            invalidate(_fy_key(c))
 
 
 def fiscal_year_bounds(company: str | None, fiscal_year: int | str, fy_start_month_override: int | None = None) -> Tuple[datetime.date, datetime.date]:

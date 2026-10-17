@@ -22,20 +22,9 @@ _AGGS = {"sum", "avg", "min", "max", "count"}
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 def _load(slug):
@@ -80,7 +69,7 @@ def list_datasets():
     return [r for r in rows if _can_read(r["base_doctype"])]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_dataset(dataset=None):
     """Create/update a dataset. config = { measures, dimensions, filters }."""
     if isinstance(dataset, str):
@@ -125,7 +114,7 @@ def load_dataset(slug=None):
             "config": {"measures": measures, "dimensions": dimensions, "filters": base_filters}}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_dataset(slug=None):
     if not frappe.has_permission("Insight Dataset", "delete"):
         frappe.throw(_("Not permitted."))
@@ -246,7 +235,7 @@ def list_schedules(report=None):
                           order_by="modified desc", limit_page_length=100)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_schedule(schedule=None):
     if isinstance(schedule, str):
         schedule = json.loads(schedule or "{}")
@@ -255,6 +244,14 @@ def save_schedule(schedule=None):
     report = schedule.get("report")
     if not report or not frappe.db.exists("Studio Report", report):
         frappe.throw(_("Pick a saved Studio report to schedule."))
+    # v2.90.0 — a schedule runs with the permissions of whoever saves it, so
+    # saving it is checked as that person: they must be able to run the
+    # report now, and recipients must pass the site's recipient policy.
+    from neotec_insight.neotec_insight.utils.scheduled_reports import (
+        check_recipients, preflight_as_current_user,
+    )
+    preflight_as_current_user(report)
+    check_recipients(schedule.get("recipients") or "", schedule.get("whatsapp_numbers") or "")
     name = schedule.get("name")
     doc = frappe.get_doc("Insight Report Schedule", name) if name and \
         frappe.db.exists("Insight Report Schedule", name) else \
@@ -268,12 +265,13 @@ def save_schedule(schedule=None):
     doc.whatsapp_numbers = schedule.get("whatsapp_numbers") or ""
     doc.file_format = schedule.get("file_format") or "XLSX"
     doc.subject = schedule.get("subject") or ""
+    doc.run_as = frappe.session.user
     doc.save(ignore_permissions=True)
     frappe.db.commit()
     return {"name": doc.name}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_schedule(name=None):
     if not frappe.has_permission("Insight Report Schedule", "delete"):
         frappe.throw(_("Not permitted."))
@@ -283,7 +281,7 @@ def delete_schedule(name=None):
     return {"ok": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def run_schedule_now(name=None):
     """Manual trigger — same code path as the scheduler, for testing."""
     from neotec_insight.neotec_insight.utils.scheduled_reports import dispatch_schedule

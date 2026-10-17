@@ -104,7 +104,8 @@ export default function StatementImport() {
           </div>
           {result && (
             <div style={{ marginTop: 12, background: '#eef7ef', color: '#15803d', padding: '8px 12px', borderRadius: 6 }}>
-              {t('Created')} {result.created_count} {t('bank transaction(s)')}{result.skipped ? ` · ${t('skipped')} ${result.skipped} ${t('(already imported)')}` : ''}.
+              {t('Submitted')} {result.created_count} {t('bank transaction(s)')}{result.skipped ? ` · ${t('skipped')} ${result.skipped} ${t('(already imported)')}` : ''}{result.retried?.length ? ` · ${result.retried.length} ${t('earlier drafts now submitted')}` : ''}.
+              <ImportProblems result={result} />
               <span className="text-muted"> {t('Reconciliation matching is the next step.')}</span>
             </div>
           )}
@@ -189,7 +190,8 @@ export default function StatementImport() {
 
           {result && (
             <div style={{ marginTop: 12, background: '#eef7ef', color: '#15803d', padding: '8px 12px', borderRadius: 6 }}>
-              {t('Created')} {result.created_count} {t('bank transaction(s)')}{result.skipped ? ` · ${t('skipped')} ${result.skipped} ${t('(already imported)')}` : ''}.
+              {t('Submitted')} {result.created_count} {t('bank transaction(s)')}{result.skipped ? ` · ${t('skipped')} ${result.skipped} ${t('(already imported)')}` : ''}{result.retried?.length ? ` · ${result.retried.length} ${t('earlier drafts now submitted')}` : ''}.
+              <ImportProblems result={result} />
               <span className="text-muted"> {t('Reconciliation matching against your entries comes next.')}</span>
             </div>
           )}
@@ -234,6 +236,35 @@ function BankPicker({ preview, bankAccount, setBankAccount, bankQ, bankRows, sea
               <b>{r.account_name || r.name}</b><span className="text-muted"> · {r.bank}{r.bank_account_no ? ' · ' + r.bank_account_no : ''}</span>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* v2.90.0 — lines that were not submitted are listed, not counted as created. */
+function ImportProblems({ result }: { result: any }) {
+  const drafts = result?.drafts || [];
+  const failed = result?.failed || [];
+  if (!drafts.length && !failed.length) return null;
+  return (
+    <div className="alloc-warn" style={{ marginTop: 8 }}>
+      {!!drafts.length && (
+        <div>
+          <strong>{drafts.length} {t('left as draft — not reconcilable until submitted')}</strong>
+          <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 12 }}>
+            {drafts.slice(0, 20).map((d: any) => <li key={d.name}>{d.name} · {d.reference || '—'} · {d.error}</li>)}
+          </ul>
+          <div style={{ fontSize: 12 }}>{t('Fix the cause and import the same file again: drafts are retried, not duplicated.')}</div>
+        </div>
+      )}
+      {!!failed.length && (
+        <div style={{ marginTop: 6 }}>
+          <strong>{failed.length} {t('line(s) could not be created')}</strong>
+          <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 12 }}>
+            {failed.slice(0, 20).map((d: any, i: number) => <li key={i}>{d.reference || '—'} · {d.error}</li>)}
+          </ul>
         </div>
       )}
     </div>

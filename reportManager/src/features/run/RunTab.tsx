@@ -25,7 +25,7 @@ import { exportCsv, exportPdf, exportPrint, exportXlsx } from '../../utils/expor
 const gridStateRef: { expanded: Set<string>; drill: Record<string, any[]> } = { expanded: new Set(), drill: {} };
 import { PivotMatrix } from '../pivot/PivotMatrix';
 import { TAccountView } from './TAccountView';
-import { useDimFilters, compactDimFilters } from '../../utils/dimFilters';
+import { useDimFilters, compactDimFilters, type DimensionFiltersMap } from '../../utils/dimFilters';
 import { DimensionMultiSelect } from '../DimensionMultiSelect';
 import { ComboView } from '../ComboView';
 import { PlHierarchyView } from '../PlHierarchyView';
@@ -244,7 +244,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
   const dimCtx = useDimFilters();
   const accountingDims = dimCtx.dimensions;
   const dimFilters = dimCtx.filters;
-  const setDimFilters = (next: Record<string, string> | ((p: Record<string, string>) => Record<string, string>)) => dimCtx.setFilters(next);
+  const setDimFilters = (next: DimensionFiltersMap | ((p: DimensionFiltersMap) => DimensionFiltersMap)) => dimCtx.setFilters(next);
   const [dimValues, setDimValues] = useState<Record<string, Array<{ name: string; label: string }>>>({});
 
   // First-mount load: kick off all five fetches in parallel. Don't wait for
@@ -1477,6 +1477,32 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
               onClick={() => window.dispatchEvent(new CustomEvent('ni:open-backup', { detail: { tab: 'recover' } }))}>
               {t('Recover mappings')}
             </button>
+          </div>
+        );
+      })()}
+      {lastRun && (() => {
+        // v2.90.0 — a formula that could not be computed (division by zero,
+        // a non-finite result) is shown as 0 so totals still add up — and
+        // listed here, so that 0 is never read as a real figure or exported
+        // unnoticed.
+        const fe: Record<string, any> = (lastRun as any).formula_errors || {};
+        const keys = Object.keys(fe);
+        if (!keys.length) return null;
+        return (
+          <div className="alloc-warn" style={{ margin: '8px 0' }}>
+            <strong>{t('Some formula rows could not be calculated and show 0:')}</strong>
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12 }}>
+              {keys.slice(0, 12).map((k) => {
+                const months = Object.keys(fe[k].months || {});
+                return (
+                  <li key={k}>
+                    <b>{fe[k].label}</b> <code>{fe[k].formula}</code> — {months.length} {t('month(s)')}:{' '}
+                    {String(Object.values(fe[k].months || {})[0] || '')}
+                  </li>
+                );
+              })}
+            </ul>
+            <div style={{ fontSize: 12, marginTop: 4 }}>{t('Check these rows before exporting or sharing this report.')}</div>
           </div>
         );
       })()}

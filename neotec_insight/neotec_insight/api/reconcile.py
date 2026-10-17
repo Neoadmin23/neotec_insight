@@ -25,20 +25,9 @@ _FEE_RE = re.compile(r"FEE\s*[:]?\s*([\d,]+\.\d+)\s*SAR.{0,40}?VAT\s*AMOUNT\s*([
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 def _fee_vat(bt: dict) -> tuple[float, float]:
@@ -294,7 +283,7 @@ def _set_clearance(voucher_type: str, voucher_name: str, date) -> None:
                          message=frappe.get_traceback())
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def confirm_match(bank_transaction: str, voucher_type: str, voucher_name: str,
                   allocated_amount: float | None = None) -> dict:
     """Reconcile one Bank Transaction with a chosen voucher. Submits the Bank
@@ -322,7 +311,7 @@ def confirm_match(bank_transaction: str, voucher_type: str, voucher_name: str,
             "unallocated_amount": flt(bt.unallocated_amount)}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def unmatch(bank_transaction: str) -> dict:
     """Remove all allocations from a Bank Transaction (undo a confirm)."""
     _require_write("Bank Transaction")
@@ -344,7 +333,7 @@ def get_reconcile_settings() -> dict:
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_reconcile_settings(bank_charges_account: str | None = None,
                            input_vat_account: str | None = None) -> dict:
     _require_read()
@@ -357,7 +346,7 @@ def set_reconcile_settings(bank_charges_account: str | None = None,
     return {"ok": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def book_bank_charge(bank_transaction: str, bank_charges_account: str,
                      input_vat_account: str | None = None,
                      fee: float | None = None, vat: float | None = None) -> dict:
@@ -404,7 +393,7 @@ def book_bank_charge(bank_transaction: str, bank_charges_account: str,
             "status": bt.status}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def backfill_clearance(bank_account: str) -> dict:
     """Stamp clearance_date (= bank value date) on vouchers already reconciled to
     this account's bank transactions but missing it."""
@@ -564,7 +553,7 @@ def get_print_header() -> dict:
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_print_header(org_name: str | None = None, org_address: str | None = None,
                      logo_url: str | None = None) -> dict:
     _require_read()

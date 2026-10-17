@@ -90,7 +90,7 @@ def scan_account_types(company=None):
     return {"company": company, "can_write": can_write, "suggestions": out}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def apply_account_types(changes=None, company=None):
     """Apply selected account-type changes. changes = [{account, account_type}, ...]."""
     if isinstance(changes, str):
@@ -197,7 +197,7 @@ def list_ebitda_addbacks(company=None):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_ebitda_addbacks(company=None, changes=None):
     """Upsert/clear explicit add-back tags. changes = [{account, category}, ...]
     where category is 'Interest', 'Depreciation', or '' (remove)."""

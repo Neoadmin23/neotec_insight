@@ -1,27 +1,24 @@
 #!/usr/bin/env bash
-# v2.64.2 — a type check that cannot silently pass.
+# v2.90.0 — the type check passes only on a clean compile.
 #
-# The `setEvidence is not defined` crash shipped because the check was
-#   npx tsc ... | grep <pattern> || echo CLEAN
-# and typescript was not installed at the time. tsc produced nothing, grep
-# matched nothing, and the `||` branch printed CLEAN. A check whose failure
-# mode is indistinguishable from success is worse than no check at all.
+# The previous version compared filtered `src/... error TS` lines against a
+# baseline and swallowed tsc's exit status. A compiler failure that printed no
+# such line (a bad tsconfig, TS5083, a crash) produced an empty diff and
+# "typecheck OK". There were also 11 real errors hidden in the baseline; they
+# are fixed, and the baseline is gone.
 #
-# Two changes: the binary must exist, and the comparison is against a
-# committed baseline of the errors this codebase already had, so a new one
-# stands out instead of being lost among fifty old ones.
-set -euo pipefail
+# Now: tsc must exist, must exit 0, and must print no diagnostic at all.
+set -uo pipefail
 cd "$(dirname "$0")/.."
 
-[ -x node_modules/.bin/tsc ] || { echo "FAIL: tsc missing — run npm install." >&2; exit 1; }
+TSC=node_modules/.bin/tsc
+[ -x "$TSC" ] || { echo "FAIL: tsc missing — run npm ci." >&2; exit 1; }
 
-cur="$(node_modules/.bin/tsc --noEmit -p tsconfig.json 2>&1 \
-  | grep -E '^src/.*error TS' | sed -E 's/\([0-9]+,[0-9]+\)//' | sort -u || true)"
-new="$(comm -13 scripts/typecheck-baseline.txt <(printf '%s\n' "$cur"))"
-
-if [ -n "$new" ]; then
-  echo "---- NEW type errors (not in baseline) ----" >&2
-  printf '%s\n' "$new" >&2
+out="$("$TSC" --noEmit -p tsconfig.json 2>&1)"
+status=$?
+if [ "$status" -ne 0 ] || printf '%s' "$out" | grep -q "error TS"; then
+  printf '%s\n' "$out" >&2
+  echo "FAIL: TypeScript reported errors (tsc exit $status)." >&2
   exit 1
 fi
-echo "typecheck OK — no new errors against baseline ($(wc -l < scripts/typecheck-baseline.txt) known)"
+echo "typecheck OK — clean compile (tsc exit 0, no diagnostics)"

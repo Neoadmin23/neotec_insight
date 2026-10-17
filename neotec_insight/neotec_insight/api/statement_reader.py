@@ -44,20 +44,9 @@ _COLMAP = {
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 def _num(v: Any) -> float:
@@ -266,7 +255,9 @@ def _read_statement(path: str) -> list[dict]:
 
 
 def _file_path(file_url: str) -> str:
-    return frappe.get_doc("File", {"file_url": file_url}).get_full_path()
+    """v2.90.0 — through the File permission check, type and size limits."""
+    from neotec_insight.neotec_insight.utils.access import STATEMENT_EXTS, readable_file
+    return readable_file(file_url, STATEMENT_EXTS)[1]
 
 
 @frappe.whitelist()
@@ -314,7 +305,7 @@ def preview_statement(file_url: str) -> dict:
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def import_statement(file_url: str, bank_account: str, level: str = "batch") -> dict:
     """Create ERPNext Bank Transactions from a statement.
 
@@ -327,12 +318,47 @@ def import_statement(file_url: str, bank_account: str, level: str = "batch") -> 
         frappe.throw("bank_account is required.")
     fmt, lines, _acct = _read_statement_any(_file_path(file_url))
     company = frappe.db.get_value("Bank Account", bank_account, "company")
+    if not company:
+        frappe.throw(_("Bank account {0} not found.").format(bank_account))
+    from neotec_insight.neotec_insight.utils.access import check_company
+    check_company(company)
+    if not frappe.has_permission("Bank Account", "read", doc=bank_account):
+        frappe.throw(_("You do not have access to bank account {0}.").format(bank_account),
+                     frappe.PermissionError)
+    # v2.90.0 — every line ends in exactly one state. A failed submit used to
+    # be logged and still reported as "created"; the matcher only sees
+    # submitted transactions, and a re-import then skipped the draft by its
+    # reference, so it stayed unreconcilable for good.
     created, skipped = [], 0
+    drafts: list[dict] = []
+    failed: list[dict] = []
+    retried: list[str] = []
+
+    def _submit(bt):
+        try:
+            bt.submit()
+            return None
+        except Exception as e:
+            frappe.clear_messages()
+            return str(e)[:240] or type(e).__name__
 
     def _make(date, deposit, withdrawal, ref, description):
-        if ref and frappe.db.exists("Bank Transaction",
-                                    {"bank_account": bank_account, "reference_number": ref}):
+        if not date or (not flt(deposit) and not flt(withdrawal)):
+            failed.append({"reference": ref, "error": "no date or no amount on this line"})
             return None
+        if ref:
+            ex = frappe.db.get_value("Bank Transaction",
+                                     {"bank_account": bank_account, "reference_number": ref},
+                                     ["name", "docstatus"], as_dict=True)
+            if ex:
+                if ex.docstatus == 0:          # a draft from an earlier import: retry it
+                    err = _submit(frappe.get_doc("Bank Transaction", ex.name))
+                    if err:
+                        drafts.append({"name": ex.name, "reference": ref, "error": err})
+                    else:
+                        retried.append(ex.name)
+                    return None
+                return "__skip__"
         bt = frappe.new_doc("Bank Transaction")
         bt.date = date
         bt.bank_account = bank_account
@@ -341,14 +367,25 @@ def import_statement(file_url: str, bank_account: str, level: str = "batch") -> 
         bt.withdrawal = flt(withdrawal)
         bt.reference_number = ref
         bt.description = description
-        bt.flags.ignore_mandatory = True
-        bt.insert(ignore_permissions=False)
         try:
-            bt.submit()           # submitted transactions are what the matcher reconciles
-        except Exception:
-            frappe.log_error(title="statement_reader: Bank Transaction submit failed",
-                             message=frappe.get_traceback())
+            bt.insert(ignore_permissions=False)
+        except Exception as e:
+            frappe.clear_messages()
+            failed.append({"reference": ref, "error": str(e)[:240] or type(e).__name__})
+            return None
+        err = _submit(bt)
+        if err:
+            drafts.append({"name": bt.name, "reference": ref, "error": err})
+            return None
         return bt.name
+
+    def _record(name) -> int:
+        """1 if the line was already imported (skipped), else 0."""
+        if name == "__skip__":
+            return 1
+        if name:
+            created.append(name)
+        return 0
 
     if fmt == "account":
         # One Bank Transaction per statement line (deposit=credit, withdrawal=debit).
@@ -360,20 +397,20 @@ def import_statement(file_url: str, bank_account: str, level: str = "batch") -> 
                 desc += f" · {ln['counterparty_iban']}"
             name = _make(ln["value_date"], ln["credit"], ln["debit"],
                          ln["reference"] or None, desc[:1000])
-            created.append(name) if name else (skipped := skipped + 1)
+            skipped += _record(name)
     elif level == "transaction":
         for ln in lines:
             name = _make(ln["posting_date"] or ln["txn_date"], ln["net_amount"], 0,
                          ln["rrn"], f"{ln['card_scheme']} {ln['txn_type']} {ln['card_number']}")
-            created.append(name) if name else (skipped := skipped + 1)
+            skipped += _record(name)
     else:
         for b in summarize_batches(lines):
             desc = f"POS settlement · {b['schemes']} · {b['count']} txns · gross {b['gross']} fees {b['fees']} vat {b['vat']}"
             name = _make(b["posting_date"], b["net"], 0, b["batch_reference"] or None, desc)
-            created.append(name) if name else (skipped := skipped + 1)
+            skipped += _record(name)
 
-    created = [c for c in created if c]
     return {"created": created, "created_count": len(created), "skipped": skipped,
+            "submitted": created, "drafts": drafts, "failed": failed, "retried": retried,
             "bank_account": bank_account, "level": ("transaction" if fmt == "account" else level),
             "format": fmt}
 

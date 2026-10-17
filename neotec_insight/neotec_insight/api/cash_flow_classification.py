@@ -69,7 +69,7 @@ def list_rules(status: str | None = None):
         order_by="modified desc", limit_page_length=0)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_rule_status(name: str, status: str):
     """The only way a rule moves through its lifecycle. Never called
     automatically by mining or by the Queue — always a deliberate action a
@@ -81,7 +81,7 @@ def set_rule_status(name: str, status: str):
     return doc.as_dict()
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def mine_rules(min_support: int = 3, min_purity: float = 95.0):
     """Generates Candidates from confirmed Override history — never
     anything higher-status than Candidate, and never overwrites an existing
@@ -245,7 +245,7 @@ def list_unclassified_transactions(fiscal_year: int, company: str | None = None,
     return {"total_unclassified": len(by_voucher), "shown": len(out), "transactions": out}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def confirm_classification(voucher_type: str, voucher_no: str, line: str, note: str | None = None,
                            suggested_by_rule: str | None = None, suggested_line: str | None = None,
                            confidence: float | None = None):
@@ -278,7 +278,7 @@ def confirm_classification(voucher_type: str, voucher_no: str, line: str, note: 
     return {"ok": True, "override": doc.name}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reject_suggestion(suggested_by_rule: str):
     """The suggestion was wrong and the accountant has no better answer
     ready right now — no Override is created (the transaction stays in the
@@ -288,7 +288,7 @@ def reject_suggestion(suggested_by_rule: str):
     return {"ok": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def batch_confirm(items: str | list):
     """items: [{voucher_type, voucher_no, line, suggested_by_rule,
     suggested_line, confidence}, ...] — restricted by the caller (the

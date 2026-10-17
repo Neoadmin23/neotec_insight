@@ -9,7 +9,7 @@ interface Props {
   /** Provide custom HTML to print … */
   getBody?: () => string;
   /** … or a ref to an on-screen element to print. */
-  targetRef?: React.RefObject<HTMLElement>;
+  targetRef?: React.RefObject<HTMLElement | null>;
   defaultOrientation?: Orientation;
   compact?: boolean;
 }

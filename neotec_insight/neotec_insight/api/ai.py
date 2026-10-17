@@ -64,20 +64,9 @@ def _ar_label_field(source_doctype):
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role — so without this every
-    report endpoint was callable over `/api/method/...` by any authenticated
-    user, including Website and portal users who have no business seeing the
-    ledger. Reading GL Entry is the right test: ERPNext already restricts it
-    to the accounts roles, so this inherits whatever the site has configured
-    rather than inventing a second permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial reports."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial reports."))
 
 
 @frappe.whitelist()
@@ -117,7 +106,7 @@ def arabic_labels(source_doctype=None, names=None):
     return out
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_translation_override(source_doctype=None, source_name=None, arabic=None, english=None):
     """Create or update a user Arabic-translation override for a master record.
     An empty `arabic` reverts to the source/our label (deletes the override)."""
@@ -149,7 +138,7 @@ def save_translation_override(source_doctype=None, source_name=None, arabic=None
     return {"source_name": source_name, "arabic": arabic, "saved": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_translation_override(source_doctype=None, source_name=None):
     """Remove a translation override, reverting to the source/our label."""
     source_doctype = (source_doctype or "").strip()

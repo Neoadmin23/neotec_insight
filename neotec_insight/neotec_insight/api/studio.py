@@ -26,20 +26,9 @@ _STD_FIELDS = [
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 def _can_read(doctype: str) -> bool:
@@ -53,6 +42,31 @@ def _can_read(doctype: str) -> bool:
         return False
     except Exception:
         return False
+
+
+_ALWAYS_READABLE = {"name", "owner", "creation", "modified", "modified_by", "parent", "parenttype",
+                    "parentfield", "idx", "docstatus"}
+_NEVER_REPORTABLE = {"Password"}
+
+
+def _readable_fieldnames(doctype: str) -> set[str]:
+    """Fields of `doctype` this user may read (v2.90.0).
+
+    Report Studio used to accept any field from the metadata: fields above the
+    user's permission level, and Password fields, could be selected, filtered
+    on and joined. Now only fields at a permission level the user holds, never
+    Password fields."""
+    meta = frappe.get_meta(doctype)
+    try:
+        allowed = set(meta.get_permitted_fieldnames(user=frappe.session.user, permission_type="read"))
+    except TypeError:
+        allowed = set(meta.get_permitted_fieldnames())
+    except Exception:
+        allowed = {f.fieldname for f in meta.fields if not int(f.permlevel or 0)}
+    if frappe.session.user == "Administrator":
+        allowed = {f.fieldname for f in meta.fields}
+    blocked = {f.fieldname for f in meta.fields if f.fieldtype in _NEVER_REPORTABLE}
+    return (allowed | _ALWAYS_READABLE) - blocked
 
 
 def _child_parent(child_doctype: str):
@@ -139,6 +153,8 @@ def field_values(doctype=None, field=None, search=""):
     if not doctype or not field or not _can_read(doctype):
         return []
     meta = frappe.get_meta(doctype)
+    if field not in _readable_fieldnames(doctype):
+        return []
     f = meta.get_field(field)
     search = (search or "").strip()
     if f and f.fieldtype == "Select" and f.options:
@@ -150,8 +166,9 @@ def field_values(doctype=None, field=None, search=""):
         return [{"value": r["name"], "label": r["name"]} for r in rows]
     # Fallback: distinct values present on the base doctype.
     try:
-        vals = frappe.get_all(doctype, fields=[f"`{field}` as v"], group_by=field,
-                              limit_page_length=50, order_by=field)
+        # v2.90.0 — get_list: only values from records the user can read.
+        vals = frappe.get_list(doctype, fields=[f"`{field}` as v"], group_by=field,
+                               limit_page_length=50, order_by=field)
         return [{"value": v["v"], "label": str(v["v"])} for v in vals if v.get("v") not in (None, "")]
     except Exception:
         return []
@@ -164,9 +181,10 @@ def list_fields(doctype=None):
     if not doctype or not _can_read(doctype):
         return []
     meta = frappe.get_meta(doctype)
+    readable = _readable_fieldnames(doctype)
     fields = []
     for f in meta.fields:
-        if f.fieldtype in _REPORTABLE and f.fieldname:
+        if f.fieldtype in _REPORTABLE and f.fieldname and f.fieldname in readable:
             fields.append({
                 "fieldname": f.fieldname,
                 "label": _(f.label) if f.label else f.fieldname,
@@ -221,8 +239,7 @@ def _coerce_filters(doctype, raw_filters):
     fields get human-format normalisation (ddmmyyyy, dd/mm/yyyy, …)."""
     out = []
     meta = frappe.get_meta(doctype)
-    valid = {f.fieldname for f in meta.fields} | {"name", "owner", "creation", "modified",
-                                                   "parent", "parenttype", "parentfield", "idx", "docstatus"}
+    valid = ({f.fieldname for f in meta.fields} | _ALWAYS_READABLE) & _readable_fieldnames(doctype)
     date_fields = {f.fieldname for f in meta.fields if f.fieldtype in ("Date", "Datetime")} | {"creation", "modified"}
     for fl in (raw_filters or []):
         field = fl.get("field")
@@ -417,9 +434,11 @@ def run_query(config=None):
         frappe.throw(_("You don't have permission to read {0}.").format(doctype))
 
     meta = frappe.get_meta(doctype)
-    ftype = {f.fieldname: f.fieldtype for f in meta.fields}
+    readable = _readable_fieldnames(doctype)
+    ftype = {f.fieldname: f.fieldtype for f in meta.fields if f.fieldname in readable}
     flabel = {f.fieldname: (_(f.label) if f.label else f.fieldname) for f in meta.fields}
-    link_opts = {f.fieldname: f.options for f in meta.fields if f.fieldtype == "Link"}
+    link_opts = {f.fieldname: f.options for f in meta.fields
+                 if f.fieldtype == "Link" and f.fieldname in readable}
     for sf in _STD_FIELDS:
         ftype.setdefault(sf["fieldname"], sf["fieldtype"])
         flabel.setdefault(sf["fieldname"], sf["label"])
@@ -446,7 +465,8 @@ def run_query(config=None):
     for c in raw_cols:
         if "." in c:
             lf, tf = c.split(".", 1)
-            if lf in link_opts and _can_read(link_opts[lf]):
+            if lf in link_opts and _can_read(link_opts[lf]) \
+                    and tf in _readable_fieldnames(link_opts[lf]):
                 dotted_cols.append((c, lf, tf, link_opts[lf]))
         elif c in ftype:
             plain_cols.append(c)
@@ -495,8 +515,10 @@ def run_query(config=None):
         keys = list({r.get(lf) for r in rows if r.get(lf)})
         lookup = {}
         if keys:
-            for trow in frappe.get_all(target, filters={"name": ["in", keys]}, fields=tfields,
-                                       limit_page_length=0):
+            # v2.90.0 — get_list: a linked record the user may not read gives
+            # blanks, not its fields (get_all ignored record permissions).
+            for trow in frappe.get_list(target, filters={"name": ["in", keys]}, fields=tfields,
+                                        limit_page_length=0):
                 lookup[trow["name"]] = trow
         for r in rows:
             src = lookup.get(r.get(lf), {})
@@ -657,7 +679,7 @@ def ai_build(doctype=None, prompt=None):
     return cfg
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_report(report=None):
     """Create/update a saved Studio Report."""
     _require_write("Insight Report Definition")
@@ -764,7 +786,8 @@ def time_intelligence(config=None):
     if not doctype or not _can_read(doctype):
         frappe.throw(_("Pick a document you can read first."))
     meta = frappe.get_meta(doctype)
-    ftype = {f.fieldname: f.fieldtype for f in meta.fields}
+    _rd = _readable_fieldnames(doctype)
+    ftype = {f.fieldname: f.fieldtype for f in meta.fields if f.fieldname in _rd}
     flabel = {f.fieldname: (_(f.label) if f.label else f.fieldname) for f in meta.fields}
 
     date_field = config.get("date_field")

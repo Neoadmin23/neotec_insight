@@ -176,7 +176,8 @@ def restore_report_version(report, version_id):
     if not c:
         frappe.throw(_("That version is no longer available. Reload the list."))
     from neotec_insight.neotec_insight.utils import snapshots
-    pre = snapshots.guard("pre_restore", sections=[RD], label=f"Before restoring report {report}")
+    pre = snapshots.guard("pre_restore", sections=[RD], label=f"Before restoring report {report}",
+                          required=True)
     fields = {k: v for k, v in c["fields"].items() if v is not None}
     if frappe.db.exists(RD, report):
         doc = frappe.get_doc(RD, report)
@@ -247,7 +248,8 @@ def restore_deleted(names, on_conflict="skip"):
     from neotec_insight.neotec_insight.utils import snapshots
     dts = set(_insight_doctypes())
     touched = sorted({frappe.db.get_value("Deleted Document", n, "deleted_doctype") for n in names} & dts)
-    pre = snapshots.guard("pre_restore", sections=touched or None, label="Before restoring deleted records")
+    pre = snapshots.guard("pre_restore", sections=touched or None, label="Before restoring deleted records",
+                          required=True)
     out = {"restored": 0, "replaced": 0, "skipped": 0, "errors": [], "pre_restore_snapshot": pre}
     for n in names:
         d = frappe.db.get_value("Deleted Document", n, ["deleted_doctype", "deleted_name", "data", "restored"],
@@ -346,7 +348,8 @@ def restore_mappings(report, kind, ref=None):
     already mapped on this report is left as it is. Never deletes."""
     _sm()
     from neotec_insight.neotec_insight.utils import snapshots
-    pre = snapshots.guard("pre_restore", sections=[AFM], label=f"Before restoring mappings of {report}")
+    pre = snapshots.guard("pre_restore", sections=[AFM], label=f"Before restoring mappings of {report}",
+                          required=True)
     if kind == "deleted":
         items = [(x["dd"], x["data"]) for x in _deleted_mappings(report)]
     elif kind == "snapshot" and ref:

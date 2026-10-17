@@ -11,17 +11,33 @@ from neotec_insight.neotec_insight.utils.formula import evaluate_row_formula
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
-_IE_CACHE: dict = {}
+def _ie_key(company) -> str:
+    return f"ie_accounts:{company or '__all__'}"
 
 
 def _income_expense_accounts(company):
-    key = company or "__all__"
-    if key not in _IE_CACHE:
+    """Leaf Income/Expense accounts. v2.90.0 — cached per site with a TTL and
+    invalidated on every Account change (see invalidate_account_cache), not
+    held forever in a process-wide dict: an account added after the first
+    report run was missing from the Period Closing Voucher exclusion."""
+    from neotec_insight.neotec_insight.utils.site_cache import cached
+
+    def load():
         flt = {"root_type": ["in", ["Income", "Expense"]], "is_group": 0}
         if company:
             flt["company"] = company
-        _IE_CACHE[key] = frappe.get_all("Account", filters=flt, pluck="name", limit_page_length=0)
-    return _IE_CACHE[key]
+        return frappe.get_all("Account", filters=flt, pluck="name", limit_page_length=0)
+    return list(cached(_ie_key(company), load))
+
+
+def invalidate_account_cache(doc=None, method=None, *args, **kwargs):
+    """doc_events hook on Account: drop the cached lists for its company and
+    for the all-companies list, for every worker of the site."""
+    try:
+        from neotec_insight.neotec_insight.utils.site_cache import invalidate
+        invalidate(_ie_key(getattr(doc, "company", None)), _ie_key(None))
+    except Exception:
+        pass
 
 
 def execute_report(
@@ -91,6 +107,7 @@ def execute_report(
 
     months = list(range(month_from, month_to + 1))
     ctx: dict[str, dict[int, float]] = {}
+    formula_errors: dict[str, dict] = {}
     out: list[dict] = []
 
     for row in rows:
@@ -164,8 +181,14 @@ def execute_report(
                 sub = {k: v.get(m, 0.0) for k, v in ctx.items()}
                 try:
                     monthly[m] = evaluate_row_formula(formula, sub)
-                except Exception:
+                except Exception as exc:
+                    # v2.90.0 — still 0 so totals stay computable, but the
+                    # failure is reported per row and month instead of
+                    # passing for a genuine zero.
                     monthly[m] = 0.0
+                    formula_errors.setdefault(key, {"label": row.get("label") or key,
+                                                    "formula": formula, "months": {}})
+                    formula_errors[key]["months"][str(m)] = str(exc)[:160] or type(exc).__name__
             ctx[key] = monthly
         else:
             ctx[key] = monthly
@@ -223,7 +246,7 @@ def execute_report(
 
         out.append({**row, "monthly": monthly})
 
-    return {"rows": out, "months": months}
+    return {"rows": out, "months": months, "formula_errors": formula_errors}
 
 
 

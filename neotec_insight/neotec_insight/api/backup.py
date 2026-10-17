@@ -70,14 +70,15 @@ def compare_snapshot(name):
 
 
 @frappe.whitelist(methods=["POST"])
-def restore_snapshot(name, mode="merge", sections=None, allow_partial=0):
+def restore_snapshot(name, mode="merge", sections=None, allow_partial=0, allow_without_snapshot=0):
     """Restore a snapshot. A pre-restore snapshot is taken first, and the
     restore is all-or-nothing unless allow_partial is set."""
     _sm()
     _ready()
     bundle = snapshots.load(name)
     sel = frappe.parse_json(sections) if isinstance(sections, str) and sections else sections
-    pre = snapshots.guard("pre_restore", label=f"Before restoring {name} ({mode})")
+    pre = snapshots.guard("pre_restore", label=f"Before restoring {name} ({mode})",
+                          required=not cint(allow_without_snapshot))
     out = restore_bundle(bundle, mode=mode, sections=sel or None, atomic=not cint(allow_partial))
     out["pre_restore_snapshot"] = pre
     return out

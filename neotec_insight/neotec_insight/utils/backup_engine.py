@@ -320,7 +320,40 @@ def restore_bundle(payload: dict, mode: str = "merge", sections=None,
         summary["inserted"], summary["updated"], summary["deleted"] = {}, {}, {}
     else:
         frappe.db.commit()
+        # v2.90.0 — links are not validated during a restore (records may
+        # point at each other in any order). Afterwards, report every link
+        # that points at nothing, so a cross-site or partial restore cannot
+        # leave silent orphans.
+        try:
+            summary["orphans"] = find_orphans(order, known)
+        except Exception:
+            summary["orphans"] = {}
+    src_v, here_v = str(payload.get("version") or ""), app_version()
+    if src_v and here_v and src_v.split(".")[:2] != here_v.split(".")[:2]:
+        summary["version_note"] = (f"This bundle was made by v{src_v}; this site runs v{here_v}. "
+                                   "Check the restored areas.")
     return summary
+
+
+def find_orphans(doctypes: list[str], known: dict) -> dict[str, int]:
+    """{"Doctype.field": count} of Link values (to Insight doctypes) that name
+    a record which does not exist."""
+    out: dict[str, int] = {}
+    names_cache: dict[str, set] = {}
+    for dt in doctypes:
+        for df in frappe.get_meta(dt).fields:
+            if df.fieldtype != "Link" or df.options not in known or known[df.options].get("is_single"):
+                continue
+            vals = {v for v in frappe.get_all(dt, pluck=df.fieldname, distinct=True,
+                                               limit_page_length=0) if v}
+            if not vals:
+                continue
+            if df.options not in names_cache:
+                names_cache[df.options] = set(frappe.get_all(df.options, pluck="name", limit_page_length=0))
+            missing = vals - names_cache[df.options]
+            if missing:
+                out[f"{dt}.{df.fieldname}"] = len(missing)
+    return out
 
 
 def bundle_from_json(payload) -> dict:

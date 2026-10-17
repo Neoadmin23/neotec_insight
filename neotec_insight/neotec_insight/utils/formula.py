@@ -31,7 +31,10 @@ SUPPORTED_FUNCTIONS = {"IF", "ROUND", "ABS", "MIN", "MAX", "SUM"}
 
 def evaluate_row_formula(formula: str, values: dict[str, float]) -> float:
     tree = _parse(formula)
-    return float(_eval(tree.body, values))
+    out = float(_eval(tree.body, values))
+    if out != out or out in (float("inf"), float("-inf")):
+        raise FormulaError("result is not a finite number")
+    return out
 
 
 def validate_formula_expression(formula: str, available_row_keys: set[str], *, row_key: str) -> None:
@@ -51,7 +54,10 @@ def _eval(node, values):
         op = BIN_OPS.get(type(node.op))
         if not op:
             _err(node)
-        return op(_eval(node.left, values), _eval(node.right, values))
+        left, right = _eval(node.left, values), _eval(node.right, values)
+        if isinstance(node.op, ast.Div) and right == 0:
+            raise FormulaError("division by zero")
+        return op(left, right)
     if isinstance(node, ast.UnaryOp):
         op = UNARY_OPS.get(type(node.op))
         if not op:
@@ -77,15 +83,29 @@ def _eval(node, values):
     _err(node)
 
 
+class FormulaError(ArithmeticError):
+    """A formula that is valid but cannot be computed for these values
+    (division by zero, non-finite result). Raised so the caller can report it
+    instead of passing it off as a genuine zero."""
+
+
+ARITY = {"IF": (3, 3), "ROUND": (1, 2), "ABS": (1, 1), "MIN": (1, None), "MAX": (1, None),
+         "SUM": (0, None)}
+
+
 def _eval_call(node, values):
-    if not isinstance(node.func, ast.Name):
+    if not isinstance(node.func, ast.Name) or node.keywords:
         _err(node)
     fn = node.func.id.upper()
-    args = [_eval(a, values) for a in node.args]
     if fn == "IF":
-        if len(args) != 3:
+        # v2.90.0 — lazy, like a spreadsheet: only the chosen branch is
+        # evaluated. IF(x<>0, y/x, 0) — the standard division guard — used to
+        # evaluate y/x anyway, fail, and come out as 0 for the whole row.
+        if len(node.args) != 3:
             _err(node)
-        return args[1] if bool(args[0]) else args[2]
+        cond = _eval(node.args[0], values)
+        return _eval(node.args[1] if bool(cond) else node.args[2], values)
+    args = [_eval(a, values) for a in node.args]
     if fn == "ROUND":
         if len(args) not in {1, 2}:
             _err(node)
@@ -135,6 +155,16 @@ def _validate(node, keys, *, row_key):
         for c in node.comparators:
             _validate(c, keys, row_key=row_key)
         return
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+            and node.func.id.upper() in SUPPORTED_FUNCTIONS:
+        fn = node.func.id.upper()
+        lo, hi = ARITY[fn]
+        n = len(node.args)
+        if node.keywords or n < lo or (hi is not None and n > hi):
+            want = f"{lo}" if lo == hi else (f"{lo} or more" if hi is None else f"{lo}–{hi}")
+            raise frappe.ValidationError(
+                f"Formula row '{row_key}': {fn} takes {want} argument(s), got {n}"
+                + (" and keyword arguments are not allowed" if node.keywords else "") + ".")
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name) or node.func.id.upper() not in SUPPORTED_FUNCTIONS:
             raise frappe.ValidationError(

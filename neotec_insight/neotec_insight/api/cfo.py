@@ -18,25 +18,31 @@ from frappe.utils import flt, getdate, nowdate, add_days, add_months, get_first_
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+
+def _require_people() -> None:
+    """Headcount, wages, payroll and end-of-service (v2.90.0): HR or payroll
+    authority, or an executive role — not ledger access. A ledger reader
+    without payroll rights could read named employees' wages here, and an
+    HR-only user was refused for lacking ledger access."""
+    from neotec_insight.neotec_insight.utils.access import require_people_read
+    require_people_read()
 
 
 def _company(company: str | None) -> str:
-    return company or frappe.defaults.get_user_default("company") \
-        or frappe.defaults.get_global_default("company")
+    from neotec_insight.neotec_insight.utils.access import check_company, scoped_company
+    if company:
+        check_company(company)
+        return company
+    c = frappe.defaults.get_user_default("company") or frappe.defaults.get_global_default("company")
+    try:
+        check_company(c)
+        return c
+    except frappe.PermissionError:
+        return scoped_company(None)
 
 
 def _accounts(company, **f):
@@ -70,43 +76,74 @@ def _cash(company, as_of):
     return round(_gl_balance(company, _accounts(company, account_type=["in", ["Bank", "Cash"]]), as_of), 2)
 
 
+def _ple_outstanding(company, as_of, account_type):
+    """Open items as at `as_of` from the Payment Ledger (v2.90.0).
+
+    Each invoice's outstanding is the sum of its payment-ledger amounts posted
+    on or before `as_of` — so a historical date shows what was open THEN, and
+    invoices dated after it are excluded. Aggregated in SQL: complete, no row
+    cap. Returns None when the Payment Ledger is unavailable."""
+    if not _has("Payment Ledger Entry"):
+        return None
+    sign = 1 if account_type == "Receivable" else -1
+    return frappe.db.sql(
+        """select party, against_voucher_no as voucher,
+                  min(case when voucher_no = against_voucher_no then due_date end) as due_date,
+                  min(case when voucher_no = against_voucher_no then posting_date end) as posting_date,
+                  %(sign)s * sum(amount) as outstanding
+           from `tabPayment Ledger Entry`
+           where company = %(company)s and account_type = %(atype)s and posting_date <= %(as_of)s
+             and delinked = 0
+           group by against_voucher_type, against_voucher_no, party
+           having %(sign)s * sum(amount) > 0.01""",
+        {"company": company, "atype": account_type, "as_of": as_of, "sign": sign}, as_dict=True)
+
+
 def _receivables(company, as_of):
-    invs = frappe.get_all(
-        "Sales Invoice",
-        filters={"company": company, "docstatus": 1, "outstanding_amount": [">", 0.01]},
-        fields=["customer", "outstanding_amount", "due_date", "posting_date"],
-        limit_page_length=5000)
+    rows = _ple_outstanding(company, as_of, "Receivable")
+    basis = "payment_ledger_as_of"
+    if rows is None:
+        basis = "current_outstanding"   # older ERPNext: today's outstanding, labelled as such
+        rows = [{"party": r["customer"], "outstanding": r["outstanding_amount"], "due_date": r["due_date"],
+                 "posting_date": r["posting_date"]} for r in frappe.get_all(
+            "Sales Invoice", filters={"company": company, "docstatus": 1, "outstanding_amount": [">", 0.01],
+                                      "posting_date": ["<=", as_of]},
+            fields=["customer", "outstanding_amount", "due_date", "posting_date"], limit_page_length=0)]
     total = overdue = 0.0
     worst_days = 0
     by_cust: dict[str, float] = {}
-    for i in invs:
-        o = flt(i["outstanding_amount"]); total += o
-        due = getdate(i["due_date"] or i["posting_date"])
+    for i in rows:
+        o = flt(i["outstanding"]); total += o
+        due = getdate(i.get("due_date") or i.get("posting_date") or as_of)
         days = (getdate(as_of) - due).days
         if days > 0:
             overdue += o
             worst_days = max(worst_days, days)
-            by_cust[i["customer"]] = by_cust.get(i["customer"], 0.0) + o
+            by_cust[i["party"]] = by_cust.get(i["party"], 0.0) + o
     top = sorted(by_cust.items(), key=lambda x: -x[1])[:5]
-    return {"total": round(total, 2), "overdue": round(overdue, 2),
-            "worst_days": worst_days,
-            "top_overdue": [{"party": c, "amount": round(a, 2)} for c, a in top]}
+    return {"total": round(total, 2), "overdue": round(overdue, 2), "worst_days": worst_days,
+            "top_overdue": [{"party": c, "amount": round(a, 2)} for c, a in top],
+            "items": len(rows), "basis": basis}
 
 
 def _payables(company, as_of):
-    invs = frappe.get_all(
-        "Purchase Invoice",
-        filters={"company": company, "docstatus": 1, "outstanding_amount": [">", 0.01]},
-        fields=["supplier", "outstanding_amount", "due_date", "posting_date"],
-        limit_page_length=5000)
+    rows = _ple_outstanding(company, as_of, "Payable")
+    basis = "payment_ledger_as_of"
+    if rows is None:
+        basis = "current_outstanding"
+        rows = [{"party": r["supplier"], "outstanding": r["outstanding_amount"], "due_date": r["due_date"],
+                 "posting_date": r["posting_date"]} for r in frappe.get_all(
+            "Purchase Invoice", filters={"company": company, "docstatus": 1, "outstanding_amount": [">", 0.01],
+                                         "posting_date": ["<=", as_of]},
+            fields=["supplier", "outstanding_amount", "due_date", "posting_date"], limit_page_length=0)]
     total = due_soon = 0.0
-    horizon = add_days(as_of, 14)
-    for i in invs:
-        o = flt(i["outstanding_amount"]); total += o
-        due = getdate(i["due_date"] or i["posting_date"])
-        if getdate(as_of) <= due <= getdate(horizon):
+    horizon = getdate(add_days(as_of, 14))
+    for i in rows:
+        o = flt(i["outstanding"]); total += o
+        due = getdate(i.get("due_date") or i.get("posting_date") or as_of)
+        if getdate(as_of) <= due <= horizon:
             due_soon += o
-    return {"total": round(total, 2), "due_soon": round(due_soon, 2)}
+    return {"total": round(total, 2), "due_soon": round(due_soon, 2), "items": len(rows), "basis": basis}
 
 
 def _vat(company, as_of):
@@ -118,17 +155,33 @@ def _vat(company, as_of):
     return {"net_payable": net, "accounts": len(tax_accts)}
 
 
+def _same_elapsed(as_of, months_back: int):
+    """The same days of an earlier month: 1st to the same day number,
+    capped at that month's end (Mar 31 → Feb 28/29)."""
+    d = getdate(as_of)
+    first = getdate(get_first_day(add_months(d, -months_back)))
+    last = getdate(get_last_day(first))
+    end = first.replace(day=min(d.day, last.day))
+    return first, end
+
+
 def _revenue(company, as_of):
+    """Month to date against the SAME days of last month and of the same month
+    last year (v2.90.0). Comparing 15 days with whole months understated
+    growth every month until the last day."""
     inc = _accounts(company, root_type="Income")
     this_d1, this_d2 = get_first_day(as_of), as_of
-    last_d1, last_d2 = get_first_day(add_months(as_of, -1)), get_last_day(add_months(as_of, -1))
-    yoy_d1, yoy_d2 = get_first_day(add_months(as_of, -12)), get_last_day(add_months(as_of, -12))
+    last_d1, last_d2 = _same_elapsed(as_of, 1)
+    yoy_d1, yoy_d2 = _same_elapsed(as_of, 12)
     cur = _gl_movement(company, inc, this_d1, this_d2, signed="cr")
     prev = _gl_movement(company, inc, last_d1, last_d2, signed="cr")
     yoy = _gl_movement(company, inc, yoy_d1, yoy_d2, signed="cr")
     return {"this_month": round(cur, 2), "last_month": round(prev, 2), "year_ago": round(yoy, 2),
             "mom_pct": round((cur - prev) / prev * 100, 1) if prev else None,
-            "yoy_pct": round((cur - yoy) / yoy * 100, 1) if yoy else None}
+            "yoy_pct": round((cur - yoy) / yoy * 100, 1) if yoy else None,
+            "basis": "month_to_date_vs_same_days",
+            "windows": {"this": [str(this_d1), str(this_d2)], "last": [str(last_d1), str(last_d2)],
+                        "year_ago": [str(yoy_d1), str(yoy_d2)]}}
 
 
 def _margin(company, as_of):
@@ -142,26 +195,39 @@ def _margin(company, as_of):
 
 
 def _runway(company, cash, as_of):
-    exp = _accounts(company, root_type="Expense")
-    d1 = get_first_day(add_months(as_of, -3))
-    out = _gl_movement(company, exp, d1, as_of, signed="dr")
-    months = 3.0
-    burn = out / months if out else 0.0
-    runway = round(cash / burn, 1) if burn > 0 else None
-    return {"monthly_burn": round(burn, 2), "runway_months": runway}
+    """Cash runway on the last three FULL months (v2.90.0).
+
+    Burn is the net fall in cash and bank balances over those months — cash,
+    not accounting expense — divided by exactly the three months measured.
+    The old window ran from the 1st three months back to today (about 3.5
+    months) but divided by 3, and used expense, which includes non-cash items.
+    The expense run-rate is still reported beside it, labelled."""
+    d = getdate(as_of)
+    d1 = getdate(get_first_day(add_months(d, -3)))
+    d2 = getdate(get_last_day(add_months(d, -1)))
+    cash_accts = _accounts(company, account_type=["in", ["Bank", "Cash"]])
+    cash_change = _gl_movement(company, cash_accts, d1, d2, signed="dr")
+    burn = -cash_change / 3.0 if cash_change < 0 else 0.0
+    expense = _gl_movement(company, _accounts(company, root_type="Expense"), d1, d2, signed="dr") / 3.0
+    return {"monthly_burn": round(burn, 2),
+            "runway_months": round(cash / burn, 1) if burn > 0 else None,
+            "cash_generative": cash_change >= 0,
+            "expense_run_rate": round(expense, 2),
+            "basis": "net_cash_outflow_last_3_full_months",
+            "window": [str(d1), str(d2)]}
 
 
 def _unreconciled(company):
-    bas = frappe.get_all("Bank Account", filters={"company": company, "is_company_account": 1}, pluck="name")
-    cnt = val = 0
-    for ba in bas:
-        rows = frappe.get_all(
-            "Bank Transaction",
-            filters={"bank_account": ba, "docstatus": 1, "status": ["not in", ["Reconciled", "Settled"]]},
-            fields=["deposit", "withdrawal"], limit_page_length=5000)
-        cnt += len(rows)
-        val += sum(flt(r["deposit"]) or flt(r["withdrawal"]) for r in rows)
-    return {"count": cnt, "value": round(val, 2)}
+    """Complete count and value, aggregated in SQL (v2.90.0: no 5,000 cap)."""
+    r = frappe.db.sql(
+        """select count(*), coalesce(sum(case when ifnull(bt.deposit, 0) <> 0 then bt.deposit
+                                            else bt.withdrawal end), 0)
+           from `tabBank Transaction` bt
+           join `tabBank Account` ba on ba.name = bt.bank_account
+           where ba.company = %s and ba.is_company_account = 1 and bt.docstatus = 1
+             and bt.status not in ('Reconciled', 'Settled')""", (company,))
+    cnt, val = (r[0] if r else (0, 0))
+    return {"count": int(cnt or 0), "value": round(flt(val), 2)}
 
 
 def _has(doctype) -> bool:
@@ -510,7 +576,7 @@ def hr_summary(company: str | None = None, as_of: str | None = None,
     """People & payroll view. Point-in-time snapshot (headcount, EOSB) plus a
     period-scoped salary comparison: defined (master) vs processed (actual),
     additional salary, and the variance."""
-    _require_read()
+    _require_people()
     company = _company(company)
     as_of = as_of or nowdate()
     s, e, months, lbl = _period_range(as_of, period)
@@ -588,7 +654,7 @@ def eosb_breakdown(company: str | None = None, as_of: str | None = None,
     """Slab-wise End-of-Service provision per Saudi Labour Law: ½ month per year
     for the first 5 years, 1 month per year thereafter, on each active
     employee's latest base wage."""
-    _require_read()
+    _require_people()
     company = _company(company)
     as_of = as_of or nowdate()
     wage = _emp_base_wage(company)
@@ -690,7 +756,7 @@ def _provisions(company, as_of, emps, wage):
 @frappe.whitelist()
 def provision_field_options(company: str | None = None) -> dict:
     """Numeric Employee fields and Salary Components, for the source pickers."""
-    _require_read()
+    _require_people()
     out = {"employee_fields": [], "components": []}
     try:
         meta = frappe.get_meta("Employee")
@@ -705,14 +771,14 @@ def provision_field_options(company: str | None = None) -> dict:
 
 @frappe.whitelist()
 def get_provision_config() -> dict:
-    _require_read()
+    _require_people()
     return _provision_config()
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_provision_config(vacation_days: int | None = None, ticket_source: str | None = None,
                          insurance_source: str | None = None) -> dict:
-    _require_read()
+    _require_people()
     s = frappe.get_single("Insight AI Settings")
     if vacation_days is not None:
         s.vacation_days_per_year = int(vacation_days or 0)

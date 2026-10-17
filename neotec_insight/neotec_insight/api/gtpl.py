@@ -240,7 +240,7 @@ def gtpl_preview(company=None, from_date=None, to_date=None):
     return build_plan(company, from_date, to_date)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def apply_gtpl_adjustments(company=None, from_date=None, to_date=None):
     """Write the plan out as Insight VAT Adjustment rows.
 

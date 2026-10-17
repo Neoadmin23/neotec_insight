@@ -22,7 +22,7 @@ def get_menu():
         return {}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_menu(menu=None):
     """Persist the menu layout (site-wide). Write permission on the Single
     DocType gates this — System Manager / Accounts Manager by default."""
@@ -46,7 +46,7 @@ def save_menu(menu=None):
     return {"ok": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reset_menu():
     if not frappe.has_permission("Insight Menu Settings", "write"):
         frappe.throw(_("Not permitted to change the menu."))
@@ -128,7 +128,7 @@ def get_brand():
         return {}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_brand(company=None, brand=None):
     """Persist one company's Brand Kit. `company` empty means the fallback."""
     if not frappe.has_permission("Insight Menu Settings", "write"):

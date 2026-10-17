@@ -162,7 +162,7 @@ def entries_diagnostic(rule, year=None):
     return out
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reattach_entries(from_rule, to_rule):
     """Point orphaned entries (their rule no longer exists) at an existing rule."""
     frappe.only_for("System Manager")
@@ -183,7 +183,7 @@ def reattach_entries(from_rule, to_rule):
     return {"ok": True, "moved": moved, "skipped": skipped}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def restore_deleted_entries(rule):
     """Restore deleted head-count entries of one rule from the Deleted Document log."""
     frappe.only_for("System Manager")
@@ -260,7 +260,7 @@ def match_cost_centre(label, options):
     return next(iter(hits)) if len(hits) == 1 else None
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def import_head_counts(rule, year, text, overwrite=0, dry_run=1, basis="head_count"):
     """Write head counts pasted from a table. Cost centres are matched by name.
 
@@ -282,7 +282,7 @@ def import_head_counts(rule, year, text, overwrite=0, dry_run=1, basis="head_cou
     if int(overwrite) and not out["dry_run"]:
         from neotec_insight.neotec_insight.utils import snapshots
         snapshots.guard("pre_change", sections=["Insight Allocation Rule", "Insight Allocation Entry"],
-                        label=f"Before paste-overwrite {rule} {year}")
+                        label=f"Before paste-overwrite {rule} {year}", required=True)
     for label, months in parse_head_count_table(text):
         cc = match_cost_centre(label, options)
         if not cc:
@@ -405,7 +405,7 @@ def get_grid(rule, year, company=None):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_grid(rule, year, company=None, cells=None, manual_pool=None, basis=None, remove=None,
               loaded_count=None, confirm_bulk=0):
     """Bulk upsert of one rule-year, under the rules in utils/allocation_guard.py.
@@ -467,7 +467,7 @@ def save_grid(rule, year, company=None, cells=None, manual_pool=None, basis=None
         from neotec_insight.neotec_insight.utils import snapshots
         snapshot = snapshots.guard(
             "pre_change", sections=["Insight Allocation Rule", "Insight Allocation Entry"],
-            label=f"Before saving {rule} {year}: {c['delete']} deleted, {c['overrides']} overridden")
+            label=f"Before saving {rule} {year}: {c['delete']} deleted, {c['overrides']} overridden", required=True)
 
     for o in plan["ops"]:
         if o["op"] == "delete":
@@ -788,7 +788,7 @@ def capture_status(rule, year):
     return driver_capture.month_status(rule, int(year))
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def capture_commit(rule, year, months=None, freeze=0, refresh_drift=0):
     """Accept a capture. Frozen and overridden rows are left alone, unless
     refresh_drift is set to re-open and rewrite frozen rows that differ."""
@@ -799,14 +799,14 @@ def capture_commit(rule, year, months=None, freeze=0, refresh_drift=0):
     # v2.89.0 — a capture rewrites figures; keep the rule's entries as they were.
     from neotec_insight.neotec_insight.utils import snapshots
     snapshots.guard("pre_change", sections=["Insight Allocation Rule", "Insight Allocation Entry"],
-                    label=f"Before capture {rule} {year}")
+                    label=f"Before capture {rule} {year}", required=True)
     res = driver_capture.commit(rule, int(year), months, freeze=bool(int(freeze or 0)),
                                 refresh_drift=bool(int(refresh_drift or 0)))
     _layout_from_year(rule, int(year))
     return res
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_cc_excluded(rule, cost_center, excluded=1, reason=None):
     """Take a cost centre out of (or put it back into) a rule's allocation."""
     _guard(write=True)
@@ -863,7 +863,7 @@ def get_evidence(rule, cost_center, year, month):
     return ev
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def freeze_months(rule, year, months, frozen=1):
     """Close (or reopen) months so later captures report drift, not changes."""
     _guard(write=True)
@@ -937,6 +937,11 @@ def restore_from_snapshot(rule, snapshot, year=None, overwrite=0, dry_run=0):
     out = {"inserted": 0, "updated": 0, "kept": 0, "skipped_frozen": 0, "rule_restored": False,
            "in_snapshot": len(rows), "dry_run": bool(int(dry_run))}
 
+    # v2.90.0 — the snapshot is taken before ANY write, the rule insert
+    # included, so nothing this call does can be outside it.
+    if not out["dry_run"] and (int(overwrite) or not frappe.db.exists("Insight Allocation Rule", rule)):
+        snapshots.guard("pre_change", sections=["Insight Allocation Rule", "Insight Allocation Entry"],
+                        label=f"Before restoring {rule} from {snapshot}", required=True)
     if not frappe.db.exists("Insight Allocation Rule", rule):
         src = next((r for r in (bundle.get("data") or {}).get("Insight Allocation Rule") or []
                     if r.get("name") == rule), None)
@@ -949,9 +954,6 @@ def restore_from_snapshot(rule, snapshot, year=None, overwrite=0, dry_run=0):
             doc.insert(ignore_permissions=True, set_name=rule)
         out["rule_restored"] = True
 
-    if int(overwrite) and not out["dry_run"]:
-        snapshots.guard("pre_change", sections=["Insight Allocation Rule", "Insight Allocation Entry"],
-                        label=f"Before restoring {rule} from {snapshot}")
 
     for r in rows:
         key = {"rule": rule, "cost_center": r.get("cost_center"), "period_month": r.get("period_month")}
@@ -1211,7 +1213,7 @@ def move_entries_year(rule, from_year, to_year, overwrite=0):
     from neotec_insight.neotec_insight.utils.allocation import month_start
     fy, ty = int(from_year), int(to_year)
     snapshots.guard("pre_change", sections=["Insight Allocation Rule", "Insight Allocation Entry"],
-                    label=f"Before moving {rule} {fy} → {ty}")
+                    label=f"Before moving {rule} {fy} → {ty}", required=True)
     out = {"moved": 0, "kept_target": 0, "replaced": 0}
     src = frappe.get_all("Insight Allocation Entry",
                          filters={"rule": rule, "period_month": ["between", [

@@ -23,20 +23,9 @@ from frappe.utils import flt, getdate
 # ---- config -----------------------------------------------------------------
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 def _ollama_config() -> dict:
@@ -461,7 +450,7 @@ def _require_write(doctype: str) -> None:
         )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def read_slip(file_url: str, company: str | None = None) -> dict:
     """Read an uploaded slip (PDF/image) into a staged Insight Bank Slip.
 
@@ -472,9 +461,13 @@ def read_slip(file_url: str, company: str | None = None) -> dict:
         frappe.throw("file_url is required.")
     company = company or frappe.defaults.get_user_default("Company") \
         or frappe.db.get_single_value("Global Defaults", "default_company")
+    from neotec_insight.neotec_insight.utils.access import check_company
+    check_company(company)
 
-    file_doc = frappe.get_doc("File", {"file_url": file_url})
-    path = file_doc.get_full_path()
+    # v2.90.0 — the File permission is checked before the file is read or
+    # sent to the slip model; type, size and location are bounded.
+    from neotec_insight.neotec_insight.utils.access import SLIP_EXTS, readable_file
+    file_doc, path = readable_file(file_url, SLIP_EXTS)
 
     text, channel = _extract_text(path)
     data, method, confidence = structure_slip(text, channel, path=path)
@@ -534,7 +527,7 @@ def _resolve_supplier(name: str | None) -> str | None:
         or frappe.db.get_value("Supplier", {"name": name}, "name")
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def stage_draft_payment_entry(slip: str) -> dict:
     """Create a DRAFT (unsubmitted) Payment Entry from a staged slip, writing the
     bank reference so reconciliation can later auto-match it. Never submits.
@@ -680,7 +673,7 @@ def search_parties(party_type: str, txt: str = "", limit: int = 20) -> list[dict
     return rows
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_slip_party(slip: str, party_type: str, party: str) -> dict:
     """Persist the user's party choice on the staged slip before posting."""
     _require_read()
@@ -722,7 +715,7 @@ def _map_to_journal_entry(data: dict) -> dict:
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def read_slip_into(file_url: str, target_doctype: str | None = None,
                    company: str | None = None) -> dict:
     """Read a slip and return the field map for the document the user is in
@@ -807,7 +800,7 @@ def search_bank_accounts(company: str = "", txt: str = "", limit: int = 20) -> l
         limit_page_length=int(limit), order_by="modified desc")
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_slip_accounts(slip: str, bank_account: str | None = None,
                       account: str | None = None) -> dict:
     """Persist the user's account choices on the slip before staging."""
@@ -843,7 +836,7 @@ def get_slip(slip: str) -> dict:
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_slip_direction(slip: str, direction: str) -> dict:
     """Manual inward/outward correction (also useful when the company couldn't be
     auto-identified)."""

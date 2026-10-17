@@ -72,13 +72,23 @@ class FakeSite:
         self.errors: list[str] = []
         self.counter = 0
         self.queries = 0
+        self.savepoints: dict = {}
+        self.user = "Administrator"
+        self.roles: dict[str, set] = {}          # user -> roles
+        self.perm = None                         # callable(doctype, ptype, doc, user) -> bool | None
+        self.allowed_companies: dict[str, list] = {}   # user -> companies (User Permissions)
+        self.redis: dict = {}                    # shared cache: (site, key) -> value
+        self.site_name = "test.site"
         self.commit()
 
     def commit(self):
         self.committed = copy.deepcopy(self.tables)
 
-    def rollback(self):
-        self.tables = copy.deepcopy(self.committed)
+    def rollback(self, save_point=None):
+        if save_point:
+            self.tables = copy.deepcopy(self.savepoints[save_point])
+        else:
+            self.tables = copy.deepcopy(self.committed)
 
     def table(self, dt):
         return self.tables.setdefault(dt, {})
@@ -367,8 +377,11 @@ class _DB:
     def commit(self):
         SITE.commit()
 
-    def rollback(self):
-        SITE.rollback()
+    def rollback(self, save_point=None):
+        SITE.rollback(save_point)
+
+    def savepoint(self, name):
+        SITE.savepoints[name] = copy.deepcopy(SITE.tables)
 
     def sql(self, *a, **k):
         return []
@@ -384,19 +397,77 @@ def install():
     m._dict = _dict
     m.flags = Flags()
     m.local = types.SimpleNamespace(site="test.site")
-    m.session = types.SimpleNamespace(user="Administrator")
     m.db = _DB()
     m.get_doc, m.new_doc, m.get_all, m.delete_doc = get_doc, new_doc, get_all, delete_doc
-    m.get_list = get_all
     m.get_meta = lambda dt: _Meta(SITE.metas[dt])
     m.get_value = m.db.get_value
-    m.has_permission = lambda *a, **k: True
-    m.get_roles = lambda *a, **k: ["System Manager"]
+    def has_permission(doctype, ptype="read", doc=None, user=None, **k):
+        if SITE.perm is not None:
+            r = SITE.perm(doctype, ptype, doc, user or SITE.user)
+            if r is not None:
+                return r
+        return True
+    m.has_permission = has_permission
+
+    def get_roles(user=None):
+        u = user or SITE.user
+        if u == "Administrator":
+            return ["Administrator", "System Manager"]
+        return sorted(SITE.roles.get(u, {"System Manager"}))
+    m.get_roles = get_roles
+
+    def get_list(dt, *a, **k):
+        rows = get_all(dt, *a, **k)
+        allowed = SITE.allowed_companies.get(SITE.user)
+        if dt == "Company" and allowed is not None:
+            if k.get("pluck"):
+                return [r for r in rows if r in allowed]
+            return [r for r in rows if r.get("name") in allowed]
+        if SITE.perm is not None and not k.get("group_by"):
+            out = []
+            for r in rows:
+                nm = r if k.get("pluck") else r.get("name")
+                if SITE.perm(dt, "read", nm, SITE.user) is False:
+                    continue
+                out.append(r)
+            return out
+        return rows
+    m.get_list = get_list
+
+    class _Session:
+        @property
+        def user(self):
+            return SITE.user
+    m.session = _Session()
+
+    def set_user(u):
+        SITE.user = u
+    m.set_user = set_user
+    m.clear_messages = lambda: None
+    m.conf = _dict()
+    m.request = types.SimpleNamespace(path="/")
+    m.get_site_path = lambda *parts: "/".join(["/tmp/fakesite"] + list(parts))
+    m.DoesNotExistError = type("DoesNotExistError", (ValidationError,), {})
+
+    class _Cache:
+        def get_value(self, key):
+            return copy.deepcopy(SITE.redis.get((SITE.site_name, key)))
+
+        def set_value(self, key, val, expires_in_sec=None):
+            SITE.redis[(SITE.site_name, key)] = copy.deepcopy(val)
+
+        def delete_value(self, key):
+            SITE.redis.pop((SITE.site_name, key), None)
+    m.cache = _Cache()
     m.only_for = lambda *a, **k: None
     m.whitelist = lambda *a, **k: (a[0] if a and callable(a[0]) else (lambda f: f))
     m.parse_json = lambda s: json.loads(s) if isinstance(s, str) else s
     m.get_traceback = lambda: "traceback"
-    m.get_attr = lambda p: None
+    def get_attr(path):
+        import importlib
+        mod, _, attr = path.rpartition(".")
+        return getattr(importlib.import_module(mod), attr)
+    m.get_attr = get_attr
 
     def throw(msg, exc=ValidationError, title=None):
         raise exc(msg)
@@ -413,10 +484,29 @@ def install():
     utils.cint = lambda v: int(float(v or 0))
     utils.getdate = lambda v=None: datetime.date.fromisoformat(str(v)[:10]) if v else datetime.date.today()
     utils.nowdate = lambda: "2026-10-13"
+    import calendar as _cal
+
+    def _d(v):
+        return v if isinstance(v, datetime.date) else datetime.date.fromisoformat(str(v)[:10])
+
+    def add_months(v, n):
+        d = _d(v)
+        y, mth = divmod(d.month - 1 + n, 12)
+        y += d.year
+        return d.replace(year=y, month=mth + 1, day=min(d.day, _cal.monthrange(y, mth + 1)[1]))
+    utils.add_months = add_months
+    utils.add_days = lambda v, n: _d(v) + datetime.timedelta(days=n)
+    utils.get_first_day = lambda v: _d(v).replace(day=1)
+    utils.get_last_day = lambda v: _d(v).replace(day=_cal.monthrange(_d(v).year, _d(v).month)[1])
+    utils.now_datetime = datetime.datetime.now
+    utils.get_url = lambda: "https://test.site"
     m.utils = utils
     model = types.ModuleType("frappe.model")
     document = types.ModuleType("frappe.model.document")
     document.Document = Document
+    pdfmod = types.ModuleType("frappe.utils.pdf")
+    pdfmod.get_pdf = lambda html, options=None: b"%PDF-fake"
+    sys.modules["frappe.utils.pdf"] = pdfmod
     sys.modules.update({"frappe": m, "frappe.utils": utils, "frappe.model": model,
                         "frappe.model.document": document})
     for k in [k for k in sys.modules if k.startswith("neotec_insight")]:

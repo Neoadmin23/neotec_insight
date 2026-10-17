@@ -235,8 +235,16 @@ export function BudgetTab({ report }: Props) {
             ⬆ Import
             <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={async (e) => {
               const f = e.target.files?.[0]; if (!f) return;
+              // v2.90.0 — xlsx (SheetJS) has open advisories with no fixed
+              // release on npm. Bound what reaches the parser: a budget
+              // template, by extension and size; formulas/HTML not evaluated.
+              if (!/\.(xlsx|xls)$/i.test(f.name) || f.size > 10 * 1024 * 1024) {
+                alert('Please choose the budget template (.xlsx or .xls, at most 10 MB).');
+                e.target.value = '';
+                return;
+              }
               try {
-                const wb = XLSX.read(await f.arrayBuffer());
+                const wb = XLSX.read(await f.arrayBuffer(), { cellFormula: false, cellHTML: false, sheets: 0 });
                 const ws = wb.Sheets[wb.SheetNames[0]];
                 const arr: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
                 const hi = arr.findIndex((r) => r[0] === 'Dimension Value');

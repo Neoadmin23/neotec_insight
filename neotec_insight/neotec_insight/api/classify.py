@@ -88,7 +88,7 @@ def get_classification(company=None):
             "system_tags": SYSTEM_TAGS, "custom_labels": custom}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_classification(company=None, changes=None):
     """changes = {account: tag-or-empty}. Tag is a system key or 'label:<Name>'.
     Empty removes the user tag (resolution falls back to account_type/auto)."""

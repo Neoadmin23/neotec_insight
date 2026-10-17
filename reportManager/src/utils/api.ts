@@ -991,7 +991,7 @@ export const api = {
   listAccountsForFlag: (report: string, flag: string) =>
     call<any[]>('report.list_accounts_for_flag', { report, flag }),
   bulkSetAccountFlags: (report: string, items: { account: string; flag: string; bind_as_group?: number }[]) =>
-    call('report.bulk_set_account_flags', { report, items: JSON.stringify(items) }, 'POST'),
+    call<any>('report.bulk_set_account_flags', { report, items: JSON.stringify(items) }, 'POST'),
   setAccountFlag: (report: string, account: string, flag: string | null) =>
     call('report.set_account_flag', { report, account, flag: flag ?? '' }, 'POST'),
   saveAccountMapping: (args: {
@@ -1034,7 +1034,7 @@ export const api = {
     collection_mode = 'best_case',
     collection_schedule?: Record<string, { pct: number; weights: number[] }>,
     payment_schedule?: Record<string, { weights: number[] }>,
-    dimension_filters?: Record<string, string> | null,
+    dimension_filters?: Record<string, string | string[]> | null,
   ) =>
     call<any>('report.get_liquidity', {
       company, fiscal_year, projection_months, projection_baseline,
@@ -1065,7 +1065,7 @@ export const api = {
   getGroupDashboard: (
     report: string, fiscal_year: number, companies: string[],
     presentation_currency?: string,
-    dimension_filters?: Record<string, string> | null,
+    dimension_filters?: Record<string, string | string[]> | null,
   ) =>
     call<any>('report.get_group_dashboard', {
       report, fiscal_year,
@@ -1097,7 +1097,7 @@ export const api = {
   getMultiYearTrend: (
     report: string, end_year: number, years = 5,
     breakdown: 'total' | 'branch' = 'total',
-    dimension_filters?: Record<string, string> | null,
+    dimension_filters?: Record<string, string | string[]> | null,
   ) =>
     call<any>('report.get_multi_year_trend', {
       report, end_year, years, breakdown,

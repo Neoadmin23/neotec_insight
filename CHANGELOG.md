@@ -1,3 +1,34 @@
+## v2.90.0 — 2026-10-15 — security and correctness release
+
+All thirteen findings of the 2.89.6 health check were confirmed and are fixed; details and test references are in `docs/HEALTH_CHECK_RESPONSE_v2.90.0.md`.
+
+- **Access (HC-01–04)**
+  - One access policy (`utils/access.py`) is enforced on every Insight API call: company, report and dimension scope against User Permissions.
+  - People data needs HR or payroll access, not ledger access.
+  - Uploaded files are read only with File permission, within type, size and location limits.
+  - Report Studio offers, filters and joins only readable fields (never Password fields), and fetches linked records through permission checks.
+- **Correctness (HC-05–07, HC-12)**
+  - `IF` evaluates only the chosen branch, and formula arity is validated.
+  - Failed formula cells are listed on the Run screen instead of passing for 0.
+  - Fiscal-year and account caches are per site and invalidated across workers.
+  - CFO briefing: AR/AP as at the chosen date from the Payment Ledger; like-for-like revenue windows; cash-based runway over full months; no row caps.
+  - Statement import reports submitted, draft, failed and skipped lines separately, and retries earlier drafts.
+- **Release gates and dependencies (HC-08–09)**
+  - 11 TypeScript errors fixed. The type check fails on any compiler error, and ESLint runs in every build.
+  - frappe-react-sdk removed; jsPDF 4.2.1, jspdf-autotable 5.0.8 and Vite 6.4.3. Audit entries go from 19 to 1 (xlsx; its usage is bounded).
+- **Hardening (HC-10, HC-11, HC-13)**
+  - The PDF converter can load only inline images and this site's own resources.
+  - 62 endpoints that change data accept POST only.
+  - Snapshots before risky changes no longer affect the caller's transaction, are required for destructive operations, and incomplete ones are marked.
+  - Restores report dangling links and flag a different app version.
+  - Scheduled reports run as the person who last saved them, with a recipient policy.
+- **Other**
+  - ERPNext is declared in `required_apps`.
+  - The README now has a requirements table, the access model and the backup limits.
+  - Patch: `v2_90.security_fields`.
+- **Behaviour changes:** see the "Behaviour changes" section of the response document. Users limited to several companies must now choose a company; People access moves from ledger access to HR or payroll access; schedules run with their saver's permissions.
+- **Tests:** 51 new; 466 total.
+
 ## v2.89.6 — 2026-10-13
 
 ### Fixed: an Account Map import could wipe a report's mappings with no trace

@@ -61,7 +61,7 @@ def budget_import_template(report=None, fiscal_year=None, dimension_type="cost_c
     frappe.local.response.type = "binary"
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def budget_import(report=None, fiscal_year=None, dimension_type="cost_center",
                   custom_dimension_fieldname=None, rows=None):
     """rows = [{value, row_key, months:{'0'..'11': amount}}] parsed client-side.

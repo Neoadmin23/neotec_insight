@@ -56,8 +56,11 @@ MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 
 def _require_read():
+    """Finance gate (utils/access.py, v2.90.0) plus this module's own doctype."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read()
     if not frappe.has_permission("Insight Cash Flow Line", "read"):
-        frappe.throw(_("Not permitted."), frappe.PermissionError)
+        frappe.throw(_("You are not permitted to view the cash flow forecast."), frappe.PermissionError)
 
 
 def _require_write():
@@ -108,7 +111,7 @@ _LINE_EDITABLE_FIELDS = ["label", "direction", "section", "sort_key", "is_active
                         "dimension_field", "description", "bindings"]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_line(line: str | dict):
     """Only ever writes the fields a person can actually edit on this
     screen — never `doc.update(data)` with the whole payload. The frontend's
@@ -136,7 +139,7 @@ def save_line(line: str | dict):
     return doc.as_dict()
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_line(name: str):
     _require_write()
     if frappe.db.exists("Insight Cash Flow Budget", {"line": name}):
@@ -156,7 +159,7 @@ def list_overrides(line: str | None = None):
                           order_by="created_on desc", limit_page_length=0)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_override(line: str, voucher_type: str, voucher_no: str, note: str):
     _require_write()
     doc = frappe.get_doc({
@@ -167,7 +170,7 @@ def save_override(line: str, voucher_type: str, voucher_no: str, note: str):
     return doc.as_dict()
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_override(name: str):
     _require_write()
     frappe.delete_doc("Insight Cash Flow Override", name)
@@ -322,7 +325,7 @@ def preview_classified_history_import(file_base64: str, sheet_name: str | None =
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def commit_classified_history_import(file_base64: str, sheet_name: str | None = None):
     """Writes an Insight Cash Flow Override per matched row whose voucher
     isn't already classified — same parse+match as preview, run again
@@ -410,7 +413,7 @@ def preview_statement_template_import(file_base64: str, sheet_name: str | None =
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def commit_statement_template_import(file_base64: str, sheet_name: str | None = None,
                                      fiscal_year: int | None = None):
     """Creates any Line whose label doesn't already exist (Account Bindings
@@ -518,7 +521,7 @@ def get_budget_grid(fiscal_year: int, company: str | None = None):
     return grid
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_budget_grid(fiscal_year: int, cells: str | dict, company: str | None = None):
     """cells: {line: {month(1-12): amount}}. A month key simply absent from
     a line's dict is left untouched — blank, not zero, same contract as the

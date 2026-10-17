@@ -1,14 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { FrappeProvider } from 'frappe-react-sdk';
 import App from './App';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <FrappeProvider url="">
-      <App />
-    </FrappeProvider>
+    {/* v2.90.0 — FrappeProvider removed: no screen used the SDK's hooks
+        (all calls go through utils/api.ts), and the package pulled in
+        socket.io, ws and axios with open advisories. */}
+    <App />
   </StrictMode>
 );
 

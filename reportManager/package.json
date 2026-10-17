@@ -1,34 +1,44 @@
 {
   "name": "neotec-insight-frontend",
   "private": true,
-  "version": "2.89.6",
+  "version": "2.90.0",
   "type": "module",
   "engines": {
     "node": ">=18.16.0"
   },
   "scripts": {
     "dev": "vite",
-    "build": "bash scripts/typecheck.sh && vite build --base=/assets/neotec_insight/insight/ && node scripts/copy-html-entry.js",
+    "build": "bash scripts/typecheck.sh && eslint src scripts && vite build --base=/assets/neotec_insight/insight/ && node scripts/copy-html-entry.js",
     "preview": "vite preview",
-    "lint": "eslint .",
-    "typecheck": "bash scripts/typecheck.sh"
+    "lint": "eslint src scripts --max-warnings=-1",
+    "typecheck": "bash scripts/typecheck.sh",
+    "check": "npm run typecheck && npm run lint"
   },
   "dependencies": {
-    "frappe-react-sdk": "^1.14.0",
+    "chart.js": "^4.4.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "4.2.1",
+    "jspdf-autotable": "5.0.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "chart.js": "^4.4.1",
-    "xlsx": "^0.18.5",
-    "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.2",
-    "html2canvas": "^1.4.1"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
     "typescript": "~5.4.5",
-    "vite": "^5.4.19"
+    "typescript-eslint": "^8.71.2",
+    "vite": "6.4.3"
+  },
+  "overrides": {
+    "postcss": "8.5.28",
+    "nanoid": "3.3.19",
+    "baseline-browser-mapping": "2.11.26"
   }
 }

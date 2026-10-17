@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 
 import frappe
+from frappe import _
 
 from neotec_insight.neotec_insight.utils.backup_engine import (
     app_version, build_bundle, current_counts, live_plan,
@@ -81,6 +82,10 @@ def take(kind: str = "manual", label: str | None = None, sections=None,
             return {"name": prev["name"], "skipped": True, "alert": "", "records": records}
 
     alert = ""
+    if bundle.get("errors"):
+        # v2.90.0 — a bundle that could not read every area is marked, so an
+        # incomplete snapshot is never taken for a full one.
+        alert = "INCOMPLETE — not every area could be read: " + "; ".join(bundle["errors"])[:900]
     if not sections:
         prev = _previous_full()
         if prev and prev.get("counts_json"):
@@ -89,7 +94,7 @@ def take(kind: str = "manual", label: str | None = None, sections=None,
             except Exception:
                 drops = []
             if drops:
-                alert = alert_text(drops)
+                alert = (alert + "\n" if alert else "") + alert_text(drops)
                 frappe.log_error(title="Insight: records disappeared since the last snapshot",
                                  message=f"Compared with snapshot {prev['name']}:\n{alert}")
 
@@ -106,7 +111,8 @@ def take(kind: str = "manual", label: str | None = None, sections=None,
     prune()
     if commit:
         frappe.db.commit()
-    return {"name": doc.name, "skipped": False, "alert": alert, "records": records}
+    return {"name": doc.name, "skipped": False, "alert": alert, "records": records,
+            "incomplete": bool(bundle.get("errors")), "errors": bundle.get("errors") or []}
 
 
 def _store_as_file(kind, label, bundle, commit) -> dict:
@@ -214,9 +220,44 @@ def after_migrate():
     _safe(first, "Insight: first snapshot failed")
 
 
-def guard(kind: str, sections=None, label: str | None = None):
-    """Snapshot before a risky write. Returns the snapshot name, or None if it
-    could not be taken (the write still proceeds; the failure is logged)."""
-    r = _safe(lambda: take(kind, label=label, sections=sections, dedupe=True, commit=True),
-              f"Insight: {kind} snapshot failed")
-    return (r or {}).get("name")
+class SnapshotRequired(Exception):
+    """A destructive operation was refused because its recovery snapshot
+    could not be taken complete."""
+
+
+def guard(kind: str, sections=None, label: str | None = None, required: bool = False):
+    """Snapshot before a risky write; returns the snapshot name.
+
+    v2.90.0:
+    * Transaction-neutral. The snapshot is written inside a savepoint of the
+      caller's own transaction: it neither commits the caller's pending work
+      early nor, when it fails, rolls the caller's work back (the old version
+      did both — a failed snapshot silently undid writes made before it).
+      The snapshot is committed with the operation it protects.
+    * required=True — for deletes, replaces and overwrites: if the snapshot
+      cannot be taken, or could not read every area, the operation is refused
+      (SnapshotRequired) instead of going ahead with no way back.
+    """
+    sp = "insight_snapshot_guard"
+    try:
+        frappe.db.savepoint(sp)
+    except Exception:
+        sp = None
+    try:
+        r = take(kind, label=label, sections=sections, dedupe=True, commit=False)
+    except Exception:
+        if sp:
+            try:
+                frappe.db.rollback(save_point=sp)
+            except Exception:
+                pass
+        frappe.log_error(title=f"Insight: {kind} snapshot failed", message=frappe.get_traceback())
+        if required:
+            frappe.throw(_("Stopped: a recovery snapshot could not be taken, so this change was not "
+                           "made. See the Error Log, or take a manual snapshot first."),
+                         SnapshotRequired)
+        return None
+    if required and r.get("incomplete"):
+        frappe.throw(_("Stopped: the recovery snapshot is incomplete ({0}), so this change was not "
+                       "made.").format("; ".join(r.get("errors") or [])[:300]), SnapshotRequired)
+    return r.get("name")

@@ -57,25 +57,9 @@ def _require_write(doctype: str) -> None:
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role — so without this every
-    report endpoint was callable over `/api/method/...` by any authenticated
-    user, including Website and portal users who have no business seeing the
-    ledger. Reading GL Entry is the right test: ERPNext already restricts it
-    to the accounts roles, so this inherits whatever the site has configured
-    rather than inventing a second permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial reports."),
-            frappe.PermissionError,
-        )
-    # v2.84.0 — a People-only user may hold GL Entry read through an HR role
-    # bundle, which would otherwise let them straight into the ledger. The
-    # People endpoints live in cfo.py and do not pass through here, so they
-    # keep working.
-    _check_hr_only(allow=False)
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial reports."))
 
 
 @frappe.whitelist()
@@ -158,7 +142,10 @@ def list_companies() -> list[dict]:
     try:
         if not frappe.db.exists("DocType", "Company"):
             return []
-        rows = frappe.get_all(
+        # v2.90.0 — get_list, so User Permissions on Company apply. get_all
+        # ignores permissions and listed every company to everyone.
+        lister = frappe.get_all if frappe.session.user == "Administrator" else frappe.get_list
+        rows = lister(
             "Company",
             fields=["name", "company_name", "abbr", "default_currency", "country"],
             order_by="company_name asc",
@@ -441,9 +428,14 @@ def list_reports(include_disabled: int = 0) -> list[dict]:
     """
     _require_read()
     filters = {}
-    if not cint(include_disabled):
+    # v2.90.0 — disabled reports only for those who manage reports, as the
+    # docstring always said; and get_list, so the report's own permission
+    # rules (and company User Permissions) apply.
+    from neotec_insight.neotec_insight.doctype.insight_report_definition.insight_report_definition import can_manage
+    if not cint(include_disabled) or not can_manage():
         filters["is_active"] = 1
-    rows = frappe.get_all(
+    lister = frappe.get_all if frappe.session.user == "Administrator" else frappe.get_list
+    rows = lister(
         "Insight Report Definition",
         filters=filters,
         fields=[
@@ -2257,8 +2249,9 @@ def _app_version():
         return ""
 
 
-@frappe.whitelist()
-def import_configuration(payload=None, mode="replace", sections=None, allow_partial=0):
+@frappe.whitelist(methods=["POST"])
+def import_configuration(payload=None, mode="replace", sections=None, allow_partial=0,
+                         allow_without_snapshot=0):
     """Restore a bundle produced by export_configuration (or a snapshot).
 
     v2.89.0:
@@ -2278,7 +2271,11 @@ def import_configuration(payload=None, mode="replace", sections=None, allow_part
     if not payload or "data" not in payload:
         frappe.throw("Invalid configuration bundle.")
     sel = frappe.parse_json(sections) if isinstance(sections, str) and sections else sections
-    pre = snapshots.guard("pre_restore", label=f"Before {mode} restore of a v{payload.get('version') or '?'} bundle")
+    # v2.90.0 — no restore without a complete pre-restore snapshot, unless a
+    # System Manager explicitly accepts that (e.g. the snapshot store itself
+    # is what is broken).
+    pre = snapshots.guard("pre_restore", label=f"Before {mode} restore of a v{payload.get('version') or '?'} bundle",
+                          required=not cint(allow_without_snapshot))
     out = restore_bundle(payload, mode=mode, sections=sel or None, atomic=not cint(allow_partial))
     out["pre_restore_snapshot"] = pre
     return out
@@ -3396,6 +3393,9 @@ def run_report(
         "current": current,
         "priors": priors,
         "budget": budget,
+        # v2.90.0 — formulas that could not be computed (shown as 0) per row
+        # and month, so a failed calculation is never read as a real zero.
+        "formula_errors": current.get("formula_errors") or {},
         "binding_meta": flag_binding_meta(doc.name, flag_to_accounts, definition.get("rows", [])),
         "period_groups": period_groups["groups"],
         "performance": {"execution_ms": int((time.perf_counter() - started) * 1000), "cache_hit": False},
@@ -4729,9 +4729,16 @@ def delete_mapping_rule(name: str) -> dict:
     return {"deleted": True}
 
 
-def _resolve_report_doc(report: str):
+def _resolve_report_doc(report: str, ptype: str = "read"):
+    """Load a report the user may read. v2.90.0 — loading is not
+    authorising: the report's own permission rules (inactive reports for
+    managers only) and its company's User Permissions are now checked here,
+    for every path that resolves a report."""
+    from neotec_insight.neotec_insight.utils.access import check_report
     name = frappe.db.get_value("Insight Report Definition", {"slug": report}, "name") or report
-    return frappe.get_doc("Insight Report Definition", name)
+    doc = frappe.get_doc("Insight Report Definition", name)
+    check_report(doc, ptype)
+    return doc
 
 
 def _serialize_report(doc) -> dict:
@@ -8893,7 +8900,7 @@ def run_balance_sheet_multi_period(
     )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_taccount_variant(report: str | None = None):
     """v2.36.1 — one-click T-format copy of an existing vertical P&L.
 
@@ -9121,7 +9128,7 @@ def company_brand(company: str | None = None) -> dict:
     return out
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_company_logo(company: str, logo_url: str = "") -> dict:
     """Write an uploaded logo back to the Company master.
 

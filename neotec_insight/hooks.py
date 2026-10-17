@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 app_name = "neotec_insight"
+# v2.90.0 — ERPNext was required in practice (GL Entry, Company, Account) but
+# not declared; a fresh install without it now stops with a clear message.
+required_apps = ["erpnext"]
 app_title = "Neotec Insight"
 app_publisher = "Neotec"
 app_description = "Financial reporting and BI for ERPNext — map-driven row tree, multi-year comparison, budget, exports, and a separate Visuals workspace."
@@ -31,9 +34,20 @@ after_migrate = [
 # Insight's per-company FY cache must invalidate or subsequent report runs
 # will use the stale fiscal year orientation. Listening to on_update covers
 # both create and edit paths cleanly.
+# v2.90.0 — company and report scope for every Insight API call, enforced once.
+before_request = ["neotec_insight.neotec_insight.utils.access.enforce_request_scope"]
+
 doc_events = {
     "Company": {
         "on_update": "neotec_insight.neotec_insight.utils.fiscal_year.clear_company_fy_cache_on_company_save",
+    },
+    # v2.90.0 — account lists are cached per site; any change clears them
+    # for every worker.
+    "Account": {
+        "after_insert": "neotec_insight.neotec_insight.utils.execution.invalidate_account_cache",
+        "on_update": "neotec_insight.neotec_insight.utils.execution.invalidate_account_cache",
+        "on_trash": "neotec_insight.neotec_insight.utils.execution.invalidate_account_cache",
+        "after_rename": "neotec_insight.neotec_insight.utils.execution.invalidate_account_cache",
     },
 }
 

@@ -116,20 +116,9 @@ _NEVER_VAT_TYPES = {
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 def _is_vat_like(a: dict) -> bool:
@@ -846,7 +835,7 @@ def vat_reclassify_boxes(voucher_type=None):
     return [{"box": k, "label": v} for k, v in boxes.items()]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_vat_adjustment(company=None, from_date=None, to_date=None,
                         voucher_type=None, voucher_no=None, action=None, reason=None,
                         target_box=None):
@@ -903,7 +892,7 @@ def save_vat_adjustment(company=None, from_date=None, to_date=None,
     return {"ok": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_vat_adjustment(name=None):
     if not frappe.has_permission("Insight VAT Adjustment", "delete"):
         frappe.throw(_("Not permitted."))
@@ -963,7 +952,7 @@ def _adjustment_summary(company, from_date, to_date):
     return out
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def clear_vat_adjustment(company=None, from_date=None, to_date=None,
                          voucher_type=None, voucher_no=None):
     """Remove the adjustment on a voucher for this period — the drill's

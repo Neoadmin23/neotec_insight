@@ -133,20 +133,9 @@ _TYPES = {t["type"]: t for t in SHEET_TYPES}
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 @frappe.whitelist()
@@ -173,7 +162,7 @@ def load_pack(slug=None):
             "config": json.loads(doc.config_json or "{}")}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_pack(pack=None):
     if not frappe.has_permission("Insight Export Pack", "write"):
         frappe.throw(_("Not permitted."))
@@ -201,7 +190,7 @@ def save_pack(pack=None):
     return {"slug": doc.slug}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_pack(slug=None):
     if not frappe.has_permission("Insight Export Pack", "delete"):
         frappe.throw(_("Not permitted."))

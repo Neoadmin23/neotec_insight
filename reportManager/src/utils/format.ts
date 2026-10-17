@@ -174,7 +174,7 @@ export function buildPeriodGroups(from: number, to: number, granularity: string,
     let out = groups;
     try {
       const hid: string[] = JSON.parse(localStorage.getItem('ni-hidecols') || '[]');
-      if (hid.length) out = groups.filter((g) => !hid.includes(g.key));
+      if (hid.length) out = groups.filter((g) => !hid.includes(g.key ?? ''));
     } catch { /* ignore */ }
     return { groups: out, months: allMonths };
   }

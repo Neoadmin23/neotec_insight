@@ -64,10 +64,21 @@ def dispatch_schedule(doc) -> None:
     try:
         report = frappe.get_doc("Studio Report", doc.report)
         config = json.loads(report.config_json or "{}")
-        # The scheduler runs as Administrator by design: the schedule was
-        # created by a permitted user, and run_query itself is get_list-based.
+        # v2.90.0 — run with the permissions of the person who saved the
+        # schedule, not as Administrator. The old way let anyone able to save
+        # a schedule send data their own access did not cover (another
+        # company, another doctype). If that person is disabled or has lost
+        # access, the run fails and says so.
+        run_as = getattr(doc, "run_as", None) or doc.owner
+        if not run_as or not frappe.db.get_value("User", run_as, "enabled"):
+            raise frappe.PermissionError(f"schedule owner {run_as or '?'} is disabled or missing")
         from neotec_insight.neotec_insight.api.studio import run_query
-        result = run_query(config)
+        previous = frappe.session.user
+        frappe.set_user(run_as)
+        try:
+            result = run_query(config)
+        finally:
+            frappe.set_user(previous)
 
         fname, fcontent = _render_attachment(report.title or doc.report, result,
                                              (doc.file_format or "XLSX").upper())
@@ -193,3 +204,42 @@ def _send_whatsapp_summary(numbers, subject, result) -> int:
             frappe.log_error(title="Insight WhatsApp send failed",
                              message=f"{num}: {frappe.get_traceback()}")
     return sent
+
+
+# ── v2.90.0: who a schedule runs as, and where it may send ───────────────────
+
+def preflight_as_current_user(report: str) -> None:
+    """Run the saved report once, small, as the current user: refuses a
+    schedule whose data the person saving it cannot read."""
+    from neotec_insight.neotec_insight.api.studio import run_query
+    config = json.loads(frappe.db.get_value("Studio Report", report, "config_json") or "{}")
+    config["limit"] = 1
+    run_query(config)
+
+
+def check_recipients(recipients: str, whatsapp_numbers: str) -> None:
+    """Recipient policy.
+
+    * Site config `insight_schedule_allowed_domains` (list) — when set, every
+      email recipient must be at one of those domains.
+    * Otherwise, a user who is not a System Manager may only send to people
+      who have an enabled user account on this site.
+    * WhatsApp delivery leaves the site's mail controls entirely: System
+      Manager only.
+    """
+    from frappe import _
+    is_sm = "System Manager" in frappe.get_roles()
+    emails = [r.strip() for r in (recipients or "").replace(";", ",").split(",") if r.strip()]
+    allowed = frappe.conf.get("insight_schedule_allowed_domains") or []
+    if allowed:
+        allowed = {d.lower().lstrip("@") for d in allowed}
+        bad = [e for e in emails if e.rsplit("@", 1)[-1].lower() not in allowed]
+        if bad:
+            frappe.throw(_("These recipients are outside the allowed domains: {0}").format(", ".join(bad)))
+    elif not is_sm:
+        bad = [e for e in emails if not frappe.db.get_value("User", {"email": e, "enabled": 1}, "name")]
+        if bad:
+            frappe.throw(_("Scheduled reports can only be sent to users of this site: {0}. "
+                           "A System Manager can send outside.").format(", ".join(bad)))
+    if (whatsapp_numbers or "").strip() and not is_sm:
+        frappe.throw(_("Only a System Manager can send scheduled reports by WhatsApp."))

@@ -24,20 +24,9 @@ from .vat import STANDARD_RATE, _vat_accounts
 
 
 def _require_read() -> None:
-    """Refuse a financial read from a user with no ledger access.
-
-    `@frappe.whitelist()` requires a login, not a role, so without this these
-    endpoints were callable over `/api/method/...` by any authenticated user,
-    including portal users with no business seeing the ledger. Reading GL Entry
-    is the right test: ERPNext already restricts it to the accounts roles, so
-    this inherits the site's own configuration rather than inventing a second
-    permission model.
-    """
-    if not frappe.has_permission("GL Entry", "read"):
-        frappe.throw(
-            _("You are not permitted to view financial data."),
-            frappe.PermissionError,
-        )
+    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    require_finance_read(_("You are not permitted to view financial data."))
 
 
 def _account_labels(names: list[str]) -> list[dict]:
@@ -117,7 +106,7 @@ def vat_settings(company=None):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_gtpl_rule(company=None, payload=None):
     """Create or update a GTPL rule.
 
@@ -166,7 +155,7 @@ def save_gtpl_rule(company=None, payload=None):
     return {"ok": True, "name": doc.name}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_gtpl_rule_active(name=None, active=1):
     """Activate or deactivate a rule without deleting it.
 
@@ -183,7 +172,7 @@ def set_gtpl_rule_active(name=None, active=1):
     return {"ok": True, "name": doc.name, "is_active": doc.is_active}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_gtpl_rule(name=None):
     if not frappe.has_permission("Insight GTPL Rule", "delete"):
         frappe.throw(_("Not permitted."))
@@ -210,7 +199,7 @@ def payment_orders(company=None, limit=200):
     return rows
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_payment_order(company=None, payload=None):
     company = company or _default_company()
     if not frappe.has_permission("Insight Payment Order", "write"):
@@ -244,7 +233,7 @@ def save_payment_order(company=None, payload=None):
     return {"ok": True, "name": doc.name, "basis": basis, "inert": inert}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_payment_order(name=None):
     if not frappe.has_permission("Insight Payment Order", "delete"):
         frappe.throw(_("Not permitted."))
