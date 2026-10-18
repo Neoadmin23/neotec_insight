@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { t } from '../../utils/i18n';
 import Chart from 'chart.js/auto';
 import type { RunSnapshot, Tile, ChartType, SavedDashboard } from '../../types';
@@ -21,7 +21,7 @@ const PALETTES: Record<string, string[]> = {
   mono: ['#042C53', '#0C447C', '#185FA5', '#378ADD', '#85B7EB', '#B5D4F4'],
 };
 
-export function VisualsApp({ snapshots, setSnapshots, reportName }: Props) {
+export function VisualsApp({ snapshots, setSnapshots: _setSnapshots, reportName }: Props) {
   const [activeRunId, setActiveRunId] = useState<string>('');
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [building, setBuilding] = useState(false);

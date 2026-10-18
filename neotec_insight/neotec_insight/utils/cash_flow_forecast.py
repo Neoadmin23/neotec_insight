@@ -24,7 +24,6 @@ Three-tier attribution, in order:
 from __future__ import annotations
 
 import datetime
-from typing import Any
 
 import frappe
 from frappe.utils import flt, getdate

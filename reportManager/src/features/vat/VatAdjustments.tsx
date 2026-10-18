@@ -28,7 +28,8 @@ export default function VatAdjustments({ company, fromDate, toDate, onClose }: {
   const [targetBox, setTargetBox] = useState('');
 
   const refresh = () => api.listVatAdjustments(company || null, fromDate, toDate).then(setList).catch(() => {});
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [company, fromDate, toDate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): refresh is recreated each render; the effect runs on the listed inputs only
+  useEffect(() => { refresh();   }, [company, fromDate, toDate]);
 
   async function search() {
     setMsg(''); setPicked(null);

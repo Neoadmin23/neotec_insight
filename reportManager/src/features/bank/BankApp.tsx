@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { deskPrefix } from '../../utils/desk';
 import { api, uploadFile } from '../../utils/api';
 import { t } from '../../utils/i18n';
 import StatementImport from './StatementImport';
@@ -68,7 +69,7 @@ export default function BankApp() {
     try {
       const r = await api.stageDraftPaymentEntry(slip.name);
       await load(); await select(slip.name);
-      if (r.payment_entry) window.open(`/app/payment-entry/${encodeURIComponent(r.payment_entry)}`, '_blank');
+      if (r.payment_entry) window.open(`${deskPrefix()}/payment-entry/${encodeURIComponent(r.payment_entry)}`, '_blank');
     } catch (e: any) { setErr(e.message || String(e)); }
     finally { setBusy(''); }
   };
@@ -283,7 +284,7 @@ function SlipReview({ slip, onStage, onParty, onAccounts, onDirection, busy }: {
           {slip.payment_entry ? t('Draft created') : t('Stage Draft Payment Entry')}
         </button>
         {slip.payment_entry && (
-          <a className="btn btn-default" href={`/app/payment-entry/${encodeURIComponent(slip.payment_entry)}`} target="_blank" rel="noreferrer">
+          <a className="btn btn-default" href={`${deskPrefix()}/payment-entry/${encodeURIComponent(slip.payment_entry)}`} target="_blank" rel="noreferrer">
             {t('Open')} {slip.payment_entry}
           </a>
         )}

@@ -375,7 +375,7 @@ def _customer_country(customer, cache):
         link = frappe.get_all(
             "Dynamic Link",
             filters={"link_doctype": "Customer", "link_name": customer, "parenttype": "Address"},
-            fields=["parent"], limit=1)
+            fields=["parent"], limit=1, order_by="modified desc")
         if link:
             country = frappe.db.get_value("Address", link[0]["parent"], "country")
     cache[customer] = country
@@ -912,12 +912,13 @@ def find_vouchers(company=None, voucher_type=None, query=None):
     if not _can_read_doc(voucher_type):
         return []
     party = "customer_name" if voucher_type == "Sales Invoice" else "supplier_name"
-    return frappe.get_all(voucher_type,
+    from neotec_insight.neotec_insight.utils.compat import with_aliases
+    return with_aliases(frappe.get_all(voucher_type,
                           filters={"company": company, "docstatus": 1,
                                    "name": ["like", f"%{(query or '').strip()}%"]},
-                          fields=["name", "posting_date", party + " as party",
+                          fields=["name", "posting_date", party,
                                   "base_net_total", "base_total_taxes_and_charges"],
-                          order_by="posting_date desc", limit_page_length=12)
+                          order_by="posting_date desc", limit_page_length=12), {"party": party})
 
 
 def _can_read_doc(dt):

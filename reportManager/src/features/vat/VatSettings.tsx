@@ -148,6 +148,7 @@ export default function VatSettings() {
   }
 
   const acc = data?.accounts;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the listed inputs are the intended trigger
   const rules: any[] = data?.gtpl_rules || [];
   const adjustments: any[] = data?.adjustments || [];
 

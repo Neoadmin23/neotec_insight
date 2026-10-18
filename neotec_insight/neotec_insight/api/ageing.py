@@ -208,8 +208,9 @@ def list_parties(company=None, party_type="Customer", query=""):
     flt_ = {}
     if (query or "").strip():
         flt_[label] = ["like", f"%{query.strip()}%"]
-    return frappe.get_all(party_type, filters=flt_, fields=["name", f"{label} as label"],
-                          order_by=label, limit_page_length=30)
+    from neotec_insight.neotec_insight.utils.compat import with_aliases
+    return with_aliases(frappe.get_all(party_type, filters=flt_, fields=["name", label],
+                                       order_by=label, limit_page_length=30), {"label": label})
 
 
 @frappe.whitelist()
@@ -374,8 +375,10 @@ def party_tree(party_type="Customer"):
         return []
     label = "customer_name" if party_type == "Customer" else "supplier_name"
     group_f = "customer_group" if party_type == "Customer" else "supplier_group"
-    rows = frappe.get_all(party_type, fields=["name", f"{label} as label", f"{group_f} as grp"],
-                          order_by=f"{group_f}, {label}", limit_page_length=2000)
+    from neotec_insight.neotec_insight.utils.compat import with_aliases
+    rows = with_aliases(frappe.get_all(party_type, fields=["name", label, group_f],
+                                       order_by=f"{group_f} asc, {label} asc", limit_page_length=2000),
+                        {"label": label, "grp": group_f})
     groups = {}
     for r in rows:
         groups.setdefault(r.get("grp") or _("Others"), []).append(

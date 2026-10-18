@@ -23,7 +23,6 @@ supposed to support — which is exactly the moment an auditor is looking at it.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
 
 import frappe
 from frappe import _
@@ -568,7 +567,6 @@ def commit(rule_name: str, year: int, months: list[int] | None = None,
     unless `refresh_drift` is set, which is the explicit way to re-open frozen
     rows whose count has moved and write the counted value."""
     rule = frappe.get_doc("Insight Allocation Rule", rule_name)
-    cfg = _rule_config(rule)
     pv = preview(rule_name, year, months)
     now = frappe.utils.now()
     user = frappe.session.user

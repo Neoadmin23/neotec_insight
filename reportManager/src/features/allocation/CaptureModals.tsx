@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { deskPrefix } from '../../utils/desk';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 
@@ -46,7 +47,8 @@ export function CaptureModal({ rule, year, ccLabel, onClose, onSaved }: Props) {
   const [status, setStatus] = useState<Record<string, any>>({});
   const loadStatus = () => api.allocationCaptureStatus(rule, year)
     .then((r: any) => setStatus(r?.months || {})).catch(() => setStatus({}));
-  useEffect(() => { loadStatus(); /* eslint-disable-next-line */ }, [rule, year]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): loadStatus is recreated each render; the effect runs on the listed inputs only
+  useEffect(() => { loadStatus();   }, [rule, year]);
 
   useEffect(() => {
     setErr(''); setMsg('');
@@ -342,7 +344,7 @@ export function EvidenceModal({ rule, costCenter, ccLabel, year, month, onClose 
                       {data.undated_inactive.map((p: any) => (
                         <tr key={p.id}>
                           <td>
-                            <a href={`/app/employee/${encodeURIComponent(p.id)}`}
+                            <a href={`${deskPrefix()}/employee/${encodeURIComponent(p.id)}`}
                                target="_blank" rel="noopener noreferrer">{p.name}</a>
                             <span className="ev-id">{p.id}</span>
                           </td>
@@ -454,7 +456,7 @@ export function UnassignedModal({ rule, year, onClose }: {
                   {people.map((p: any) => (
                     <tr key={p.id}>
                       <td>
-                        <a href={`/app/employee/${encodeURIComponent(p.id)}`}
+                        <a href={`${deskPrefix()}/employee/${encodeURIComponent(p.id)}`}
                            target="_blank" rel="noopener noreferrer">{p.name}</a>
                         <span className="ev-id">{p.id}</span>
                       </td>

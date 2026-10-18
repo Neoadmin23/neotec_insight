@@ -6,7 +6,6 @@ from typing import Any
 
 import frappe
 import openpyxl
-from openpyxl.utils import get_column_letter, column_index_from_string
 
 CELL_REF_RE = re.compile(r"([A-Z]+)(\d+)")
 EXCEL_FN_RE = re.compile(r"\b(SUM|SUMIF|SUMIFS|IF|ROUND|ABS|MIN|MAX|AVERAGE)\s*\(", re.IGNORECASE)
@@ -101,7 +100,6 @@ def import_report_structure(
             spec["raw_excel_formula"] = formula_for_row
         row_specs.append(spec)
 
-    label_by_row_idx = {s["source_row_idx"]: s["label"] for s in row_specs}
     key_by_row_idx = {s["source_row_idx"]: s["key"] for s in row_specs}
 
     for spec in row_specs:
@@ -143,7 +141,6 @@ def translate_formula(
     def replace_cell(match: re.Match) -> str:
         col_letter = match.group(1)
         row_idx = int(match.group(2))
-        col_idx = column_index_from_string(col_letter)
         key = key_by_row_idx.get(row_idx)
         if not key:
             unresolved.append(f"{col_letter}{row_idx}")

@@ -44,7 +44,7 @@ def _validate_pivot_by(pivot_by: str) -> None:
     """
     valid: set[str]
     try:
-        from neotec_insight.neotec_insight.api.report import _all_valid_dimension_fieldnames
+        from neotec_insight.neotec_insight.api.report_shared import _all_valid_dimension_fieldnames
         valid = _all_valid_dimension_fieldnames()
     except Exception:
         valid = {"cost_center", "department", "project", "branch"}
@@ -863,6 +863,7 @@ def _fiscal_year_start_for(date_str: str) -> str:
             },
             fields=["year_start_date"],
             limit_page_length=1,
+            order_by="modified desc",
         )
         if fy:
             return str(fy[0]["year_start_date"])

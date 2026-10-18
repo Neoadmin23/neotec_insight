@@ -17,7 +17,7 @@ class InsightQuickLink(Document):
         # Accept either an ERPNext desk path ("/app/...") or a full URL.
         if not (self.url.startswith("/") or self.url.startswith("http://") or self.url.startswith("https://")):
             frappe.throw(
-                "URL must start with '/' for a desk path (e.g. /app/general-ledger) "
+                "URL must start with '/' for a desk path (e.g. /app/general-ledger, or /desk/... on v16) "
                 "or with http:// or https:// for an external link."
             )
 

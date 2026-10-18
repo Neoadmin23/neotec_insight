@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { t } from '../../utils/i18n';
 import type { ReportDefinition, BudgetBook, DimensionType, BookStatus } from '../../types';
 import { api } from '../../utils/api';
-import * as XLSX from 'xlsx';
 import { MONTHS, FY_RANGE } from '../../utils/format';
 
 interface Props { report: ReportDefinition }
@@ -80,8 +79,9 @@ export function BudgetTab({ report }: Props) {
     }
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): reloadBooks is recreated each render; the effect runs on the listed inputs only
   useEffect(() => { reloadBooks(false); /* eslint-disable-next-line */ }, [report.name, fy]);
-  useEffect(() => { reloadActiveBook(); /* eslint-disable-next-line */ }, [activeSlug]);
+  useEffect(() => { reloadActiveBook();   }, [activeSlug]);
 
   function setCell(rowKey: string, month: number, raw: string) {
     const n = parseFloat(raw.replace(/,/g, '')) || 0;
@@ -244,6 +244,7 @@ export function BudgetTab({ report }: Props) {
                 return;
               }
               try {
+                const XLSX = await import('xlsx');   // v2.91.0 — loaded on demand
                 const wb = XLSX.read(await f.arrayBuffer(), { cellFormula: false, cellHTML: false, sheets: 0 });
                 const ws = wb.Sheets[wb.SheetNames[0]];
                 const arr: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
@@ -452,7 +453,7 @@ function evalSimple(expr: string, resolve: (key: string) => number): number {
   // Whitelist: identifiers, digits, dots, parens, math operators, whitespace.
   if (!/^[\s\w+\-*/().,]+$/.test(expr)) return 0;
   const replaced = expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, (m) => String(resolve(m)));
-  // eslint-disable-next-line no-new-func
+   
   const v = Function('"use strict"; return (' + replaced + ');')();
   return typeof v === 'number' && isFinite(v) ? v : 0;
 }

@@ -99,6 +99,7 @@ export default function StudioChart({ result, cfg, height, onPick }: { result: a
       },
     });
     return () => { if (chartRef.current) chartRef.current.destroy(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): cfg and onPick is recreated each render; the effect runs on the listed inputs only; the derived value in the list is the intended trigger
   }, [result, cfg.type, JSON.stringify(cfg.measures), cfg.category]);  // onPick intentionally omitted — it only calls stable setters
 
   return <div style={{ position: 'relative', height: height || 360 }}><canvas ref={ref} role="img" aria-label="chart" /></div>;

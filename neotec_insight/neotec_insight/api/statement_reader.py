@@ -12,12 +12,11 @@ import csv
 import io
 import re
 import unicodedata
-from collections import defaultdict
 from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import flt
 
 # Canonical column -> the header variants seen across exports.
 _COLMAP = {

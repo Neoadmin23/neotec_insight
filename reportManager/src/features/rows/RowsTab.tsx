@@ -522,7 +522,7 @@ function RowEditor({ row, all, report, onChange, onRenameKey, onDelete, onMove }
   );
 }
 
-function AccountPicker({ report, flag, currentRowKey, allRows, onClose, onDone }: {
+function AccountPicker({ report, flag: _flag, currentRowKey, allRows, onClose, onDone }: {
   report: ReportDefinition;
   flag: string;
   currentRowKey: string;
@@ -588,7 +588,7 @@ function AccountPicker({ report, flag, currentRowKey, allRows, onClose, onDone }
       }
     }, 200);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [search, report.name]);
 
   function togglePick(acc: any) {

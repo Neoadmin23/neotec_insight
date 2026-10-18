@@ -21,9 +21,7 @@ mined here as a Candidate. It is never Active until a human approves it.
 
 from __future__ import annotations
 
-from typing import Any
 
-import frappe
 from frappe.utils import flt
 
 

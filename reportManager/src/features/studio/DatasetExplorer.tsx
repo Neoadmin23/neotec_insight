@@ -49,7 +49,7 @@ export default function DatasetExplorer({ onDeleted }: { onDeleted?: () => void 
     await api.deleteDataset(slug).catch(() => {});
     setSlug(''); setDs(null); setResult(null);
     api.listDatasets().then(setList).catch(() => {});
-    onDeleted && onDeleted();
+    if (onDeleted) onDeleted();
   }
 
   const measures: DsMeasure[] = ds?.config?.measures || [];

@@ -210,11 +210,19 @@ def deleted_summary():
     dts = _insight_doctypes()
     if not dts:
         return []
-    rows = frappe.get_all("Deleted Document",
-                          filters={"deleted_doctype": ["in", dts], "restored": 0},
-                          fields=["deleted_doctype", "count(name) as n", "min(creation) as first",
-                                  "max(creation) as last"],
-                          group_by="deleted_doctype", order_by="deleted_doctype asc")
+    # v2.93.0 — counted in Python from plain fields. SQL functions in get_all
+    # field strings are rejected by Frappe v16's query builder; this form is
+    # identical on v15 and v16, and covers Insight's own deletions only.
+    agg: dict[str, dict] = {}
+    for r in frappe.get_all("Deleted Document",
+                            filters={"deleted_doctype": ["in", dts], "restored": 0},
+                            fields=["deleted_doctype", "creation"], limit_page_length=0,
+                            order_by="creation asc"):
+        a = agg.setdefault(r["deleted_doctype"], {"deleted_doctype": r["deleted_doctype"], "n": 0,
+                                                  "first": r["creation"], "last": r["creation"]})
+        a["n"] += 1
+        a["last"] = r["creation"]
+    rows = [agg[k] for k in sorted(agg)]
     return [{"doctype": r["deleted_doctype"], "count": r["n"],
              "first": str(r["first"])[:16], "last": str(r["last"])[:16]} for r in rows]
 

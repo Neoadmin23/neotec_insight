@@ -30,7 +30,7 @@ export default function PartyTreePicker({ side, selected, onChange }: {
   };
   const toggleParty = (name: string) => {
     const next = new Set(selected === null ? allNames : selected);
-    next.has(name) ? next.delete(name) : next.add(name);
+    if (next.has(name)) next.delete(name); else next.add(name);
     emit(next);
   };
   const toggleGroup = (g: TreeGroup) => {
@@ -68,7 +68,7 @@ export default function PartyTreePicker({ side, selected, onChange }: {
               return (
                 <div key={g.group}>
                   <div className="ptree-grp">
-                    <button className="ptree-caret" onClick={() => setCollapsed((c) => { const n = new Set(c); n.has(g.group) ? n.delete(g.group) : n.add(g.group); return n; })}>
+                    <button className="ptree-caret" onClick={() => setCollapsed((c) => { const n = new Set(c); if (n.has(g.group)) n.delete(g.group); else n.add(g.group); return n; })}>
                       {isCollapsed ? '▸' : '▾'}
                     </button>
                     <label style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1, cursor: 'pointer' }}>

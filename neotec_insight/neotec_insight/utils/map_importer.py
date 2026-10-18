@@ -98,6 +98,7 @@ def resolve_account_to_frappe(code: str, name: str, company: str | None = None) 
             filters={**filters, "account_number": code},
             fields=["name"],
             limit_page_length=1,
+            order_by="modified desc",
         )
         if candidates:
             return candidates[0]["name"]
@@ -108,6 +109,7 @@ def resolve_account_to_frappe(code: str, name: str, company: str | None = None) 
             filters={**filters, "account_name": ["like", f"%{name[:40]}%"]},
             fields=["name"],
             limit_page_length=1,
+            order_by="modified desc",
         )
         if candidates:
             return candidates[0]["name"]

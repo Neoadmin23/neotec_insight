@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { t } from '../utils/i18n';
 import { fmtD } from '../utils/format';
 
 /* ─── ComboView (v1.9.63) ─────────────────────────────────────────────────

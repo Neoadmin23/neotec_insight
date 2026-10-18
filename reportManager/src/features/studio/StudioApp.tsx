@@ -379,7 +379,7 @@ export default function StudioApp() {
       <h1>${esc(title || doctype)}</h1><div class="meta">${esc(doctype)} · ${result.row_count} ${t('rows')}${result.group_by ? ' · ' + t('grouped by') + ' ' + esc(result.group_label) : ''} · ${fmtDMY(new Date().toISOString().slice(0, 10))}</div>
       <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>
       ${lhFoot ? '<div class="lh-foot">' + lhFoot + '</div>' : ''}
-      <script>window.onload=function(){window.print();}<\/script></body></html>`);
+      <script>window.onload=function(){window.print();}</script></body></html>`);
     w.document.close();
   }
 

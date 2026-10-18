@@ -1,4 +1,4 @@
-import { t, arName, loadDimensionOptions } from '../../utils/i18n';
+import { t, arName } from '../../utils/i18n';
 import GlDrillModal, { GlDrillArgs } from './GlDrillModal';
 import { useEffect, useMemo, useState, useRef } from 'react';
 import type {
@@ -13,7 +13,7 @@ import { loadBrand, buildFrame, bandRow, stripRow } from '../../utils/branddoc';
 import BrandKitModal from '../shell/BrandKitModal';
 import { setActiveCompany } from '../../utils/activeCompany';
 import {
-  MONTHS, FY_RANGE, GRANULARITY_OPTIONS,
+  FY_RANGE, GRANULARITY_OPTIONS,
   fmtD, fmtPct, fmtPctGrowth, aggregate, buildPeriodGroups, monthLabel, fmtFyLabel,
   injectExpandedQuarters, rowStyleToCss,
 } from '../../utils/format';
@@ -125,6 +125,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
   const [rowExpandMode, setRowExpandMode] = useState<'expanded' | 'collapsed'>('collapsed');
   useEffect(() => {
     setRowExpandMode((report as any)?.default_expand === 'Expanded' ? 'expanded' : 'collapsed');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): reads report once to pick a default; re-running on every change of it would be wrong; the derived value in the list is the intended trigger
   }, [selectedReport, (report as any)?.default_expand]);
   // v1.9.63 — combo mode state. Default to (cost_center, project) which are
   // the most common combinations and almost always present.
@@ -146,7 +147,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
   // alongside the current FY (defaults to priorYears for consistency).
   const [yearsCount, setYearsCount] = useState(2);  // current + 2 priors = 3 years
   const [yearsRun, setYearsRun] = useState<{ year: number; result: RunResult }[] | null>(null);
-  const [yearsDiag, setYearsDiag] = useState('');
+  const [, setYearsDiag] = useState('');
   const [yearsLoading, setYearsLoading] = useState(false);
   // v1.9.97 — Integrity & Coverage audit (read-only).
   const [integrity, setIntegrity] = useState<any | null>(null);
@@ -345,7 +346,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
       }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [company]);
 
   useEffect(() => {
@@ -566,7 +567,6 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
       // records — the bug the v1.9.55 diagnostic comment was hunting.
       const yearList: number[] = [];
       for (let y = fy - yearsCount; y <= fy; y++) yearList.push(y);
-      const dimSnapshot = compactDimFilters(dimFilters) || null;
       const settled = await Promise.allSettled([
         api.runReport({
           report: selectedReport,
@@ -715,6 +715,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
   }, [viewMode, comboMode, comboDim1, comboDim2, fy, from, to, company,
       costCenter, project, department, branch, fyOverride,
       periodMode, periodFromDate, periodToDate,
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the derived value in the list is the intended trigger
       JSON.stringify(dimFilters), selectedReport]);
 
   async function runPlHierarchy() {
@@ -2053,7 +2054,7 @@ function Matrix({
               {sectionMap.map((sec) => (
                 <label key={sec.label} className="navgrp-item" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input type="checkbox" checked={pickedSections.has(sec.label)}
-                    onChange={() => setPickedSections((ps) => { const n = new Set(ps); n.has(sec.label) ? n.delete(sec.label) : n.add(sec.label); return n; })} />
+                    onChange={() => setPickedSections((ps) => { const n = new Set(ps); if (n.has(sec.label)) n.delete(sec.label); else n.add(sec.label); return n; })} />
                   {sec.label} <span className="cf-count">{sec.keys.length}</span>
                 </label>
               ))}
@@ -2524,7 +2525,7 @@ function exportPivotPrint(result: PivotResult, visible: Set<string>, totalLast: 
   ${bHead ? '' : `<h1>${esc(result.report.report_name || result.report.slug)} — ${esc('pivot by ' + result.filters.pivot_by)}</h1>
   <div class="meta">FY ${esc(result.filters.fiscal_year)} · ${dims.length} ${esc('columns')}</div>`}
   <table><thead>${bHead ? bandRow(bHead, heads.length) : ''}${headRow}</thead>${bHead ? stripRow(bFoot, heads.length) : ''}<tbody>${body}</tbody></table>
-  <script>window.onload=function(){setTimeout(function(){window.print();},200);}<\/script></body></html>`);
+  <script>window.onload=function(){setTimeout(function(){window.print();},200);}</script></body></html>`);
   w.document.close();
 }
 

@@ -299,11 +299,14 @@ def account_movement(company: str, account: str, from_date: str, to_date: str) -
     """
     if not account:
         return 0.0
-    rows = frappe.get_all("GL Entry",
-                          filters={"company": company, "account": account,
-                                   "posting_date": ["between", [from_date, to_date]],
-                                   "is_cancelled": 0},
-                          fields=["sum(credit) as cr", "sum(debit) as dr"])
+    # v2.93.0 — aggregated in SQL. "sum(credit) as cr" as a get_all field is
+    # rejected by Frappe v16's query builder; this form works on v15 and v16.
+    rows = frappe.db.sql(
+        """select coalesce(sum(credit), 0) as cr, coalesce(sum(debit), 0) as dr
+           from `tabGL Entry`
+           where company = %s and account = %s and posting_date between %s and %s
+             and is_cancelled = 0""",
+        (company, account, from_date, to_date), as_dict=True)
     if not rows:
         return 0.0
     return flt(rows[0].get("cr")) - flt(rows[0].get("dr"))

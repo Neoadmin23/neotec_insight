@@ -125,7 +125,7 @@ export default function BillwiseView({ company, side, asOf, basedOn, mode, slabs
       <h1>${esc(data.company)} — ${side === 'Customer' ? t('AR') : t('AP')} ${t('Bill-wise Analysis')}</h1>
       <div class="meta">${t('As on')} ${esc(data.as_of)} · ${data.blocks.length} ${t('parties')}</div>
       ${body}
-      <script>window.onload=function(){window.print();}<\/script></body></html>`);
+      <script>window.onload=function(){window.print();}</script></body></html>`);
     w.document.close();
   }
 

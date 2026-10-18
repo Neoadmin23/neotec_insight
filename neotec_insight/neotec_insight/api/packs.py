@@ -405,8 +405,10 @@ def _gst_register_rows(company, from_date, to_date, doctype):
     if invs:
         taxes = frappe.get_all(tax_table,
                                filters={"parent": ["in", [i["name"] for i in invs]]},
-                               fields=["parent", "account_head", "base_tax_amount_after_discount_amount as amt"],
+                               fields=["parent", "account_head", "base_tax_amount_after_discount_amount"],
                                parent_doctype=doctype, limit_page_length=0)
+        from neotec_insight.neotec_insight.utils.compat import with_aliases
+        with_aliases(taxes, {"amt": "base_tax_amount_after_discount_amount"})
         for tx in taxes:
             h = _gst_head_of(tx["account_head"])
             if h:
@@ -796,6 +798,8 @@ def list_gl_accounts(company=None):
     company = company or _default_company()
     if not frappe.has_permission("Account", "read"):
         return []
-    return frappe.get_all("Account", filters={"company": company, "is_group": 0},
-                          fields=["name", "account_name as label"],
-                          order_by="name", limit_page_length=0)
+    from neotec_insight.neotec_insight.utils.compat import with_aliases
+    return with_aliases(frappe.get_all("Account", filters={"company": company, "is_group": 0},
+                                       fields=["name", "account_name"],
+                                       order_by="name asc", limit_page_length=0),
+                        {"label": "account_name"})

@@ -167,9 +167,11 @@ def field_values(doctype=None, field=None, search=""):
     # Fallback: distinct values present on the base doctype.
     try:
         # v2.90.0 — get_list: only values from records the user can read.
-        vals = frappe.get_list(doctype, fields=[f"`{field}` as v"], group_by=field,
-                               limit_page_length=50, order_by=field)
-        return [{"value": v["v"], "label": str(v["v"])} for v in vals if v.get("v") not in (None, "")]
+        # v2.93.0 — distinct=True rather than a backticked alias + group_by:
+        # the same on v15 and accepted by v16's stricter query builder.
+        vals = frappe.get_list(doctype, fields=[field], distinct=True,
+                               limit_page_length=50, order_by=f"{field} asc")
+        return [{"value": v[field], "label": str(v[field])} for v in vals if v.get(field) not in (None, "")]
     except Exception:
         return []
 
@@ -732,7 +734,7 @@ def _fiscal_year_start(as_of):
         fy = frappe.get_all("Fiscal Year",
                             filters={"year_start_date": ["<=", d], "year_end_date": [">=", d],
                                      "disabled": 0},
-                            fields=["year_start_date"], limit=1)
+                            fields=["year_start_date"], limit=1, order_by="modified desc")
         if fy:
             return getdate(fy[0]["year_start_date"])
     except Exception:
@@ -840,7 +842,8 @@ def time_intelligence(config=None):
         w = data.get(gkey, {})
         row = {"group": gkey}
         for m in measures:
-            g = lambda k: (w.get(k) or {}).get(m, 0.0)
+            def g(k, w=w, m=m):
+                return (w.get(k) or {}).get(m, 0.0)
             row[m] = {
                 "mtd": round(g("mtd"), 2), "qtd": round(g("qtd"), 2),
                 "ytd": round(g("ytd"), 2), "py_ytd": round(g("py_ytd"), 2),
@@ -876,7 +879,7 @@ def time_intelligence(config=None):
 @frappe.whitelist()
 def export_xlsx(config=None, title=None, letter_head=None):
     _require_read()
-    from datetime import date, datetime
+    from datetime import datetime
 
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side

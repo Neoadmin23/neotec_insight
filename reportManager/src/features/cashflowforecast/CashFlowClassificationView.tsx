@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 
@@ -73,7 +73,6 @@ export function CashFlowClassificationView({ fiscalYear, company, bankAccounts }
   const [error, setError] = useState<string | null>(null);
   const [chosenLine, setChosenLine] = useState<Record<string, string>>({});
   const [mining, setMining] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const loadQueue = useCallback(async () => {
     setLoading(true);

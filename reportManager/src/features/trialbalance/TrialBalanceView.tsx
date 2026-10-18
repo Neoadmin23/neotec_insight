@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { t, arName, loadArabicLabels } from '../../utils/i18n';
+import { t, loadArabicLabels } from '../../utils/i18n';
 import { ArName } from '../../components/ArName';
 import type { ReportSummary, TrialBalanceResult, TrialBalanceParty, BalancePivotResult } from '../../types';
 import { api } from '../../utils/api';
@@ -236,8 +236,10 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     selectedReport, company, fy, asOfDate, fromDate, costCenter, project, department, branch,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the derived value in the list is the intended trigger
     rootTypes.join(','), financeBook, presentationCurrency,
     viewMode, pivotBy,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the derived value in the list is the intended trigger
     showGroupAccounts, showZeroValues, JSON.stringify(dimFilters),
   ]);
 
@@ -375,7 +377,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
     if (!accs.length) return;
     if (rowExpand === 'collapsed') setCollapsed(new Set(accs.filter((a: any) => a.is_group).map((a: any) => a.name)));
     else setCollapsed(new Set());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [rowExpand, result, effectivePivot, comboResult]);
 
   // v1.9.57 — resolve a human label for the active pivot dimension. Handles
@@ -931,32 +933,6 @@ function renderTbCells(row: {
   ];
 }
 
-function exportTbCsv(r: TrialBalanceResult) {
-  const lines = ['Account,Code,Opening Dr,Opening Cr,Period Dr,Period Cr,Closing Dr,Closing Cr'];
-  for (const a of r.result.accounts) {
-    const indent = '  '.repeat(Math.max(0, a.depth));
-    lines.push([
-      `"${indent}${(a.label || '').replace(/"/g, '""')}"`,
-      `"${a.code || ''}"`,
-      String(a.opening_debit), String(a.opening_credit),
-      String(a.period_debit), String(a.period_credit),
-      String(a.closing_debit), String(a.closing_credit),
-    ].join(','));
-  }
-  lines.push([
-    'Total', '',
-    String(r.result.totals.opening_debit), String(r.result.totals.opening_credit),
-    String(r.result.totals.period_debit), String(r.result.totals.period_credit),
-    String(r.result.totals.closing_debit), String(r.result.totals.closing_credit),
-  ].join(','));
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `trial-balance-${r.filters.as_of_date}.csv`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 function copyTbToClipboard(
   r: TrialBalanceResult | null,
   partyData: Record<string, TrialBalanceParty[]>,
@@ -1048,6 +1024,3 @@ function buildTbDoc(r: any, partyData: Record<string, any[]>, partyOpen: Set<str
   };
 }
 
-function escapeHtmlTb(s: string): string {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}

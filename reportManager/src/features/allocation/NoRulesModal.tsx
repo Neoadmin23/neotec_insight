@@ -1,4 +1,5 @@
 import { t } from '../../utils/i18n';
+import { deskPrefix } from '../../utils/desk';
 
 /**
  * v2.88.10 — explains, in a popup, why the Allocation rule picker is empty.
@@ -45,7 +46,7 @@ export function NoRulesModal({ diag, company, onClose, onRetry }: Props) {
                     <tr key={d.name}>
                       <td>{d.deleted_name}</td><td>{d.owner}</td><td>{d.creation}</td>
                       <td><a className="vs-btn" target="_blank" rel="noopener noreferrer"
-                        href={`/app/deleted-document/${encodeURIComponent(d.name)}`}>{t('Open to restore')}</a></td>
+                        href={`${deskPrefix()}/deleted-document/${encodeURIComponent(d.name)}`}>{t('Open to restore')}</a></td>
                     </tr>
                   ))}
                 </tbody>
@@ -64,7 +65,7 @@ export function NoRulesModal({ diag, company, onClose, onRetry }: Props) {
                     <tr key={o.rule}>
                       <td><strong>{o.rule}</strong></td><td className="num">{o.entries}</td>
                       <td><a className="vs-btn" target="_blank" rel="noopener noreferrer"
-                        href={`/app/insight-allocation-rule/new?title=${encodeURIComponent(o.rule)}&company=${encodeURIComponent(company)}`}>
+                        href={`${deskPrefix()}/insight-allocation-rule/new?title=${encodeURIComponent(o.rule)}&company=${encodeURIComponent(company)}`}>
                         {t('Create it')}</a></td>
                     </tr>
                   ))}
@@ -86,7 +87,7 @@ export function NoRulesModal({ diag, company, onClose, onRetry }: Props) {
                       <td>{r.name}</td><td>{r.company || '—'}</td>
                       <td>{r.is_active ? t('Active') : t('Inactive')}</td>
                       <td><a className="vs-btn" target="_blank" rel="noopener noreferrer"
-                        href={`/app/insight-allocation-rule/${encodeURIComponent(r.name)}`}>{t('Open')}</a></td>
+                        href={`${deskPrefix()}/insight-allocation-rule/${encodeURIComponent(r.name)}`}>{t('Open')}</a></td>
                     </tr>
                   ))}
                 </tbody>
@@ -105,7 +106,7 @@ export function NoRulesModal({ diag, company, onClose, onRetry }: Props) {
           {reason === 'none_exist' && (
             <>
               <p>{t('There is no Insight Allocation Rule on this site, no deleted one in the log, and no head-count data waiting for one. Either none was ever created here, or this is a different site from the one the rules were set up on.')}</p>
-              <p><a className="vs-btn" target="_blank" rel="noopener noreferrer" href="/app/insight-allocation-rule/new">
+              <p><a className="vs-btn" target="_blank" rel="noopener noreferrer" href={deskPrefix() + '/insight-allocation-rule/new'}>
                 {t('Create an allocation rule')}</a></p>
             </>
           )}

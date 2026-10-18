@@ -25,7 +25,8 @@ export function MapTab({ report }: Props) {
     setRules(r as MappingRule[]);
   }
 
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [report.name]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): reload is recreated each render; the effect runs on the listed inputs only
+  useEffect(() => { reload();   }, [report.name]);
 
   const flagsInRows = new Set(report.definition.rows.filter((r) => r.kind === 'source').map((r) => r.flag || r.label));
   const allFlagOptions = Array.from(new Set([...flagsInRows, ...mappings.map((m) => m.flag)].filter(Boolean))).sort();

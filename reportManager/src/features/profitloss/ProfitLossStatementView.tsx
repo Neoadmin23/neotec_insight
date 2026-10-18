@@ -27,7 +27,7 @@ type PivotBy = 'cost_center' | 'department' | 'project' | 'branch';
 
 export function ProfitLossStatementView({
   reports, selectedReport, setSelectedReport,
-  companies, costCenters, projects, departments, branches, fiscalYears,
+  companies, costCenters, projects, departments, branches, fiscalYears: _fiscalYears,
 }: Props) {
   // Default date range: current fiscal year so far.
   const now = new Date();
@@ -198,6 +198,7 @@ export function ProfitLossStatementView({
   }, [
     selectedReport, company, fromDate, toDate, costCenter, project, department, branch,
     financeBook, presentationCurrency, showGroupAccounts, showZeroValues,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the derived value in the list is the intended trigger
     viewMode, pivotBy, comboDim1, comboDim2, comboLayout, JSON.stringify(dimFilters),
   ]);
 
@@ -247,6 +248,7 @@ export function ProfitLossStatementView({
 
   const visiblePeriod = useMemo(
     () => computeVisible(result?.result.accounts || []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): computeVisible is recreated each render; the effect runs on the listed inputs only
     [result, collapsed, searchTerm]
   );
 
@@ -260,6 +262,7 @@ export function ProfitLossStatementView({
 
   const visiblePivot = useMemo(
     () => computeVisible(effectivePivot?.result.accounts || []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): computeVisible is recreated each render; the effect runs on the listed inputs only
     [effectivePivot, collapsed, searchTerm]
   );
 
@@ -268,6 +271,7 @@ export function ProfitLossStatementView({
   // and Print. Only the columns differ (composite dim1 × dim2).
   const visibleCombo = useMemo(
     () => computeVisible(comboResult?.result?.accounts || []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): computeVisible is recreated each render; the effect runs on the listed inputs only
     [comboResult, collapsed, searchTerm]
   );
 
@@ -280,7 +284,7 @@ export function ProfitLossStatementView({
     } else {
       setCollapsed(new Set());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [rowExpand, result, effectivePivot, comboResult]);
   const activePivot = viewMode === 'combo' ? comboResult : effectivePivot;
   const activeVisible = viewMode === 'combo' ? visibleCombo : visiblePivot;

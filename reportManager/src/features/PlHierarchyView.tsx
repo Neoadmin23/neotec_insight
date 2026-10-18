@@ -45,7 +45,7 @@ export function PlHierarchyView({ data, decimals = 0, defaultExpand = false }: {
   const [openSec, setOpenSec] = useState<Set<string>>(new Set());
 
   const tg = (set: Set<string>, setSet: (s: Set<string>) => void, k: string) => {
-    const n = new Set(set); n.has(k) ? n.delete(k) : n.add(k); setSet(n);
+    const n = new Set(set); if (n.has(k)) n.delete(k); else n.add(k); setSet(n);
   };
   const expandAll = () => {
     const p = new Set<string>(); const s = new Set<string>();

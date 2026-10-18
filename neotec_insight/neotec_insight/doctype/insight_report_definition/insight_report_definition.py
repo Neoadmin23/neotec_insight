@@ -49,11 +49,13 @@ def get_permission_query_conditions(user: str | None = None) -> str | None:
 
 def has_permission(doc, ptype: str = "read", user: str | None = None) -> bool:
     user = user or frappe.session.user
+    # v2.93.0 — always a real bool: Frappe v16 treats anything but True as
+    # "denied" in has_permission hooks.
     if ptype == "read":
-        return has_capability(doc, CAPABILITY_VIEW, user=user)
+        return bool(has_capability(doc, CAPABILITY_VIEW, user=user))
     if ptype == "write":
-        return has_capability(doc, CAPABILITY_EDIT, user=user)
-    return can_manage(user)
+        return bool(has_capability(doc, CAPABILITY_EDIT, user=user))
+    return bool(can_manage(user))
 
 
 def can_manage(user: str | None = None) -> bool:

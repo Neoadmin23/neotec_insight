@@ -67,7 +67,7 @@ def _eval(node, values):
         return float(values.get(node.id, 0))
     if isinstance(node, ast.Compare):
         left = _eval(node.left, values)
-        for op, comparator in zip(node.ops, node.comparators):
+        for op, comparator in zip(node.ops, node.comparators, strict=True):
             op_fn = COMPARE_OPS.get(type(op))
             if not op_fn:
                 _err(node)

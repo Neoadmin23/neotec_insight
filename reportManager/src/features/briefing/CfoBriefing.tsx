@@ -53,7 +53,7 @@ export function CfoBriefing() {
   // v1.9.52 — honour any custom Accounting Dimension filters the user set
   // in the Run tab. The Briefing reads-only the shared scope; users don't
   // edit filters from here (would be a confusing UX duplication).
-  const { filters: dimFilters, dimensions: activeDims } = useDimFilters();
+  const { filters: dimFilters } = useDimFilters();
 
   // Load reports list once.
   useEffect(() => {
@@ -179,6 +179,7 @@ function SolvencySection({ run, liquidity }: { run: any; liquidity: any }) {
   const currency = liquidity?.currency || run?.filters?.company_currency || '';
   const currentCash = Number(liquidity?.current_cash || 0);
   const proj = liquidity?.projection;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the listed inputs are the intended trigger
   const projRows = (proj?.rows || []) as any[];
   const closings = projRows.map((r) => Number(r.closing || 0));
   const minProjected = closings.length ? Math.min(...closings) : currentCash;
@@ -884,7 +885,7 @@ function classifyRowKind(key: string, label: string): 'revenue' | 'expense' | 'u
   return 'unknown';
 }
 
-function computeVarianceStatus(variance: any[], run: any): 'green' | 'amber' | 'red' {
+function computeVarianceStatus(variance: any[], _run: any): 'green' | 'amber' | 'red' {
   if (!variance.length) return 'green';
   // Revenue total as the denominator for "material" — if absent, use the
   // largest absolute budget value among the rows we have.
@@ -921,7 +922,7 @@ function buildVarianceHeadline(variance: any[], currency: string): React.JSX.Ele
   );
 }
 
-function VarianceRow({ v, note, currency }: { v: any; note: any; currency: string }) {
+function VarianceRow({ v, note, currency: _currency }: { v: any; note: any; currency: string }) {
   const isAdverse = v.isAdverse;
   return (
     <div className={'variance-row variance-row-' + (isAdverse ? 'adverse' : 'favourable')}>

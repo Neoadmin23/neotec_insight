@@ -13,7 +13,6 @@
 from __future__ import annotations
 import re
 from datetime import timedelta
-from typing import Any
 
 import frappe
 from frappe import _
@@ -179,7 +178,7 @@ def _pe_pool(company, clearance_open=False, reference_no=None, payment_type=None
 
 def _pe_by_name(name, company):
     rows = frappe.get_all("Payment Entry", filters={"name": name, "company": company, "docstatus": 1},
-                          fields=_PE_FIELDS, limit_page_length=1)
+                          fields=_PE_FIELDS, limit_page_length=1, order_by="modified desc")
     return rows[0] if rows else None
 
 

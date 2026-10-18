@@ -190,6 +190,7 @@ export function BalanceSheetView({ reports, selectedReport, setSelectedReport, c
   }, [
     selectedReport, company, asOfDate, priorAsOfDate, showPrior, costCenter,
     project, department, branch, financeBook, presentationCurrency,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the derived value in the list is the intended trigger
     showGroupAccounts, showZeroValues, showUnclosedPl, JSON.stringify(dimFilters),
     viewMode, pivotBy,
   ]);
@@ -284,11 +285,13 @@ export function BalanceSheetView({ reports, selectedReport, setSelectedReport, c
 
   const visiblePivotAccounts = useMemo(
     () => (effectivePivot ? filterVisibleAccounts(effectivePivot.result.accounts) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): filterVisibleAccounts is recreated each render; the effect runs on the listed inputs only
     [effectivePivot, collapsed, searchTerm]
   );
   // v1.9.94 — Combo reuses the dimension tree; only the columns differ.
   const visibleComboAccounts = useMemo(
     () => (comboResult ? filterVisibleAccounts(comboResult.result.accounts) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): filterVisibleAccounts is recreated each render; the effect runs on the listed inputs only
     [comboResult, collapsed, searchTerm]
   );
 
@@ -297,7 +300,7 @@ export function BalanceSheetView({ reports, selectedReport, setSelectedReport, c
     if (!accs.length) return;
     if (rowExpand === 'collapsed') setCollapsed(new Set(accs.filter((a: any) => a.is_group).map((a: any) => a.name)));
     else setCollapsed(new Set());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [rowExpand, result, effectivePivot, comboResult]);
   const activePivot = viewMode === 'combo' ? comboResult : effectivePivot;
   const activeVisible = viewMode === 'combo' ? visibleComboAccounts : visiblePivotAccounts;
@@ -886,38 +889,6 @@ function exportPivotCsv(pr: any, fileName: string, decimals: number) {
   const el = document.createElement('a');
   el.href = url; el.download = fileName;
   el.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function exportBsCsv(r: BalanceSheetResult) {
-  const hasPrior = !!r.filters.prior_as_of_date;
-  const headers = ['Account', 'Code', r.filters.as_of_date];
-  if (hasPrior) headers.push(r.filters.prior_as_of_date as string);
-  const lines = [headers.join(',')];
-  for (const rt of ['Asset', 'Liability', 'Equity']) {
-    lines.push(`"${rt === 'Asset' ? 'Assets' : rt === 'Liability' ? 'Liabilities' : 'Equity'}"${','.repeat(headers.length - 1)}`);
-    for (const a of r.result.accounts.filter((x) => x.root_type === rt)) {
-      const indent = '  '.repeat(Math.max(0, a.depth));
-      const row = [`"${indent}${(a.label || '').replace(/"/g, '""')}"`, `"${a.code || ''}"`, String(a.current)];
-      if (hasPrior) row.push(String(a.prior ?? 0));
-      lines.push(row.join(','));
-    }
-    const sec = (r.result.sections as any)[rt.toLowerCase()] as { current: number; prior: number | null };
-    const totRow = [`"Total ${rt === 'Liability' ? 'Liabilities' : rt + 's'}"`, '', String(sec.current)];
-    if (hasPrior) totRow.push(String(sec.prior ?? 0));
-    lines.push(totRow.join(','));
-  }
-  const leRow = ['"Total Liabilities + Equity"', '', String(r.result.sections.lia_plus_eq.current)];
-  if (hasPrior) leRow.push(String(r.result.sections.lia_plus_eq.prior ?? 0));
-  lines.push(leRow.join(','));
-  const diffRow = ['"Difference"', '', String(r.result.sections.diff.current)];
-  if (hasPrior) diffRow.push(String(r.result.sections.diff.prior ?? 0));
-  lines.push(diffRow.join(','));
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `balance-sheet-${r.filters.as_of_date}.csv`;
-  a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 

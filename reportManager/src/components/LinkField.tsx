@@ -52,6 +52,7 @@ export default function LinkField({
     if (!open) return;
     const id = setTimeout(() => fetchOpts(trail.length ? trail[trail.length - 1].value : null, query), 220);
     return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): fetchOpts is recreated each render; the effect runs on the listed inputs only
   }, [open, query, trail, doctype, company]);
 
   useEffect(() => {

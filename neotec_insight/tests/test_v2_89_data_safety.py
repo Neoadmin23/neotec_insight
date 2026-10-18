@@ -310,7 +310,7 @@ class TestEveryFrontendCallHasAnEndpoint(unittest.TestCase):
     names a @frappe.whitelist() function in api/<module>.py."""
 
     def test_calls_resolve(self):
-        whitelisted = {}
+        whitelisted, reexports = {}, {}
         for f in (APP / "api").glob("*.py"):
             tree = ast.parse(f.read_text())
             names = set()
@@ -318,7 +318,15 @@ class TestEveryFrontendCallHasAnEndpoint(unittest.TestCase):
                 if isinstance(n, ast.FunctionDef) and any(
                         "whitelist" in ast.unparse(d) for d in n.decorator_list):
                     names.add(n.name)
+                # v2.91.0 — a name re-exported from another api module is
+                # reachable at this module's address too (Frappe resolves the
+                # attribute on the module).
+                if isinstance(n, ast.ImportFrom) and (n.module or "").startswith("neotec_insight.neotec_insight.api."):
+                    for al in n.names:
+                        reexports.setdefault(f.stem, []).append((n.module.rsplit(".", 1)[1], al.name))
             whitelisted[f.stem] = names
+        for mod, pairs in reexports.items():
+            whitelisted[mod] |= {nm for src, nm in pairs if nm in whitelisted.get(src, set())}
         calls = set()
         for f in (REPO / "reportManager" / "src").rglob("*.ts*"):
             calls |= set(re.findall(r"call<[^>]*>\(\s*'([a-z_]+\.[a-z_0-9]+)'", f.read_text()))

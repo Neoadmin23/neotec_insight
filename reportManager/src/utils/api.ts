@@ -88,7 +88,7 @@ async function isCsrfError(res: Response): Promise<boolean> {
 }
 
 async function call<T>(method: string, args?: Record<string, any>, httpMethod: 'GET' | 'POST' = 'GET'): Promise<T> {
-  let token = await getCsrfToken();
+  const token = await getCsrfToken();
   let res = await doFetch(method, args, httpMethod, token);
 
   // Retry once with a freshly-fetched token if it's a CSRF problem.
@@ -1057,7 +1057,7 @@ export const api = {
   insightHasGroupAccess: () =>
     call<{ has_access: boolean }>('report.insight_has_group_access'),
   insightGetAccessProfile: () =>
-    call<{ role_tier: 'admin' | 'cfo' | 'ceo' | 'group_viewer' | 'hr' | 'basic'; can_edit: boolean; can_see_group: boolean; hr_only?: boolean; user: string }>(
+    call<{ role_tier: 'admin' | 'cfo' | 'ceo' | 'group_viewer' | 'hr' | 'basic'; can_edit: boolean; can_see_group: boolean; hr_only?: boolean; user: string; desk_prefix?: string }>(
       'report.insight_get_access_profile'),
   listGroupCompanies: () =>
     call<Array<{ name: string; label: string; currency: string; is_group: number; parent_company: string }>>(

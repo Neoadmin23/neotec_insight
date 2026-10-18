@@ -45,7 +45,7 @@ def _default_company():
     return (
         frappe.defaults.get_user_default("Company")
         or frappe.db.get_single_value("Global Defaults", "default_company")
-        or (frappe.get_all("Company", limit=1, pluck="name") or [None])[0]
+        or (frappe.get_all("Company", limit=1, pluck="name", order_by="modified desc") or [None])[0]
     )
 
 

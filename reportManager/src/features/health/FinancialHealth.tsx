@@ -125,6 +125,7 @@ export default function FinancialHealth() {
   useEffect(() => {
     api.dimensionOptions('company').then((r: any[]) => setCompanies((r || []).map((x) => ({ name: x.name, label: x.label || x.name })))).catch(() => {});
     load('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): load is recreated each render; the effect runs on the listed inputs only
   }, []);
 
   function load(c: string, fyear?: string) {

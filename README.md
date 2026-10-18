@@ -13,11 +13,11 @@ A Frappe / ERPNext app for metadata-driven financial reporting, with:
 
 | Component | Supported |
 |---|---|
-| Frappe | v15 (`>=15,<16`) |
-| ERPNext | v15 — **required** (declared in `required_apps`; install stops without it) |
+| Frappe | **v15 and v16** (`>=15,<17`) — one branch for both, from v2.93.0 |
+| ERPNext | v15 or v16 — **required** (declared in `required_apps`; install stops without it) |
 | HRMS | Optional. People, payroll and end-of-service use it when present |
 | Database | MariaDB. Several queries use MariaDB-specific SQL; PostgreSQL is **not** supported |
-| Python | 3.10 or later |
+| Python | 3.10+ on Frappe v15; 3.14+ on Frappe v16 (tested on 3.12 and 3.14) |
 | Node (building the screen only) | 20.19 or later; the built screen is committed, so Frappe Cloud needs no Node |
 | AI features | Optional, self-hosted Ollama; off unless configured |
 

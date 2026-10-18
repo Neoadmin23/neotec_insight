@@ -1,11 +1,12 @@
 import type React from 'react';
+import { deskPrefix } from '../../utils/desk';
 import { useEffect, useMemo, useState } from 'react';
 import { loadBrand } from '../../utils/branddoc';
 import { ExportBar } from '../ExportBar';
 import { setActiveCompany } from '../../utils/activeCompany';
 import type { ReportDoc, DocRow } from '../../utils/reportdoc';
 import { api } from '../../utils/api';
-import { t, arName, getLang, loadArabicLabels, mergeLabels } from '../../utils/i18n';
+import { t, arName, loadArabicLabels, mergeLabels } from '../../utils/i18n';
 import { ArName } from '../../components/ArName';
 import { DimensionMultiSelect } from '../DimensionMultiSelect';
 import { fmtD } from '../../utils/format';
@@ -148,8 +149,9 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     api.listCompanies().then((cs: any[]) => {
       setCompanies(cs || []);
       if (cs && cs.length && !company) setCompany(cs[0].name);
-      cs && loadArabicLabels('Company', (cs || []).map((c) => c.name));
+      if (cs) loadArabicLabels('Company', (cs || []).map((c) => c.name));
     }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): reads company once to pick a default; re-running on every change of it would be wrong
   }, []);
 
   // Dimension options (with Arabic names), loaded per company.
@@ -264,7 +266,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     setSelected(leaves.map((l) => ({ name: l.name, account_number: l.account_number, account_name: l.account_name })));
   }
   function toggleExpand(name: string) {
-    setExpanded((e) => { const n = new Set(e); n.has(name) ? n.delete(name) : n.add(name); return n; });
+    setExpanded((e) => { const n = new Set(e); if (n.has(name)) n.delete(name); else n.add(name); return n; });
   }
   function renderNode(node: AcctOpt, depth: number): React.JSX.Element {
     const kids = childrenOf[node.name] || [];
@@ -326,6 +328,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     api.voucherFieldOptions(missing)
       .then((r: any) => setFieldOpts((prev) => ({ ...prev, ...(r || {}) })))
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): fieldOpts and vtypes is recreated each render; the effect runs on the listed inputs only; the derived value in the list is the intended trigger
   }, [showAdv, vtypes.join('|')]);
 
   // One dynamic column per picked source field, plus the combined column.
@@ -407,7 +410,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
    *  works for any doctype without a per-type mapping to maintain. */
   function docUrl(tx: any): string {
     const dt = String(tx.voucher_type || '').toLowerCase().replace(/\s+/g, '-');
-    return `/app/${dt}/${encodeURIComponent(tx.voucher_no || '')}`;
+    return `${deskPrefix()}/${dt}/${encodeURIComponent(tx.voucher_no || '')}`;
   }
 
   function docVal(tx: any, key: string): string {

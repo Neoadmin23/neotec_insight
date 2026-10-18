@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { deskPrefix } from '../../utils/desk';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { api } from '../../utils/api';
@@ -64,6 +65,7 @@ export default function VatReturn() {
   useEffect(() => {
     api.dimensionOptions('company').then((r: any[]) => setCompanies((r || []).map((x) => ({ name: x.name, label: x.label || x.name })))).catch(() => {});
     load('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): load is recreated each render; the effect runs on the listed inputs only
   }, []);
 
   function load(c: string) {
@@ -421,7 +423,7 @@ export default function VatReturn() {
                       <td>
                         <a
                           className="vat-doc-link"
-                          href={`/app/${((r.doctype || drill.doctype) || '').toLowerCase().replace(/\s+/g, '-')}/${encodeURIComponent(r.name)}`}
+                          href={`${deskPrefix()}/${((r.doctype || drill.doctype) || '').toLowerCase().replace(/\s+/g, '-')}/${encodeURIComponent(r.name)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           title={t('Open document')}

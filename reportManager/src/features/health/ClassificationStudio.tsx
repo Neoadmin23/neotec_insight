@@ -60,7 +60,7 @@ export default function ClassificationStudio({ company, onSaved, onClose, embedd
       setMsg(t('Saved — Financial Health, Cash Flow and Zakat now use these tags.'));
       setRows((rs) => rs.map((r) => changes[r.account] !== undefined ? { ...r, tag: changes[r.account] } : r));
       setChanges({});
-      onSaved && onSaved();
+      if (onSaved) onSaved();
     } catch (e: any) { setMsg(String(e?.message || e)); }
     finally { setBusy(false); }
   }

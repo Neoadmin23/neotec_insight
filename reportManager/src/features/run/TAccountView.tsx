@@ -1,5 +1,4 @@
 import type { ReportDefinition, RunResult, ExecutedRow, DefinitionRow, TAccountSide } from '../../types';
-import { t } from '../../utils/i18n';
 
 /* ─── T-Account Trading and Profit & Loss view (v1.9.48) ─────────────────
  *

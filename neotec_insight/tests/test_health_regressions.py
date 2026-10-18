@@ -13,7 +13,14 @@ class TestNoUndefinedHelpers(unittest.TestCase):
         self.assertIn("nowdate", imported)
 
     def test_every_default_company_use_in_report_is_imported(self):
-        tree = ast.parse((API / "report.py").read_text())
+        # v2.92.0 — report.py was split; the modules carved out of it carry
+        # the same code and the same risk, so they are checked too.
+        for mod in ("report", "report_shared", "saved_dashboards", "liquidity", "analytics",
+                    "variance_notes", "group_view", "equity", "brand", "config_backup"):
+            self._check_default_company(mod)
+
+    def _check_default_company(self, mod):
+        tree = ast.parse((API / f"{mod}.py").read_text())
         top = {a.asname or a.name for n in tree.body if isinstance(n, ast.ImportFrom) for a in n.names}
         for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
             uses = any(isinstance(x, ast.Name) and x.id == "_default_company" for x in ast.walk(fn))

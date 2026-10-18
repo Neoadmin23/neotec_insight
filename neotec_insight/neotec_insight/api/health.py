@@ -49,7 +49,7 @@ def _require_read() -> None:
 def _default_company():
     return (frappe.defaults.get_user_default("Company")
             or frappe.defaults.get_global_default("company")
-            or (frappe.get_all("Company", limit=1, pluck="name") or [None])[0])
+            or (frappe.get_all("Company", limit=1, pluck="name", order_by="modified desc") or [None])[0])
 
 
 def _metrics(company, fy_start, fy_end):

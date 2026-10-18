@@ -1,5 +1,4 @@
 # Copyright (c) 2026, Neotec and contributors
-import frappe
 from frappe.model.document import Document
 from frappe.utils import flt
 

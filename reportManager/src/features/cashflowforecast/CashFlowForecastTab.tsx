@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { deskPrefix } from '../../utils/desk';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 import LinkField from '../../components/LinkField';
@@ -326,7 +327,7 @@ export function CashFlowForecastTab() {
   // Standard convention, not something this app needs to look up per doctype.
   function deskUrl(voucherType: string, voucherNo: string) {
     const slug = voucherType.toLowerCase().replace(/\s+/g, '-');
-    return `/app/${slug}/${encodeURIComponent(voucherNo)}`;
+    return `${deskPrefix()}/${slug}/${encodeURIComponent(voucherNo)}`;
   }
 
   const sections = useMemo(() => {

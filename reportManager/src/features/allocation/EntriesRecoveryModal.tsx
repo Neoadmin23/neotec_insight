@@ -24,7 +24,8 @@ export function EntriesRecoveryModal({ rule, year, onClose, onDone }: Props) {
       .then((r: any) => setSnaps(r?.rows || []))
       .catch(() => setSnaps([]));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [rule, year]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): load is recreated each render; the effect runs on the listed inputs only
+  useEffect(() => { load();   }, [rule, year]);
 
   async function run(key: string, fn: () => Promise<any>, ok: (r: any) => string) {
     setBusy(key); setErr(''); setMsg('');

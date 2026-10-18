@@ -83,7 +83,7 @@ export function DashboardApp() {
 
   // v1.9.52 — honour active custom Accounting Dimensions filters set in the
   // Run tab. Dashboard reads them; the Run tab is the writer.
-  const { filters: dimFilters, dimensions: activeDims } = useDimFilters();
+  const { filters: dimFilters } = useDimFilters();
 
   // v1.9.53 — Letter Head picker for Management Pack + Excel exports.
   const [lhPickerOpen, setLhPickerOpen] = useState(false);
@@ -254,6 +254,7 @@ export function DashboardApp() {
       setRolling12(null);
     }
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): reads report once to pick a default; re-running on every change of it would be wrong
   }, [run, fy, projMonths, projBaseline, collMode, collSchedule, paySchedule, trendBasis, dimFilters]);
 
   const monthsAll = useMemo(() => Array.from({ length: 12 }, (_, i) => i), []);
@@ -1668,7 +1669,7 @@ function ProjectionBars({ rows }: { rows: Array<{ month: number; year: number; c
  * Shows author and last-modified date — a management pack reader needs to
  * know who wrote the explanation and when.
  */
-function VarianceNoteEditor({ rowKey, note, open, onChange, onClose }: {
+function VarianceNoteEditor({ rowKey: _rowKey, note, open, onChange, onClose }: {
   rowKey: string;
   note: { commentary: string; modified: string; modified_by: string } | undefined;
   open: boolean;
@@ -1733,7 +1734,7 @@ function formatNoteDate(raw: string): string {
  * a budget revision (different feature, not this one).
  */
 
-function SensitivityBlock({ company, fy, projMonths, projBaseline, collMode, currency }: {
+function SensitivityBlock({ company, fy, projMonths, projBaseline, collMode, currency: _currency }: {
   company: string;
   fy: number;
   projMonths: number;
@@ -1785,7 +1786,6 @@ function SensitivityBlock({ company, fy, projMonths, projBaseline, collMode, cur
 
   const projRows = (stressed?.projection?.rows || []) as any[];
   const summary = stressed?.projection?.stressed_summary;
-  const baseRows = (stressed?.projection?.rows || []) as any[];
   const lowPoint = summary?.low_point || 0;
   const goesNegative = !!summary?.goes_negative;
   const ending = summary?.ending_cash || 0;

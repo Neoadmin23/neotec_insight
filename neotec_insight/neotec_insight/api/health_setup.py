@@ -29,7 +29,6 @@ def _suggest(acc):
     ln = name.lower()
     root = acc.get("root_type") or ""
     typ = acc.get("account_type") or ""
-    num = str(acc.get("account_number") or "")
 
     # 1) An expense wrongly typed as Payable/Receivable (drags AP/AR the wrong way).
     if root == "Expense" and typ in ("Payable", "Receivable"):

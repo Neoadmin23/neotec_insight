@@ -1,8 +1,11 @@
-import * as XLSX from 'xlsx';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// v2.91.0 — SheetJS and jsPDF load when an export is clicked, not with the
+// app: together they were most of the 2 MB main bundle every user downloaded.
+import type { jsPDF as JsPDFType } from 'jspdf';
+type AutoTableFn = typeof import('jspdf-autotable').default;
+const loadPdfLibs = () => Promise.all([import('jspdf'), import('jspdf-autotable')])
+  .then(([pdf, at]) => ({ jsPDF: pdf.jsPDF, autoTable: at.default as AutoTableFn }));
 import type { RunResult } from '../types';
-import { MONTHS, aggregate, buildPeriodGroups, monthLabel, ROW_TEXT_COLORS, ROW_BG_COLORS, numLocale, injectExpandedQuarters } from './format';
+import { aggregate, buildPeriodGroups, monthLabel, ROW_TEXT_COLORS, ROW_BG_COLORS, numLocale, injectExpandedQuarters } from './format';
 import { loadBrand, buildFrame, docTitle, bandRow, stripRow, borderTokens, tableCss } from './branddoc';
 import type { RowStyleLike } from './format';
 import type { LetterheadPayload } from './letterhead';
@@ -791,7 +794,12 @@ function crc32(data: Uint8Array): number {
 /* ─────────────────────────────────────────────────────────────────────────
  * PDF export — styled per-cell via autoTable's didParseCell hook.
  * ───────────────────────────────────────────────────────────────────────── */
-export function exportPdf(run: RunResult, fileName = 'neotec_insight_report.pdf', letterhead?: LetterheadPayload, drillOpt?: ExportDrill) {
+export function exportPdf(run: RunResult, fileName = 'neotec_insight_report.pdf', letterhead?: LetterheadPayload, drillOpt?: ExportDrill): Promise<void> {
+  return loadPdfLibs().then(({ jsPDF, autoTable }) => exportPdfImpl(jsPDF, autoTable, run, fileName, letterhead, drillOpt))
+    .catch((e) => { alert('PDF export failed: ' + (e?.message || e)); });
+}
+
+function exportPdfImpl(jsPDF: typeof JsPDFType, autoTable: AutoTableFn, run: RunResult, fileName = 'neotec_insight_report.pdf', letterhead?: LetterheadPayload, drillOpt?: ExportDrill) {
   const m = buildStyledMatrix(run, undefined, drillOpt);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
 
@@ -1123,7 +1131,8 @@ function escHtml(s: string): string {
 /* ─────────────────────────────────────────────────────────────────────────
  * Unchanged helpers — Map export plain, dashboard PDF stays canvas-based.
  * ───────────────────────────────────────────────────────────────────────── */
-export function exportMapXlsx(rows: Array<{ account_code?: string; account_name?: string; flag?: string }>, fileName = 'neotec_insight_map.xlsx') {
+export async function exportMapXlsx(rows: Array<{ account_code?: string; account_name?: string; flag?: string }>, fileName = 'neotec_insight_map.xlsx') {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const out: any[][] = [[null, 'Chart of account', 'P&L Classification']];
   rows.forEach((r) => {
@@ -1134,6 +1143,7 @@ export function exportMapXlsx(rows: Array<{ account_code?: string; account_name?
 }
 
 export async function exportDashboardPdf(title: string, subtitle: string, canvasSelectors: string, fileName = 'neotec_insight_dashboard.pdf', letterhead?: LetterheadPayload) {
+  const { jsPDF } = await loadPdfLibs();
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   // v1.9.53 — Letter Head block at the top of the PDF.
   let cursorY = 40;
@@ -1472,7 +1482,7 @@ export function printBalanceReport(title: string, headerHtml: string, bodyHtml: 
     <div class="sub">${headerHtml}</div>
     ${bodyHtml}
     ${fr.footerHtml}
-    <script>window.onload=function(){window.print();}<\/script>
+    <script>window.onload=function(){window.print();}</script>
     </body></html>`);
   w.document.close();
 }
@@ -1895,7 +1905,7 @@ export function printManagementPack(d: MgmtPackData, letterhead?: LetterheadPayl
 
   ${letterhead && letterhead.footer_html ? `<div class="lh-footer">${letterhead.footer_html}</div>` : ''}
 
-  <script>window.onload=function(){window.print();}<\/script>
+  <script>window.onload=function(){window.print();}</script>
   </body></html>`);
   w.document.close();
 }

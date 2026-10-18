@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { deskPrefix } from '../../utils/desk';
 import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 import { NoRulesModal } from './NoRulesModal';
@@ -195,6 +196,7 @@ export function AllocationApp() {
       })
       .catch((e: any) => setErr(e?.message || t('Could not load allocation rules.')));
     if (company) api.allocationCostCenters(company).then(setCcOptions).catch(() => setCcOptions([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): reads rule once to pick a default; re-running on every change of it would be wrong
   }, [company, tick]);
 
   // When the picker is empty, say why instead of implying nothing is set up.
@@ -244,6 +246,7 @@ export function AllocationApp() {
       });
   }, [rule, year, company]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): loadGrid and run is recreated each render; the effect runs on the listed inputs only
   useEffect(() => { if (rule) { run(); loadGrid(); } }, [rule, year]);
 
   useEffect(() => {
@@ -587,7 +590,7 @@ export function AllocationApp() {
               </button>
             </p>
           )}
-          <p><a className="vs-btn" href="/app/insight-allocation-rule/new" target="_blank" rel="noopener noreferrer">
+          <p><a className="vs-btn" href={deskPrefix() + '/insight-allocation-rule/new'} target="_blank" rel="noopener noreferrer">
             {t('Create an allocation rule')}</a></p>
         </div>
       )}

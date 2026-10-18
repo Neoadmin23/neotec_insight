@@ -23,7 +23,6 @@
 # mechanism an accountant would otherwise key by hand.
 from __future__ import annotations
 
-from typing import Any
 
 TOLERANCE = 0.01  # SAR — payment allocations vs grand total
 

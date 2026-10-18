@@ -395,7 +395,7 @@ def _allocation_monthly(
         # straddles two calendar years therefore needs both, merged back onto
         # the fiscal index the report is asking for.
         by_year: dict[int, list[int]] = {}
-        for idx, (cy, cm) in cal_of.items():
+        for _idx, (cy, cm) in cal_of.items():
             by_year.setdefault(cy, []).append(cm)
 
         out = dict(zero)
@@ -784,7 +784,6 @@ def load_flag_to_accounts(report_name: str) -> dict[str, list[str]]:
         fields=["name", "lft", "rgt", "company"],
         limit_page_length=0,
     )
-    meta_by_name = {g["name"]: g for g in group_meta}
 
     # Collect every leaf under each group, keyed by group.
     leaves_by_group: dict[str, list[str]] = {}

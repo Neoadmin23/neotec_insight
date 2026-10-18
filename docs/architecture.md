@@ -140,3 +140,22 @@ These were deliberate cuts to keep v1.0 shippable. The DocType schema for `Insig
 - `utils/allocation_guard.py` — pure. What a grid Save may do. `save_grid` only executes the plan.
 
 A new doctype needs no registration to be backed up. Registering it only gives it a label and a fixed place in the order.
+
+## API modules after the report.py split (v2.91.0–v2.92.0)
+
+`api/report.py` held 148 functions in one 372 KB file. It is being split by area. Every moved endpoint is re-exported from `report.py`, so its `neotec_insight.neotec_insight.api.report.<name>` address does not change for the screen, desk scripts or saved links. A test pins all 97 endpoints `report.py` exposed in v2.90.0, with their HTTP methods.
+
+| Module | Holds |
+|---|---|
+| `report_shared.py` | Permission gates, report resolution, accounting-dimension discovery. Imported by `report.py` and every module below; it must never import `report.py` (tested), which keeps the split cycle-free. |
+| `saved_dashboards.py` | Saved dashboards: list, open, save, delete |
+| `liquidity.py` | Cash movement, ageing, forward projection, sensitivity and tornado |
+| `analytics.py` | Financial ratios, rolling-12, fragility radar, multi-year trend |
+| `variance_notes.py` | Variance commentary per row and year |
+| `group_view.py` | Multi-company aggregation and currency translation |
+| `equity.py` | Statement of changes in equity |
+| `brand.py` | Company logo and letterhead details |
+| `config_backup.py` | Backup → Export / Import |
+| `report.py` | Report definitions, P&L, trial balance, balance sheet, GL, budgets, account mapping (about 6,600 lines; the next candidates are the GL and budget-book areas) |
+
+**Adding a module:** move whole areas with no callers elsewhere in `report.py`. Import shared helpers from `report_shared`, re-export the names from `report.py`, and add the module to the import-order test in `tests/test_v2_91_hygiene.py`.

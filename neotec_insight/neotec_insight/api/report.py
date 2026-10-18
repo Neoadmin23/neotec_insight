@@ -4,7 +4,6 @@ import base64
 import calendar
 from datetime import date
 import hashlib
-import io
 import json
 import re
 import time
@@ -30,36 +29,33 @@ from neotec_insight.neotec_insight.utils.map_importer import (
 from neotec_insight.neotec_insight.utils.report_structure_importer import (
     import_report_structure,
 )
-from neotec_insight.neotec_insight.utils.config_backup_registry import (
-    EXCLUDED_FROM_CONFIG_BACKUP,
-    compute_coverage,
+# v2.92.0 — shared helpers live in report_shared; imported here so every use
+# in this module, and every `api.report.<helper>` reference elsewhere, works.
+from neotec_insight.neotec_insight.api.report_shared import (  # noqa: F401
+    _GROUP_VIEW_ROLES,
+    _INSIGHT_EDIT_ROLES,
+    _NATIVE_DIMENSION_DOCTYPES,
+    _NATIVE_DIMENSION_FIELDS,
+    _accounting_dimension_fieldnames,
+    _all_valid_dimension_fieldnames,
+    _can_edit_insight,
+    _check_edit_permission,
+    _check_group_view_access,
+    _discover_accounting_dimensions_raw,
+    _require_read,
+    _require_write,
+    _resolve_report_doc,
+    _sanitise_dimension_filters,
+    _user_roles,
 )
 
 EXECUTION_CACHE_TTL_SECONDS = 300
 
 
 
-def _require_write(doctype: str) -> None:
-    """Refuse a write from a user who lacks permission on the doctype.
-
-    Frappe checks permissions inside `doc.save()`, but these endpoints use
-    `ignore_permissions=True`, `frappe.db.set_value` or raw SQL — all of which
-    bypass that check. Whitelisted and unguarded, they were callable directly
-    over `/api/method/...` by any authenticated user, including a read-only
-    one. The guard restores the check the bypass removed.
-    """
-    if not frappe.has_permission(doctype, "write"):
-        frappe.throw(
-            _("You are not permitted to modify {0}.").format(_(doctype)),
-            frappe.PermissionError,
-        )
 
 
 
-def _require_read() -> None:
-    """Finance read gate — one policy for every module (utils/access.py, v2.90.0)."""
-    from neotec_insight.neotec_insight.utils.access import require_finance_read
-    require_finance_read(_("You are not permitted to view financial reports."))
 
 
 @frappe.whitelist()
@@ -76,6 +72,10 @@ def list_quick_links() -> list[dict]:
         fields=["label", "url", "icon", "open_in_new_tab", "sort_order"],
         order_by="sort_order asc, label asc",
     )
+    # v2.93.0 — links stored as /app/... (v15) work on v16's /desk and back.
+    from neotec_insight.neotec_insight.utils.compat import to_desk_path
+    for r in rows:
+        r["url"] = to_desk_path(r.get("url"))
     return rows
 
 
@@ -1768,6 +1768,7 @@ def _resolve_fiscal_year_start(fiscal_year: str | int, company: str | None = Non
                 "Fiscal Year",
                 filters=[["year_start_date", ">=", f"{yr - 1}-12-31"], ["year_start_date", "<=", f"{yr}-12-31"]],
                 fields=["year_start_date"], limit_page_length=1,
+                order_by="modified desc",
             )
             if rows:
                 return str(rows[0]["year_start_date"])
@@ -2158,7 +2159,8 @@ def gl_drill_entries(
         gl_params["cost_center"] = cost_center
     if isinstance(project, str) and project:
         gl_params["project"] = project
-    gl_report_url = "/app/query-report/General Ledger?" + urlencode(gl_params)
+    from neotec_insight.neotec_insight.utils.compat import desk_url
+    gl_report_url = desk_url("query-report/General Ledger") + "?" + urlencode(gl_params)
 
     return {
         "entries": entries,
@@ -2177,108 +2179,16 @@ def gl_drill_entries(
     }
 
 
-@frappe.whitelist()
-def export_configuration(sections=None):
-    """Bundle everything Insight holds into one portable JSON object.
-
-    v2.89.0 — what goes in is discovered from the installed doctypes of the
-    module (utils/backup_engine.py), not from a hand-kept list: a doctype added
-    by a future release is in the backup without anyone remembering to add it.
-    The registry (utils/config_backup_registry.py) only gives areas their
-    labels and order. Data areas (VAT adjustments, payment orders, bank slips,
-    cash-flow classifications, allocation head counts) are included too.
-
-    `sections` (optional): JSON list of doctypes to include; omitted = all.
-    """
-    frappe.only_for("System Manager")
-    from neotec_insight.neotec_insight.utils.backup_engine import build_bundle
-    sel = None
-    if sections:
-        try:
-            sel = frappe.parse_json(sections) if isinstance(sections, str) else sections
-        except Exception:
-            sel = None
-    return build_bundle(sel or None)
 
 
-@frappe.whitelist()
-def config_areas():
-    """Backup areas for the checkbox list, grouped, each with its doctypes,
-    kind (config/data) and whether it was added automatically."""
-    _require_read()
-    from neotec_insight.neotec_insight.utils.backup_engine import live_plan
-    areas: dict[str, dict] = {}
-    for entry in live_plan():
-        a = areas.setdefault(entry["area"], {"label": entry["area"], "doctypes": [],
-                                             "kind": entry.get("kind", "config"),
-                                             "auto": False})
-        a["doctypes"].append(entry["doctype"])
-        a["auto"] = a["auto"] or bool(entry.get("auto"))
-    return list(areas.values())
 
 
-@frappe.whitelist()
-def check_config_backup_coverage():
-    """Every Insight doctype (module='Neotec Insight', not a child table)
-    against the registry. Since v2.89.0 an unlabelled doctype is still backed
-    up (under "Other (added automatically)"); `unaccounted` lists those so they
-    can be given a proper label, and `plan` is exactly what an export carries."""
-    frappe.only_for("System Manager")
-    from neotec_insight.neotec_insight.utils.backup_engine import live_plan
-    live = frappe.get_all("DocType", filters={"module": "Neotec Insight", "istable": 0}, pluck="name")
-    out = compute_coverage(live)
-    out["plan"] = [{k: e.get(k) for k in ("doctype", "area", "kind", "auto", "is_single")}
-                   for e in live_plan()]
-    out["excluded_reasons"] = {k: v for k, v in EXCLUDED_FROM_CONFIG_BACKUP.items()}
-    return out
 
 
-@frappe.whitelist()
-def config_section_counts():
-    """Record count per backed-up doctype, for the backup selector."""
-    _require_read()
-    from neotec_insight.neotec_insight.utils.backup_engine import current_counts
-    return current_counts()
 
 
-def _app_version():
-    try:
-        import neotec_insight
-        return getattr(neotec_insight, "__version__", "")
-    except Exception:
-        return ""
 
 
-@frappe.whitelist(methods=["POST"])
-def import_configuration(payload=None, mode="replace", sections=None, allow_partial=0,
-                         allow_without_snapshot=0):
-    """Restore a bundle produced by export_configuration (or a snapshot).
-
-    v2.89.0:
-    * A snapshot of the current state is taken first, so any restore can be
-      undone from Backup > Snapshots.
-    * All-or-nothing: if any record fails, nothing is changed (rolled back) and
-      the errors are returned. allow_partial=1 keeps what succeeded instead.
-    * replace updates matching records in place and deletes only records of
-      the bundle's own doctypes that the bundle does not hold; doctypes the
-      bundle does not carry are never touched.
-    * Doctypes this site does not have are skipped and listed, not fatal.
-    """
-    frappe.only_for("System Manager")
-    from neotec_insight.neotec_insight.utils.backup_engine import bundle_from_json, restore_bundle
-    from neotec_insight.neotec_insight.utils import snapshots
-    payload = bundle_from_json(payload)
-    if not payload or "data" not in payload:
-        frappe.throw("Invalid configuration bundle.")
-    sel = frappe.parse_json(sections) if isinstance(sections, str) and sections else sections
-    # v2.90.0 — no restore without a complete pre-restore snapshot, unless a
-    # System Manager explicitly accepts that (e.g. the snapshot store itself
-    # is what is broken).
-    pre = snapshots.guard("pre_restore", label=f"Before {mode} restore of a v{payload.get('version') or '?'} bundle",
-                          required=not cint(allow_without_snapshot))
-    out = restore_bundle(payload, mode=mode, sections=sel or None, atomic=not cint(allow_partial))
-    out["pre_restore_snapshot"] = pre
-    return out
 
 
 
@@ -4468,7 +4378,7 @@ def pl_hierarchy(
         if field == "project":
             return "Project"
         try:
-            from neotec_insight.neotec_insight.utils.dimensions import list_accounting_dimensions  # type: ignore
+            from neotec_insight.neotec_insight.utils.balance_execution import list_accounting_dimensions  # v2.91.0: was a non-existent module
             for d in list_accounting_dimensions():
                 if d.get("fieldname") == field:
                     return d.get("label") or field
@@ -4729,16 +4639,6 @@ def delete_mapping_rule(name: str) -> dict:
     return {"deleted": True}
 
 
-def _resolve_report_doc(report: str, ptype: str = "read"):
-    """Load a report the user may read. v2.90.0 — loading is not
-    authorising: the report's own permission rules (inactive reports for
-    managers only) and its company's User Permissions are now checked here,
-    for every path that resolves a report."""
-    from neotec_insight.neotec_insight.utils.access import check_report
-    name = frappe.db.get_value("Insight Report Definition", {"slug": report}, "name") or report
-    doc = frappe.get_doc("Insight Report Definition", name)
-    check_report(doc, ptype)
-    return doc
 
 
 def _serialize_report(doc) -> dict:
@@ -5038,178 +4938,14 @@ def rollup_to_total(report: str, fiscal_year: int) -> dict:
     }
 
 
-# ─── Saved Dashboards (v1.7) ─────────────────────────────────────────────
 
 
-@frappe.whitelist()
-def list_dashboards(report: str | None = None) -> list[dict]:
-    """Return dashboards visible to the current user.
-
-    A dashboard is visible if:
-      - It's shared (is_shared=1), OR
-      - The current user is the owner_user, OR
-      - The current user has a finance role (System Manager / Accounts Manager).
-
-    Optionally filter by `report` (the report slug or DocType name).
-    """
-    _require_read()
-    me = frappe.session.user
-    is_finance = bool(set(frappe.get_roles(me)) & {"System Manager", "Accounts Manager"})
-
-    filters: dict = {}
-    if report:
-        # Accept either slug or name.
-        if frappe.db.exists("Insight Report Definition", report):
-            filters["report"] = report
-        else:
-            by_slug = frappe.db.get_value("Insight Report Definition", {"slug": report}, "name")
-            if by_slug:
-                filters["report"] = by_slug
-
-    rows = frappe.get_all(
-        "Insight Dashboard",
-        filters=filters,
-        fields=["name", "label", "slug", "report", "owner_user", "is_shared", "description", "modified"],
-        order_by="modified desc",
-        limit_page_length=0,
-    )
-    out = []
-    for r in rows:
-        if r["owner_user"] == me or r["is_shared"] or is_finance:
-            r["can_edit"] = (r["owner_user"] == me) or is_finance or (r["is_shared"] and is_finance)
-            r["is_mine"] = (r["owner_user"] == me)
-            out.append(r)
-    return out
 
 
-@frappe.whitelist()
-def get_dashboard(dashboard: str) -> dict:
-    """Return a dashboard's full content (tiles + filters)."""
-    _require_read()
-    doc = _resolve_dashboard_doc(dashboard)
-    if not doc.can_user_view():
-        frappe.throw(f"You don't have permission to view dashboard '{doc.label}'.")
-    return {
-        "name": doc.name,
-        "label": doc.label,
-        "slug": doc.slug,
-        "report": doc.report,
-        "owner_user": doc.owner_user,
-        "is_shared": int(doc.is_shared or 0),
-        "description": doc.description or "",
-        "tiles": frappe.parse_json(doc.tiles_json or "[]"),
-        "filters": frappe.parse_json(doc.filters_json or "{}"),
-    }
 
 
-@frappe.whitelist(methods=["POST"])
-def save_dashboard(payload: str | dict) -> dict:
-    """Create or update a dashboard.
-
-    payload = {
-      name?           # if present, update; else create
-      label
-      report
-      tiles           # array of tile configs
-      filters         # snapshot of run filters
-      is_shared?
-      description?
-    }
-    """
-    _require_write("Insight Dashboard")
-    data = frappe.parse_json(payload) if isinstance(payload, str) else (payload or {})
-    if not isinstance(data, dict):
-        frappe.throw("payload must be an object.")
-
-    label = (data.get("label") or "").strip()
-    if not label:
-        frappe.throw("Dashboard label is required.")
-    report = (data.get("report") or "").strip()
-    if not report:
-        frappe.throw("Dashboard report is required.")
-    # Normalize report ref.
-    if not frappe.db.exists("Insight Report Definition", report):
-        by_slug = frappe.db.get_value("Insight Report Definition", {"slug": report}, "name")
-        if by_slug:
-            report = by_slug
-        else:
-            frappe.throw(f"Report '{report}' not found.")
-
-    tiles = data.get("tiles") or []
-    filters = data.get("filters") or {}
-    is_shared = 1 if data.get("is_shared") else 0
-    description = (data.get("description") or "").strip() or None
-
-    existing_name = (data.get("name") or "").strip()
-    if existing_name:
-        doc = _resolve_dashboard_doc(existing_name)
-        if not doc.can_user_edit():
-            frappe.throw(f"You don't have permission to edit dashboard '{doc.label}'.")
-        doc.label = label
-        doc.report = report
-        doc.is_shared = is_shared
-        doc.description = description
-        doc.tiles_json = frappe.as_json(tiles)
-        doc.filters_json = frappe.as_json(filters)
-        doc.save(ignore_permissions=True)
-    else:
-        # Insert. Slug is auto-derived from the label; on collision Frappe will
-        # raise DuplicateEntryError — handle by suffixing.
-        from neotec_insight.neotec_insight.doctype.insight_dashboard.insight_dashboard import slugify
-        slug_base = slugify(label)
-        slug = slug_base
-        n = 2
-        while frappe.db.exists("Insight Dashboard", slug):
-            slug = f"{slug_base}-{n}"
-            n += 1
-            if n > 50:
-                frappe.throw("Could not generate a unique slug — try a different label.")
-        doc = frappe.new_doc("Insight Dashboard")
-        doc.label = label
-        doc.slug = slug
-        doc.report = report
-        doc.is_shared = is_shared
-        doc.description = description
-        doc.owner_user = frappe.session.user
-        doc.tiles_json = frappe.as_json(tiles)
-        doc.filters_json = frappe.as_json(filters)
-        doc.insert(ignore_permissions=True)
-
-    return {
-        "name": doc.name,
-        "label": doc.label,
-        "slug": doc.slug,
-        "owner_user": doc.owner_user,
-        "is_shared": int(doc.is_shared or 0),
-    }
 
 
-@frappe.whitelist(methods=["POST"])
-def delete_dashboard(dashboard: str) -> dict:
-    """Delete a dashboard. Owner can always delete; other users need a finance role."""
-    _require_write("Insight Dashboard")
-    doc = _resolve_dashboard_doc(dashboard)
-    me = frappe.session.user
-    is_finance = bool(set(frappe.get_roles(me)) & {"System Manager", "Accounts Manager"})
-    if doc.owner_user != me and not is_finance:
-        frappe.throw(f"Only the owner or an Accounts Manager can delete '{doc.label}'.")
-    name = doc.name
-    label = doc.label
-    frappe.delete_doc("Insight Dashboard", name, ignore_permissions=True, force=True)
-    return {"deleted": name, "label": label}
-
-
-def _resolve_dashboard_doc(dashboard: str):
-    """Accept either DocType name or slug."""
-    if not dashboard or not dashboard.strip():
-        frappe.throw("dashboard is required.")
-    dashboard = dashboard.strip()
-    if frappe.db.exists("Insight Dashboard", dashboard):
-        return frappe.get_doc("Insight Dashboard", dashboard)
-    name = frappe.db.get_value("Insight Dashboard", {"slug": dashboard}, "name")
-    if not name:
-        frappe.throw(f"Dashboard '{dashboard}' not found.")
-    return frappe.get_doc("Insight Dashboard", name)
 
 
 def _cache_gen_key(name: str) -> str:
@@ -5226,961 +4962,29 @@ def _bump_cache_gen(name: str) -> int:
     return nxt
 
 
-# ───────────────────────────────────────────────────────────────────────────
-# Liquidity (v1.9.21) — cash movement + receivables ageing
-# ───────────────────────────────────────────────────────────────────────────
 
-@frappe.whitelist()
-def get_liquidity(
-    company: str,
-    fiscal_year: str | int,
-    projection_months: str | int = 6,
-    projection_baseline: str = "committed",
-    collection_mode: str = "best_case",
-    collection_schedule: str | dict | None = None,
-    payment_schedule: str | dict | None = None,
-    dimension_filters: dict | str | None = None,
-) -> dict:
-    """Liquidity block for the dashboard.
 
-    Two parts, both company-scoped:
 
-    1. cash_monthly — month-by-month movement across the company's Cash + Bank
-       accounts (account_type IN ('Bank','Cash')). For each month: opening
-       balance, inflow (debits), outflow (credits), closing. Opening of the
-       first month is the cash balance as of the day before the fiscal year
-       starts; each subsequent month opens where the prior closed.
 
-    2. receivables_ageing — outstanding customer balance bucketed by how long
-       past the due date, using ERPNext's standard Accounts Receivable data
-       (the Sales Invoice ledger). Buckets: 0-30, 30-60, 60-90, 90-180, 180+.
 
-    v1.9.52 — dimension_filters is applied to the CASH GL queries so the
-    cash bucket reflects the active custom-dimension scope. AR/AP ageing
-    reads invoice totals and is NOT filtered by custom dimensions in this
-    release — per-invoice dimension filtering needs separate design.
 
-    No P&L mappings involved — this reads GL and Sales Invoice directly, so it
-    is independent of any report definition and globally reusable.
-    """
-    _require_read()
-    fy = cint(fiscal_year)
-    # v1.9.59 — use company's fiscal year boundaries, not hardcoded Jan-Dec.
-    from neotec_insight.neotec_insight.utils.fiscal_year import fiscal_year_bounds
-    _fy_s, _fy_e = fiscal_year_bounds(company, fy)
-    fy_start = _fy_s.isoformat()
-    fy_end = _fy_e.isoformat()
-    # v1.9.52 — sanitise once, build a SQL fragment + extra params we can
-    # splice into the cash GL queries below.
-    dim_filters_safe = _sanitise_dimension_filters(dimension_filters)
-    dim_sql = ""
-    dim_params: list = []
-    if dim_filters_safe:
-        try:
-            gl_cols_existing = set(frappe.db.get_table_columns("GL Entry"))
-        except Exception:
-            gl_cols_existing = set()
-        for fld, val in dim_filters_safe.items():
-            if not val:
-                continue
-            if fld not in gl_cols_existing:
-                continue
-            # fld came from the sanitiser whitelist, so backticks are safe.
-            # v1.9.58 — value may be a list (multi-select). Expand to IN(...)
-            # parameterised, preserving the existing scalar fallback.
-            if isinstance(val, list):
-                placeholders = ", ".join(["%s"] * len(val))
-                dim_sql += f" AND `{fld}` IN ({placeholders})"
-                dim_params.extend(val)
-            else:
-                dim_sql += f" AND `{fld}` = %s"
-                dim_params.append(val)
 
-    # ── 1. Cash + Bank accounts for the company ────────────────────────────
-    cash_accounts = frappe.get_all(
-        "Account",
-        filters={
-            "company": company,
-            "account_type": ["in", ["Bank", "Cash"]],
-            "is_group": 0,
-        },
-        pluck="name",
-    )
 
-    cash_monthly: list[dict] = []
-    opening_total = 0.0
-    if cash_accounts:
-        ph = ", ".join(["%s"] * len(cash_accounts))
 
-        # Opening: net (debit - credit) on cash accounts strictly before FY start.
-        opening_row = frappe.db.sql(
-            f"""
-            SELECT COALESCE(SUM(debit - credit), 0) AS bal
-            FROM `tabGL Entry`
-            WHERE is_cancelled = 0
-              AND company = %s
-              AND account IN ({ph})
-              AND posting_date < %s
-              {dim_sql}
-            """,
-            [company, *cash_accounts, fy_start, *dim_params],
-        )
-        opening_total = float(opening_row[0][0] or 0.0) if opening_row else 0.0
 
-        # Per-month inflow (debit) and outflow (credit) within the fiscal year.
-        month_rows = frappe.db.sql(
-            f"""
-            SELECT MONTH(posting_date) AS m,
-                   COALESCE(SUM(debit), 0)  AS inflow,
-                   COALESCE(SUM(credit), 0) AS outflow
-            FROM `tabGL Entry`
-            WHERE is_cancelled = 0
-              AND company = %s
-              AND account IN ({ph})
-              AND posting_date >= %s AND posting_date <= %s
-              {dim_sql}
-            GROUP BY MONTH(posting_date)
-            """,
-            [company, *cash_accounts, fy_start, fy_end, *dim_params],
-            as_dict=True,
-        )
-        by_month = {int(r["m"]): r for r in month_rows}
 
-        # v1.9.59 — iterate in FY order. fy_month_idx 0..11 = the company's
-        # 1st through 12th month. The output `month` field uses the
-        # FY-month index so downstream consumers can plot inflow/outflow
-        # in fiscal-year order. The `cal_month` field carries the absolute
-        # calendar position for any consumer that needs the date.
-        from neotec_insight.neotec_insight.utils.fiscal_year import calendar_month_for_fy_month
-        running = opening_total
-        for fy_m in range(12):
-            cal_m = calendar_month_for_fy_month(company, fy_m)
-            r = by_month.get(cal_m)
-            inflow = float(r["inflow"]) if r else 0.0
-            outflow = float(r["outflow"]) if r else 0.0
-            opening = running
-            closing = opening + inflow - outflow
-            cash_monthly.append({
-                "month": fy_m,            # FY-month index (0..11 in fiscal-year order)
-                "cal_month": cal_m - 1,   # calendar 0-indexed (Jan=0) — for label rendering
-                "opening": opening,
-                "inflow": inflow,
-                "outflow": outflow,
-                "closing": closing,
-            })
-            running = closing
-
-    # ── 2. Receivables ageing ──────────────────────────────────────────────
-    # Outstanding Sales Invoices for the company, bucketed by days past due.
-    buckets = [
-        {"key": "b0_30", "label": "0-30", "min": 0, "max": 30},
-        {"key": "b30_60", "label": "30-60", "min": 30, "max": 60},
-        {"key": "b60_90", "label": "60-90", "min": 60, "max": 90},
-        {"key": "b90_180", "label": "90-180", "min": 90, "max": 180},
-        {"key": "b180_plus", "label": "180+", "min": 180, "max": None},
-    ]
-    ageing = {b["key"]: 0.0 for b in buckets}
-    ageing["not_due"] = 0.0
-    receivables_total = 0.0
-
-    invoices = frappe.get_all(
-        "Sales Invoice",
-        filters={
-            "company": company,
-            "docstatus": 1,
-            "outstanding_amount": [">", 0],
-        },
-        fields=["name", "outstanding_amount", "due_date"],
-    )
-    today = frappe.utils.getdate(frappe.utils.nowdate())
-    for inv in invoices:
-        amt = float(inv.get("outstanding_amount") or 0.0)
-        if amt <= 0:
-            continue
-        receivables_total += amt
-        due = inv.get("due_date")
-        if not due:
-            ageing["b0_30"] += amt
-            continue
-        days_overdue = (today - frappe.utils.getdate(due)).days
-        if days_overdue <= 0:
-            ageing["not_due"] += amt
-            continue
-        placed = False
-        for b in buckets:
-            lo, hi = b["min"], b["max"]
-            if days_overdue > lo and (hi is None or days_overdue <= hi):
-                ageing[b["key"]] += amt
-                placed = True
-                break
-        if not placed:
-            ageing["b180_plus"] += amt
-
-    # ── 3. Forward cash projection ─────────────────────────────────────────
-    # Project cash for the next 6 months from today, using COMMITTED items
-    # only: outstanding Sales Invoices land as inflow in the month of their
-    # due date; outstanding Purchase Invoices land as outflow likewise.
-    # Overdue items (due date already passed) are assumed to land in month 1,
-    # the soonest projected month — a standard, conservative AR/AP forecast.
-    PROJECT_MONTHS = max(1, min(12, cint(projection_months) or 6))
-    proj_inflow = [0.0] * PROJECT_MONTHS
-    proj_outflow = [0.0] * PROJECT_MONTHS
-
-    def _months_ahead(due_date) -> int:
-        """0-based index of the projected month a due date falls in.
-        Past-due or due this month -> 0; clamps to the last projected month."""
-        d = frappe.utils.getdate(due_date)
-        idx = (d.year - today.year) * 12 + (d.month - today.month)
-        if idx < 0:
-            idx = 0
-        if idx > PROJECT_MONTHS - 1:
-            idx = PROJECT_MONTHS - 1
-        return idx
-
-    # Receivables -> projected inflow.
-    # Two modes:
-    #   best_case (default kept for back-compat): place each invoice's full
-    #     outstanding amount in the month of its due date (or month 1 if overdue).
-    #     This is what every committed-items forecast does — but it implicitly
-    #     assumes 100% collection, which is unrealistic for aged receivables.
-    #   realistic: apply a collection-likelihood haircut by ageing bucket, and
-    #     spread the expected collections over multiple months — the older the
-    #     bucket, the smaller the share and the longer the tail.
-    #
-    # The user can override every bucket's percentage and month weights via the
-    # collection_schedule parameter. Defaults are sensible Big-Four-style values.
-    cmode = (collection_mode or "best_case").lower()
-    uncollectible_estimate = 0.0
-    collection_used: dict = {}
-
-    if cmode == "realistic":
-        # Default schedule — (collection_pct, [weights across months 1..N]).
-        # Weights need not be normalised — they're normalised below.
-        DEFAULT_SCHEDULE = {
-            "not_due":    {"pct": 1.00, "weights": [0.5, 0.5]},
-            "b0_30":      {"pct": 0.90, "weights": [0.6, 0.4]},
-            "b30_60":     {"pct": 0.75, "weights": [0.4, 0.4, 0.2]},
-            "b60_90":     {"pct": 0.60, "weights": [0.3, 0.3, 0.2, 0.2]},
-            "b90_180":    {"pct": 0.40, "weights": [0.2, 0.2, 0.2, 0.2, 0.2]},
-            "b180_plus":  {"pct": 0.20, "weights": [0.15, 0.15, 0.15, 0.15, 0.2, 0.2]},
-        }
-        # Merge user overrides on top of the defaults — partial overrides are fine.
-        schedule = {k: dict(v) for k, v in DEFAULT_SCHEDULE.items()}
-        if collection_schedule:
-            if isinstance(collection_schedule, str):
-                try:
-                    import json as _json
-                    user_sched = _json.loads(collection_schedule)
-                except Exception:
-                    user_sched = {}
-            else:
-                user_sched = collection_schedule or {}
-            for k, v in (user_sched or {}).items():
-                if k in schedule and isinstance(v, dict):
-                    if "pct" in v:
-                        try:
-                            schedule[k]["pct"] = max(0.0, min(1.0, float(v["pct"])))
-                        except Exception:
-                            pass
-                    if "weights" in v and isinstance(v["weights"], list) and v["weights"]:
-                        try:
-                            schedule[k]["weights"] = [max(0.0, float(x)) for x in v["weights"]]
-                        except Exception:
-                            pass
-
-        # Bucket totals already computed above in the receivables ageing pass.
-        bucket_amounts = {
-            "not_due":   ageing["not_due"],
-            "b0_30":     ageing["b0_30"],
-            "b30_60":    ageing["b30_60"],
-            "b60_90":    ageing["b60_90"],
-            "b90_180":   ageing["b90_180"],
-            "b180_plus": ageing["b180_plus"],
-        }
-        for bkey, amt in bucket_amounts.items():
-            if amt <= 0:
-                continue
-            sch = schedule[bkey]
-            pct = sch["pct"]
-            expected = amt * pct
-            uncollectible_estimate += amt - expected
-            weights = sch["weights"] or [1.0]
-            # Clip weights to the projection horizon. Anything past the horizon
-            # collapses into the final projected month — so the realistic
-            # estimate stays whole within the chosen window.
-            if len(weights) > PROJECT_MONTHS:
-                head = weights[: PROJECT_MONTHS - 1]
-                tail = sum(weights[PROJECT_MONTHS - 1:])
-                weights = head + [tail]
-            wsum = sum(weights) or 1.0
-            for i, w in enumerate(weights):
-                proj_inflow[i] += expected * (w / wsum)
-            collection_used[bkey] = {
-                "pct": pct,
-                "weights": sch["weights"],
-                "amount": amt,
-                "expected": expected,
-            }
-    else:
-        # Best-case mode — original behaviour, 100% by due date.
-        for inv in invoices:
-            amt = float(inv.get("outstanding_amount") or 0.0)
-            if amt <= 0:
-                continue
-            due = inv.get("due_date")
-            idx = _months_ahead(due) if due else 0
-            proj_inflow[idx] += amt
-
-    # Payables -> projected outflow, from outstanding Purchase Invoices.
-    # First pass: build ageing buckets (independent of projection mode).
-    payables_total = 0.0
-    pay_ageing = {b["key"]: 0.0 for b in buckets}
-    pay_ageing["not_due"] = 0.0
-    pinvoices = frappe.get_all(
-        "Purchase Invoice",
-        filters={
-            "company": company,
-            "docstatus": 1,
-            "outstanding_amount": [">", 0],
-        },
-        fields=["name", "outstanding_amount", "due_date"],
-    )
-    for pinv in pinvoices:
-        amt = float(pinv.get("outstanding_amount") or 0.0)
-        if amt <= 0:
-            continue
-        payables_total += amt
-        due = pinv.get("due_date")
-        # Ageing bucket by days past due.
-        if not due:
-            pay_ageing["b0_30"] += amt
-        else:
-            days_overdue = (today - frappe.utils.getdate(due)).days
-            if days_overdue <= 0:
-                pay_ageing["not_due"] += amt
-            else:
-                placed = False
-                for b in buckets:
-                    lo, hi = b["min"], b["max"]
-                    if days_overdue > lo and (hi is None or days_overdue <= hi):
-                        pay_ageing[b["key"]] += amt
-                        placed = True
-                        break
-                if not placed:
-                    pay_ageing["b180_plus"] += amt
-
-    # Second pass: place payables on the projected outflow line.
-    # Best case (default) keeps the original behaviour — pay each invoice in
-    # the month of its due date (overdue → month 1). Realistic uses a
-    # payment-timing schedule per ageing bucket: 100% pays (no haircut, you
-    # still owe the money), but older overdue pays sooner and the spread
-    # across months reflects supplier-pressure reality. Users can override
-    # the per-bucket spread via the payment_schedule parameter.
-    payment_used: dict = {}
-    if cmode == "realistic":
-        # Revised defaults (v1.9.31): older overdue is given longer tails, not
-        # forced into month 1. The instinct "older = pays sooner" holds for
-        # moderately overdue (0-60 days, supplier pressure), but for very aged
-        # payables (90+) it's the opposite — they've sat that long *because*
-        # they can't be cleared in a month, so they dribble out over time.
-        DEFAULT_PAY_SCHEDULE = {
-            "not_due":   {"weights": [0.5, 0.5]},
-            "b0_30":     {"weights": [0.7, 0.3]},
-            "b30_60":    {"weights": [0.6, 0.3, 0.1]},
-            "b60_90":    {"weights": [0.5, 0.3, 0.2]},
-            "b90_180":   {"weights": [0.3, 0.25, 0.2, 0.15, 0.1]},
-            "b180_plus": {"weights": [0.2, 0.2, 0.2, 0.15, 0.15, 0.1]},
-        }
-        pay_sched = {k: dict(v) for k, v in DEFAULT_PAY_SCHEDULE.items()}
-        if payment_schedule:
-            if isinstance(payment_schedule, str):
-                try:
-                    import json as _json
-                    user_psched = _json.loads(payment_schedule)
-                except Exception:
-                    user_psched = {}
-            else:
-                user_psched = payment_schedule or {}
-            for k, v in (user_psched or {}).items():
-                if k in pay_sched and isinstance(v, dict):
-                    if "weights" in v and isinstance(v["weights"], list) and v["weights"]:
-                        try:
-                            pay_sched[k]["weights"] = [max(0.0, float(x)) for x in v["weights"]]
-                        except Exception:
-                            pass
-
-        bucket_pay_amounts = {
-            "not_due":   pay_ageing["not_due"],
-            "b0_30":     pay_ageing["b0_30"],
-            "b30_60":    pay_ageing["b30_60"],
-            "b60_90":    pay_ageing["b60_90"],
-            "b90_180":   pay_ageing["b90_180"],
-            "b180_plus": pay_ageing["b180_plus"],
-        }
-        for bkey, amt in bucket_pay_amounts.items():
-            if amt <= 0:
-                continue
-            weights = pay_sched[bkey]["weights"] or [1.0]
-            if len(weights) > PROJECT_MONTHS:
-                head = weights[: PROJECT_MONTHS - 1]
-                tail = sum(weights[PROJECT_MONTHS - 1:])
-                weights = head + [tail]
-            wsum = sum(weights) or 1.0
-            for i, w in enumerate(weights):
-                proj_outflow[i] += amt * (w / wsum)
-            payment_used[bkey] = {
-                "weights": pay_sched[bkey]["weights"],
-                "amount": amt,
-            }
-    else:
-        # Best-case mode — original behaviour: pay on due date, overdue in month 1.
-        for pinv in pinvoices:
-            amt = float(pinv.get("outstanding_amount") or 0.0)
-            if amt <= 0:
-                continue
-            due = pinv.get("due_date")
-            idx = _months_ahead(due) if due else 0
-            proj_outflow[idx] += amt
-
-    # ── Expense baseline ──────────────────────────────────────────────────
-    # Layer a recurring-expense estimate on top of committed payables — so
-    # months with no invoiced expenses still show a realistic outflow.
-    # Honest by design: baseline is EXPENSE-only (never adds to inflow), and
-    # we NET committed payables against the baseline so we don't double-count.
-    expense_accounts = by_root_for_projection = [
-        a.name for a in frappe.get_all(
-            "Account",
-            filters={"company": company, "is_group": 0, "root_type": "Expense"},
-            fields=["name"],
-        )
-    ]
-    baseline_mode = (projection_baseline or "committed").lower()
-    baseline_out = [0.0] * PROJECT_MONTHS
-
-    def _month_expense(yr: int, mo: int) -> float:
-        """Total expense (debit-credit on Expense accounts) for a calendar month."""
-        if not expense_accounts:
-            return 0.0
-        # First day of next month, exclusive.
-        if mo == 12:
-            end = f"{yr + 1}-01-01"
-        else:
-            end = f"{yr}-{mo + 1:02d}-01"
-        start = f"{yr}-{mo:02d}-01"
-        ph = ", ".join(["%s"] * len(expense_accounts))
-        row = frappe.db.sql(
-            f"""SELECT COALESCE(SUM(debit - credit), 0) FROM `tabGL Entry`
-                WHERE is_cancelled = 0 AND company = %s AND account IN ({ph})
-                  AND posting_date >= %s AND posting_date < %s""",
-            [company, *expense_accounts, start, end],
-        )
-        return float(row[0][0] or 0.0) if row else 0.0
-
-    if baseline_mode == "prior_year" and expense_accounts:
-        # Same calendar month, one year earlier — honours seasonality.
-        for i in range(PROJECT_MONTHS):
-            mo = ((today.month - 1 + i) % 12) + 1
-            yr = today.year + (today.month - 1 + i) // 12 - 1
-            baseline_out[i] = _month_expense(yr, mo)
-    elif baseline_mode == "trailing_3m" and expense_accounts:
-        # Mean of the last 3 fully-completed months — picks up the current run-rate.
-        totals = []
-        for k in range(1, 4):
-            # k months back from the current month start.
-            y, m = today.year, today.month - k
-            while m <= 0:
-                m += 12
-                y -= 1
-            totals.append(_month_expense(y, m))
-        avg = sum(totals) / 3 if totals else 0.0
-        for i in range(PROJECT_MONTHS):
-            baseline_out[i] = avg
-    # 'committed' baseline_mode leaves baseline_out at zeros.
-
-    # Build the projected cash line, starting from current cash on hand.
-    current_cash = (cash_monthly[-1]["closing"] if cash_monthly else opening_total)
-    projection: list[dict] = []
-    running = current_cash
-    base_month = today.month  # 1-12
-    base_year = today.year
-    for i in range(PROJECT_MONTHS):
-        mnum = (base_month - 1 + i) % 12          # 0-indexed month
-        yr = base_year + (base_month - 1 + i) // 12
-        opening = running
-        committed_in = proj_inflow[i]
-        committed_out = proj_outflow[i]
-        # Net the baseline against committed so we never double-count payables
-        # already invoiced for the month.
-        baseline_excess = max(0.0, baseline_out[i] - committed_out)
-        total_out = committed_out + baseline_excess
-        closing = opening + committed_in - total_out
-        projection.append({
-            "month": mnum,
-            "year": yr,
-            "opening": opening,
-            "expected_in": committed_in,
-            "expected_out": total_out,
-            "committed_out": committed_out,
-            "baseline_out": baseline_excess,
-            "closing": closing,
-        })
-        running = closing
-
-    return {
-        "company": company,
-        "fiscal_year": fy,
-        "cash_accounts_count": len(cash_accounts),
-        "cash_opening": opening_total,
-        "cash_monthly": cash_monthly,
-        "receivables": {
-            "total": receivables_total,
-            "not_due": ageing["not_due"],
-            "buckets": [
-                {"key": b["key"], "label": b["label"], "amount": ageing[b["key"]]}
-                for b in buckets
-            ],
-        },
-        "payables": {
-            "total": payables_total,
-            "not_due": pay_ageing["not_due"],
-            "buckets": [
-                {"key": b["key"], "label": b["label"], "amount": pay_ageing[b["key"]]}
-                for b in buckets
-            ],
-        },
-        "projection": {
-            "months": PROJECT_MONTHS,
-            "baseline": baseline_mode,
-            "collection_mode": cmode,
-            "collection_schedule": collection_used,
-            "payment_schedule": payment_used,
-            "uncollectible_estimate": uncollectible_estimate,
-            "current_cash": current_cash,
-            "payables_total": payables_total,
-            "rows": projection,
-        },
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Financial ratios (v1.9.24) — profitability, liquidity, efficiency
-# ───────────────────────────────────────────────────────────────────────────
-
-@frappe.whitelist()
-def get_financial_ratios(company: str, fiscal_year: str | int) -> dict:
-    """Standard financial ratios for the management dashboard.
-
-    Computed directly from GL, classified by account root_type / account_type,
-    so it is independent of any report definition and globally reusable:
-
-      Profitability  — gross margin, EBITDA margin, net margin
-      Liquidity      — current ratio, quick ratio, cash ratio
-      Efficiency     — DSO, DPO, cash conversion cycle
-
-    P&L figures are the fiscal year's activity; balance-sheet figures are the
-    position as of the fiscal year end. All amounts in company currency.
-    """
-    _require_read()
-    fy = cint(fiscal_year)
-    # v1.9.59 — use company's fiscal year boundaries.
-    from neotec_insight.neotec_insight.utils.fiscal_year import fiscal_year_bounds
-    _fy_s, _fy_e = fiscal_year_bounds(company, fy)
-    fy_start = _fy_s.isoformat()
-    fy_end = _fy_e.isoformat()
-
-    # Account metadata for the company.
-    accounts = frappe.get_all(
-        "Account",
-        filters={"company": company, "is_group": 0},
-        fields=["name", "root_type", "account_type"],
-    )
-    by_root: dict[str, list[str]] = {}
-    by_type: dict[str, list[str]] = {}
-    for a in accounts:
-        by_root.setdefault(a.root_type or "", []).append(a.name)
-        by_type.setdefault(a.account_type or "", []).append(a.name)
-
-    def _sum_period(acc_names: list[str], signed: str) -> float:
-        """Sum GL activity within the fiscal year for the given accounts.
-        signed='credit_minus_debit' for income, 'debit_minus_credit' for expense."""
-        if not acc_names:
-            return 0.0
-        ph = ", ".join(["%s"] * len(acc_names))
-        expr = "credit - debit" if signed == "credit_minus_debit" else "debit - credit"
-        row = frappe.db.sql(
-            f"""SELECT COALESCE(SUM({expr}), 0) FROM `tabGL Entry`
-                WHERE is_cancelled = 0 AND company = %s AND account IN ({ph})
-                  AND posting_date >= %s AND posting_date <= %s""",
-            [company, *acc_names, fy_start, fy_end],
-        )
-        return float(row[0][0] or 0.0) if row else 0.0
-
-    def _balance_asof(acc_names: list[str], signed: str) -> float:
-        """Net balance as of fiscal year end for the given accounts."""
-        if not acc_names:
-            return 0.0
-        ph = ", ".join(["%s"] * len(acc_names))
-        expr = "debit - credit" if signed == "debit_minus_credit" else "credit - debit"
-        row = frappe.db.sql(
-            f"""SELECT COALESCE(SUM({expr}), 0) FROM `tabGL Entry`
-                WHERE is_cancelled = 0 AND company = %s AND account IN ({ph})
-                  AND posting_date <= %s""",
-            [company, *acc_names, fy_end],
-        )
-        return float(row[0][0] or 0.0) if row else 0.0
-
-    # ── P&L figures (fiscal-year activity) ─────────────────────────────────
-    revenue = _sum_period(by_root.get("Income", []), "credit_minus_debit")
-    expenses = _sum_period(by_root.get("Expense", []), "debit_minus_credit")
-    net_income = revenue - expenses
-    # Direct cost = Cost of Goods Sold accounts; gross profit = revenue - COGS.
-    cogs = _sum_period(by_type.get("Cost of Goods Sold", []), "debit_minus_credit")
-    gross_profit = revenue - cogs
-    # EBITDA = net income + depreciation/amortisation + interest (add-backs).
-    deprec = _sum_period(by_type.get("Depreciation", []), "debit_minus_credit")
-    ebitda = net_income + deprec  # interest add-back omitted; conservative
-
-    # ── Balance-sheet figures (as of fiscal year end) ──────────────────────
-    receivables = _balance_asof(by_type.get("Receivable", []), "debit_minus_credit")
-    payables = _balance_asof(by_type.get("Payable", []), "credit_minus_debit")
-    cash = _balance_asof(
-        by_type.get("Bank", []) + by_type.get("Cash", []), "debit_minus_credit"
-    )
-    inventory = _balance_asof(by_type.get("Stock", []), "debit_minus_credit")
-    current_assets = _balance_asof(
-        [a.name for a in accounts if (a.account_type or "") in
-         ("Receivable", "Bank", "Cash", "Stock") and a.root_type == "Asset"],
-        "debit_minus_credit",
-    )
-    current_liabilities = _balance_asof(
-        [a.name for a in accounts if (a.account_type or "") in
-         ("Payable", "Tax") and a.root_type == "Liability"],
-        "credit_minus_debit",
-    )
-
-    def _safe_div(a: float, b: float):
-        return (a / b) if b not in (0, 0.0) else None
-
-    # ── Ratios ─────────────────────────────────────────────────────────────
-    profitability = [
-        {"key": "gross_margin", "label": "Gross Margin",
-         "value": _safe_div(gross_profit, revenue), "format": "pct",
-         "good": "high", "benchmark": 0.40},
-        {"key": "ebitda_margin", "label": "EBITDA Margin",
-         "value": _safe_div(ebitda, revenue), "format": "pct",
-         "good": "high", "benchmark": 0.15},
-        {"key": "net_margin", "label": "Net Margin",
-         "value": _safe_div(net_income, revenue), "format": "pct",
-         "good": "high", "benchmark": 0.10},
-    ]
-    liquidity = [
-        {"key": "current_ratio", "label": "Current Ratio",
-         "value": _safe_div(current_assets, current_liabilities), "format": "ratio",
-         "good": "high", "benchmark": 1.5},
-        {"key": "quick_ratio", "label": "Quick Ratio",
-         "value": _safe_div(current_assets - inventory, current_liabilities), "format": "ratio",
-         "good": "high", "benchmark": 1.0},
-        {"key": "cash_ratio", "label": "Cash Ratio",
-         "value": _safe_div(cash, current_liabilities), "format": "ratio",
-         "good": "high", "benchmark": 0.5},
-    ]
-    # DSO = receivables / revenue * 365 ; DPO = payables / cogs * 365.
-    dso = _safe_div(receivables, revenue)
-    dso = dso * 365 if dso is not None else None
-    dpo = _safe_div(payables, cogs)
-    dpo = dpo * 365 if dpo is not None else None
-    ccc = (dso - dpo) if (dso is not None and dpo is not None) else None
-    efficiency = [
-        {"key": "dso", "label": "DSO (days)", "value": dso, "format": "days",
-         "good": "low", "benchmark": 45},
-        {"key": "dpo", "label": "DPO (days)", "value": dpo, "format": "days",
-         "good": "low", "benchmark": 60},
-        {"key": "ccc", "label": "Cash Conversion Cycle (days)", "value": ccc,
-         "format": "days", "good": "low", "benchmark": 30},
-    ]
-
-    return {
-        "company": company,
-        "fiscal_year": fy,
-        "inputs": {
-            "revenue": revenue, "cogs": cogs, "gross_profit": gross_profit,
-            "ebitda": ebitda, "net_income": net_income,
-            "current_assets": current_assets, "current_liabilities": current_liabilities,
-            "cash": cash, "inventory": inventory,
-            "receivables": receivables, "payables": payables,
-        },
-        "groups": [
-            {"key": "profitability", "label": "Profitability", "ratios": profitability},
-            {"key": "liquidity", "label": "Liquidity", "ratios": liquidity},
-            {"key": "efficiency", "label": "Efficiency", "ratios": efficiency},
-        ],
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Variance commentary (v1.9.36) — per (report, row_key, fiscal_year)
-# ───────────────────────────────────────────────────────────────────────────
-
-@frappe.whitelist()
-def list_variance_notes(report: str, fiscal_year: str | int) -> list[dict]:
-    """Return all commentary notes for a report+fiscal year.
-
-    Used by the dashboard variance panel and the Management Pack export to
-    decorate rows with the user's 'why' explanation.
-    """
-    _require_read()
-    fy = cint(fiscal_year)
-    if not report or not fy:
-        return []
-    # Resolve the report doc name (caller may pass slug).
-    doc = _resolve_report_doc(report)
-    rows = frappe.get_all(
-        "Insight Variance Note",
-        filters={"report": doc.name, "fiscal_year": fy},
-        fields=["name", "row_key", "commentary", "modified", "modified_by"],
-        limit_page_length=0,
-    )
-    out = []
-    for r in rows:
-        commentary = (r.get("commentary") or "").strip()
-        if not commentary:
-            continue
-        out.append({
-            "name": r["name"],
-            "row_key": r["row_key"],
-            "commentary": commentary,
-            "modified": str(r.get("modified") or ""),
-            "modified_by": r.get("modified_by") or "",
-        })
-    return out
-
-
-@frappe.whitelist(methods=["POST"])
-def save_variance_note(
-    report: str,
-    row_key: str,
-    fiscal_year: str | int,
-    commentary: str = "",
-) -> dict:
-    """Upsert (or delete) a variance note for one row of a report+year.
-
-    Empty/whitespace commentary deletes the note — keeps storage clean and
-    matches the UX: clearing the textarea removes the row's commentary entirely.
-    """
-    _require_read()
-    fy = cint(fiscal_year)
-    if not report or not row_key or not fy:
-        frappe.throw("report, row_key and fiscal_year are required.")
-    doc = _resolve_report_doc(report)
-    row_key = (row_key or "").strip()
-    text = (commentary or "").strip()
-
-    existing = frappe.get_all(
-        "Insight Variance Note",
-        filters={"report": doc.name, "row_key": row_key, "fiscal_year": fy},
-        pluck="name",
-        limit_page_length=1,
-    )
-
-    if not text:
-        # Empty -> delete if present.
-        if existing:
-            frappe.delete_doc("Insight Variance Note", existing[0], ignore_permissions=False)
-            frappe.db.commit()
-        return {"deleted": True, "row_key": row_key}
-
-    if existing:
-        note = frappe.get_doc("Insight Variance Note", existing[0])
-        note.commentary = text
-        note.save(ignore_permissions=False)
-    else:
-        note = frappe.new_doc("Insight Variance Note")
-        note.report = doc.name
-        note.row_key = row_key
-        note.fiscal_year = fy
-        note.commentary = text
-        note.insert(ignore_permissions=False)
-    frappe.db.commit()
-    return {
-        "name": note.name,
-        "row_key": row_key,
-        "commentary": text,
-        "modified": str(note.modified or ""),
-        "modified_by": note.modified_by or "",
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Rolling-12-month trends (v1.9.37)
-# ───────────────────────────────────────────────────────────────────────────
-
-@frappe.whitelist()
-def get_rolling_12(
-    report: str,
-    fiscal_year: str | int,
-    company: str | None = None,
-    cost_center: str | None = None,
-    project: str | None = None,
-    department: str | None = None,
-    branch: str | None = None,
-) -> dict:
-    """Return rolling-12-month monthly series for each P&L row of a report.
-
-    The window ends at the last completed calendar month of the selected
-    fiscal year (or 'now', whichever is earlier — we never project actuals
-    into the future). For a historical fiscal year, that's December of that
-    year. For the current fiscal year, it's the most recent completed month.
-
-    Composition: 12 monthly values stitched across the end-year and the year
-    before it, so rolling-12 always has 12 points regardless of where in the
-    fiscal year we are.
-
-    Used by the dashboard's KPI sparklines when 'Rolling-12' is selected.
-    """
-    _require_read()
-    fy = cint(fiscal_year)
-    if not fy:
-        frappe.throw("fiscal_year is required.")
-
-    doc = _resolve_report_doc(report)
-    company = company or doc.company
-
-    # Decide the end month — last completed calendar month within fy that is
-    # not in the future. For a historical year, that's Dec; for the current
-    # year, it's last month (or current month-1 if today's day <= 1).
-    today = frappe.utils.getdate(frappe.utils.nowdate())
-    if fy < today.year:
-        end_month = 12     # 1-indexed
-        end_year = fy
-    elif fy == today.year:
-        end_month = max(1, today.month - 1)   # last completed month
-        end_year = fy
-    else:
-        # Future fiscal year requested — no actuals to roll. Return empties.
-        end_month = 12
-        end_year = fy
-
-    # Run the engine for two years and stitch the last 12 months ending at
-    # (end_year, end_month).
-    definition = json.loads(doc.definition_json or "{}")
-    flag_to_accounts = load_flag_to_accounts(doc.name)
-
-    def _run_year(y: int):
-        try:
-            return execute_report(
-                report_def=definition,
-                fiscal_year=y,
-                month_from=0,
-                month_to=11,
-                segment="total",
-                cost_center=cost_center,
-                project=project,
-                department=department,
-                branch=branch,
-                company=company,
-                flag_to_accounts=flag_to_accounts,
-            )
-        except Exception:
-            return {"rows": []}
-
-    cur_year = _run_year(end_year)
-    prev_year = _run_year(end_year - 1)
-
-    # Build {row_key: {month_0..11: amount}} for both years.
-    def _by_key(rows):
-        out = {}
-        for r in rows or []:
-            k = r.get("key")
-            if not k:
-                continue
-            out[k] = r.get("monthly") or {}
-        return out
-
-    cur_by_key = _by_key(cur_year.get("rows"))
-    prev_by_key = _by_key(prev_year.get("rows"))
-
-    # 12-point series: iterate backwards from (end_year, end_month) for 12.
-    series_keys = []  # list of (year, month_idx) — month_idx is 0-based
-    y, m = end_year, end_month - 1   # m is 0-based
-    for _ in range(12):
-        series_keys.append((y, m))
-        m -= 1
-        if m < 0:
-            m = 11
-            y -= 1
-    series_keys.reverse()    # oldest first
-
-    # Compose the rows: for each P&L row, the 12 stitched values + labels.
-    all_keys = sorted(set(list(cur_by_key.keys()) + list(prev_by_key.keys())))
-    out_rows = []
-    for k in all_keys:
-        series = []
-        for (yy, mm) in series_keys:
-            book = cur_by_key if yy == end_year else prev_by_key
-            val = book.get(k, {}).get(mm) or 0.0
-            try:
-                val = float(val)
-            except Exception:
-                val = 0.0
-            series.append(val)
-        out_rows.append({"key": k, "series": series})
-
-    # Month labels for tooltips/legends (e.g. 'Dec-25').
-    MN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    months_label = [
-        {"month": mm, "year": yy, "label": f"{MN[mm]}-{str(yy)[2:]}"}
-        for (yy, mm) in series_keys
-    ]
-
-    return {
-        "report": doc.name,
-        "end_year": end_year,
-        "end_month": end_month,
-        "fiscal_year": fy,
-        "months": months_label,
-        "rows": out_rows,
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Multi-company group view (v1.9.38) — Layer 1: aggregate + currency translate
-# ───────────────────────────────────────────────────────────────────────────
-# Honest scope: aggregates across selected companies; translates each
-# company's amounts to a chosen presentation currency using ERPNext's
-# Currency Exchange rates (period-average for P&L). Does NOT eliminate
-# intercompany transactions — that's Layer 2 (a later release). Banner in
-# the UI states this clearly so nobody mistakes it for statutory consolidation.
-
-_GROUP_VIEW_ROLES = {"System Manager", "Accounts Manager", "Insight Group Viewer"}
-
-# v1.9.45 — Insight role tier. 'Edit' permits writes to report definitions
-# and related admin actions; 'Full' is the union of view + edit. System
-# Manager and Accounts Manager are implicit members of both sets.
-_INSIGHT_EDIT_ROLES = {"System Manager", "Accounts Manager", "Insight CFO"}
 _INSIGHT_VIEW_FULL_ROLES = {"System Manager", "Accounts Manager", "Insight CFO", "Insight CEO"}
 
 
-def _user_roles() -> set:
-    return set(frappe.get_roles(frappe.session.user) or [])
 
 
-def _can_edit_insight() -> bool:
-    """True if the current user can edit report definitions and admin data.
-    Administrator always allowed; otherwise must have an edit role.
-    """
-    if frappe.session.user == "Administrator":
-        return True
-    return bool(_user_roles() & _INSIGHT_EDIT_ROLES)
 
 
-def _check_edit_permission() -> None:
-    """Raise PermissionError unless the user is allowed to edit Insight data."""
-    if not _can_edit_insight():
-        frappe.throw(
-            "You don't have permission to edit Insight reports. "
-            "Ask an administrator to assign the 'Insight CFO' role.",
-            frappe.PermissionError,
-        )
+
+
+def _desk_prefix() -> str:
+    from neotec_insight.neotec_insight.utils.compat import desk_prefix
+    return desk_prefix()
 
 
 @frappe.whitelist()
@@ -6201,6 +5005,8 @@ def insight_get_access_profile() -> dict:
             "can_edit": True,
             "can_see_group": True,
             "user": "Administrator",
+            # v2.93.0 — "/app" on Frappe v15, "/desk" on v16.
+            "desk_prefix": _desk_prefix(),
         }
     roles = _user_roles()
     # Determine the tier — most-privileged wins.
@@ -6230,6 +5036,7 @@ def insight_get_access_profile() -> dict:
         # anyone calling the endpoint behind it.
         "hr_only": tier == "hr",
         "user": frappe.session.user,
+        "desk_prefix": _desk_prefix(),
     }
 
 
@@ -6256,23 +5063,6 @@ def _check_hr_only(*, allow: bool) -> None:
         )
 
 
-def _check_group_view_access() -> None:
-    """Raise PermissionError unless the current user has a group-view role.
-
-    Defence in depth: the UI hides the Group tab from users without these
-    roles, AND every backend endpoint enforces the same check so the data
-    can't be reached by direct API call. Administrator bypasses (consistent
-    with Frappe convention).
-    """
-    if frappe.session.user == "Administrator":
-        return
-    user_roles = set(frappe.get_roles(frappe.session.user) or [])
-    if not (user_roles & _GROUP_VIEW_ROLES):
-        frappe.throw(
-            "You don't have access to the group-view feature. "
-            "Ask an administrator to assign you the 'Insight Group Viewer' role.",
-            frappe.PermissionError,
-        )
 
 
 @frappe.whitelist()
@@ -6288,938 +5078,26 @@ def insight_has_group_access() -> dict:
     return {"has_access": bool(user_roles & _GROUP_VIEW_ROLES)}
 
 
-@frappe.whitelist()
-def list_group_companies() -> list[dict]:
-    """Return all enabled companies in the bench, with their default currency.
-    Used by the group-view multi-select picker on the dashboard.
-    """
-    _require_read()
-    _check_group_view_access()
-    rows = frappe.get_all(
-        "Company",
-        fields=["name", "company_name", "default_currency", "is_group", "parent_company"],
-        order_by="company_name asc",
-        limit_page_length=0,
-    )
-    return [
-        {
-            "name": r["name"],
-            "label": r.get("company_name") or r["name"],
-            "currency": r.get("default_currency") or "",
-            "is_group": int(r.get("is_group") or 0),
-            "parent_company": r.get("parent_company") or "",
-        }
-        for r in rows
-    ]
 
 
-def _avg_rate_for_month(from_currency: str, to_currency: str, year: int, month_idx: int) -> float:
-    """Average Currency Exchange rate for a calendar month.
 
-    Reads daily rates from `tabCurrency Exchange` and averages them. Returns 1.0
-    if currencies are identical or no rates can be found (with a caller-side
-    warning expected). month_idx is 0-based; we convert to 1-based for SQL.
-    """
-    if not from_currency or not to_currency or from_currency == to_currency:
-        return 1.0
-    m1 = month_idx + 1
-    # Last day of the month — use Python rather than SQL to avoid DB-specific syntax.
-    if m1 == 12:
-        next_first = f"{year + 1}-01-01"
-    else:
-        next_first = f"{year}-{m1 + 1:02d}-01"
-    first = f"{year}-{m1:02d}-01"
-    rows = frappe.db.sql(
-        """SELECT exchange_rate FROM `tabCurrency Exchange`
-           WHERE from_currency = %s AND to_currency = %s
-             AND date >= %s AND date < %s""",
-        [from_currency, to_currency, first, next_first],
-    )
-    if rows:
-        rates = [float(r[0] or 0) for r in rows if r[0]]
-        if rates:
-            return sum(rates) / len(rates)
-    # Fallback 1: most recent rate before this month.
-    prev = frappe.db.sql(
-        """SELECT exchange_rate FROM `tabCurrency Exchange`
-           WHERE from_currency = %s AND to_currency = %s AND date < %s
-           ORDER BY date DESC LIMIT 1""",
-        [from_currency, to_currency, first],
-    )
-    if prev and prev[0][0]:
-        return float(prev[0][0])
-    # Fallback 2: inverse pair (the customer might only maintain one direction).
-    inv = frappe.db.sql(
-        """SELECT exchange_rate FROM `tabCurrency Exchange`
-           WHERE from_currency = %s AND to_currency = %s AND date < %s
-           ORDER BY date DESC LIMIT 1""",
-        [to_currency, from_currency, next_first],
-    )
-    if inv and inv[0][0] and float(inv[0][0]) > 0:
-        return 1.0 / float(inv[0][0])
-    # No rate at all — return 1.0 and let the UI flag the gap.
-    return 1.0
 
 
-@frappe.whitelist()
-def get_group_dashboard(
-    report: str,
-    fiscal_year: str | int,
-    companies: str | list,
-    presentation_currency: str | None = None,
-    dimension_filters: dict | str | None = None,
-) -> dict:
-    """Aggregate one P&L definition across multiple companies for one fiscal year.
 
-    Returns:
-      - group: KPI totals in presentation_currency (revenue, gross_profit,
-        ebitda, net_income; monthly series stitched for sparklines)
-      - by_company: each company in its OWN currency, with the same KPI set
-      - meta: which rate dates were used, gaps in FX data, banner text
 
-    v1.9.52 — dimension_filters is applied to each per-company execute_report
-    call, sanitised against the discovered dimension set.
 
-    Layer 1: aggregation only. Does NOT eliminate intercompany.
-    """
-    _require_read()
-    _check_group_view_access()
-    fy = cint(fiscal_year)
-    if isinstance(companies, str):
-        try:
-            companies = json.loads(companies)
-        except Exception:
-            companies = [c.strip() for c in companies.split(",") if c.strip()]
-    if not companies or not isinstance(companies, list):
-        frappe.throw("companies must be a non-empty list of company names.")
-    if len(companies) > 50:
-        frappe.throw("Too many companies — please limit to 50 per request.")
 
-    doc = _resolve_report_doc(report)
-    definition = json.loads(doc.definition_json or "{}")
-    flag_to_accounts = load_flag_to_accounts(doc.name)
-    dim_filters_safe = _sanitise_dimension_filters(dimension_filters)
 
-    # Resolve each company's native currency.
-    company_meta = {}
-    for c in companies:
-        cur = frappe.db.get_value("Company", c, "default_currency") or ""
-        company_meta[c] = {"currency": cur, "name": c}
 
-    # Pick presentation currency: default to the first company's currency
-    # if not specified (a sensible default — usually the holding company is
-    # listed first or already passed in).
-    pres_cur = presentation_currency or company_meta[companies[0]]["currency"] or ""
 
-    KPI_KEYS = ["total_revenue", "gross_profit", "ebitda", "net_income"]
-    months_all = list(range(12))
 
-    # Per-company native run.
-    by_company: list[dict] = []
-    # Group totals in presentation currency: keyed by KPI key, then by month.
-    group_monthly: dict[str, list[float]] = {k: [0.0] * 12 for k in KPI_KEYS}
-    # FX gap tracker — months where we fell back to a default rate.
-    fx_gaps: list[dict] = []
 
-    for c in companies:
-        cur = company_meta[c]["currency"] or pres_cur
 
-        try:
-            res = execute_report(
-                report_def=definition,
-                fiscal_year=fy,
-                month_from=0,
-                month_to=11,
-                segment="total",
-                company=c,
-                flag_to_accounts=flag_to_accounts,
-                dimension_filters=dim_filters_safe or None,
-            )
-        except Exception as e:
-            frappe.log_error(f"group_dashboard exec failed for {c}: {e}", "Neotec Insight: group")
-            res = {"rows": []}
 
-        rows_by_key = {r.get("key"): r for r in (res.get("rows") or [])}
-        per_company_kpis = {}
 
-        for k in KPI_KEYS:
-            row = rows_by_key.get(k)
-            monthly_native = []
-            for m in months_all:
-                v = float((row or {}).get("monthly", {}).get(m) or 0.0)
-                monthly_native.append(v)
-            per_company_kpis[k] = {
-                "monthly_native": monthly_native,
-                "total_native": sum(monthly_native),
-            }
 
-        # Translate to presentation currency, monthly average rates.
-        per_company_pres = {}
-        if cur == pres_cur:
-            rates = [1.0] * 12
-        else:
-            rates = []
-            has_gap = False
-            for m in months_all:
-                r = _avg_rate_for_month(cur, pres_cur, fy, m)
-                rates.append(r)
-                if r == 1.0 and cur != pres_cur:
-                    has_gap = True
-            if has_gap:
-                fx_gaps.append({"company": c, "from": cur, "to": pres_cur})
 
-        for k in KPI_KEYS:
-            monthly_pres = [
-                per_company_kpis[k]["monthly_native"][m] * rates[m]
-                for m in months_all
-            ]
-            per_company_pres[k] = {
-                "monthly_pres": monthly_pres,
-                "total_pres": sum(monthly_pres),
-            }
-            for m in months_all:
-                group_monthly[k][m] += monthly_pres[m]
 
-        by_company.append({
-            "company": c,
-            "currency": cur,
-            "kpis": {
-                k: {
-                    "native_total": per_company_kpis[k]["total_native"],
-                    "native_monthly": per_company_kpis[k]["monthly_native"],
-                    "presentation_total": per_company_pres[k]["total_pres"],
-                }
-                for k in KPI_KEYS
-            },
-            "rates_used": rates if cur != pres_cur else None,
-        })
-
-    group_totals = {
-        k: {"total": sum(group_monthly[k]), "monthly": group_monthly[k]}
-        for k in KPI_KEYS
-    }
-
-    return {
-        "report": doc.name,
-        "fiscal_year": fy,
-        "companies": companies,
-        "presentation_currency": pres_cur,
-        "group": group_totals,
-        "by_company": by_company,
-        "fx_gaps": fx_gaps,
-        "notes": {
-            "layer": "Layer 1 — aggregation only",
-            "intercompany": "Not eliminated. Intercompany transactions are included in both revenue and expense.",
-            "rate_convention": "Period average rate per month, from ERPNext Currency Exchange.",
-            "comparatives": "Prior-year figures use prior-year rates (no retranslation).",
-        },
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Sensitivity analysis (v1.9.39) — "the CFO's stress test"
-# ───────────────────────────────────────────────────────────────────────────
-# Wraps get_liquidity and perturbs the projection by three real-world levers:
-# collection-speed delay, revenue level, and cost inflation. Output: stressed
-# projection + a tornado-ready scenario set for each lever.
-#
-# Design choice: NOT persisted. Sensitivity is exploratory — you don't save
-# what-if runs. If a user wants to commit a stressed scenario as a forecast,
-# that's a budget-revision feature, not this one.
-
-
-def _apply_stress_to_projection(
-    base: dict,
-    stress_collection_days: int,
-    stress_revenue_pct: float,
-    stress_cost_pct: float,
-) -> dict:
-    """Apply three stress levers to a base liquidity projection.
-
-    Mechanics (all transparent, intentionally simple — sensitivity output
-    should not pretend to be more sophisticated than its inputs):
-
-    - stress_collection_days: shift expected_in to later months. Positive
-      days = slower collection. Implementation: shift a fraction of each
-      month's inflow to next month, proportional to days/30.
-    - stress_revenue_pct: scale expected_in. -10 = 10% lower inflows.
-    - stress_cost_pct: scale projected outflows (committed + baseline).
-      +5 = 5% higher outflows.
-    """
-    proj = base.get("projection") or {}
-    rows = list(proj.get("rows") or [])
-    if not rows:
-        return base
-
-    months = len(rows)
-    days = max(-30, min(30, int(stress_collection_days or 0)))
-    rev_mult = 1.0 + (max(-50.0, min(50.0, float(stress_revenue_pct or 0))) / 100.0)
-    cost_mult = 1.0 + (max(-50.0, min(50.0, float(stress_cost_pct or 0))) / 100.0)
-
-    # Step 1: scale revenue (expected_in) and cost (expected_out) per month.
-    expected_in = [float(r.get("expected_in") or 0) * rev_mult for r in rows]
-    expected_out = [float(r.get("expected_out") or 0) * cost_mult for r in rows]
-
-    # Step 2: collection delay — shift a fraction of each month's inflow
-    # forward by (days/30) months. Positive days = slower = push later.
-    if days != 0:
-        shift_frac = abs(days) / 30.0  # 30 days = 100% shift to next month
-        shift_frac = min(1.0, shift_frac)
-        direction = 1 if days > 0 else -1  # +1 = later, -1 = earlier
-        shifted = [0.0] * months
-        for i in range(months):
-            keep = expected_in[i] * (1.0 - shift_frac)
-            shift = expected_in[i] * shift_frac
-            shifted[i] += keep
-            target = i + direction
-            if 0 <= target < months:
-                shifted[target] += shift
-            else:
-                # Pushed off the horizon — treat as deferred/lost in window.
-                # For honesty, push to last month (acknowledges cash arrives
-                # eventually but outside the window we can see).
-                shifted[months - 1] += shift if direction > 0 else 0
-        expected_in = shifted
-
-    # Step 3: recompute running cash. Opening month 0 = current_cash.
-    current_cash = float(proj.get("current_cash") or 0)
-    new_rows = []
-    opening = current_cash
-    for i, r in enumerate(rows):
-        closing = opening + expected_in[i] - expected_out[i]
-        new_rows.append({
-            **r,
-            "opening": opening,
-            "expected_in": expected_in[i],
-            "expected_out": expected_out[i],
-            "closing": closing,
-        })
-        opening = closing
-
-    # Step 4: refresh derived metrics.
-    closings = [r["closing"] for r in new_rows]
-    low_point = min(closings) if closings else 0.0
-    low_idx = closings.index(low_point) if closings else 0
-    goes_negative = low_point < 0
-    ending = closings[-1] if closings else current_cash
-
-    new_proj = {
-        **proj,
-        "rows": new_rows,
-        "stress": {
-            "collection_days": days,
-            "revenue_pct": stress_revenue_pct,
-            "cost_pct": stress_cost_pct,
-        },
-        "stressed_summary": {
-            "low_point": low_point,
-            "low_point_month_idx": low_idx,
-            "goes_negative": goes_negative,
-            "ending_cash": ending,
-            "delta_vs_base_ending": ending - float(proj.get("rows", [{}])[-1].get("closing", 0) if proj.get("rows") else 0),
-        },
-    }
-    return {**base, "projection": new_proj}
-
-
-@frappe.whitelist()
-def get_sensitivity_scenario(
-    company: str,
-    fiscal_year: str | int,
-    projection_months: str | int = 6,
-    projection_baseline: str = "committed",
-    collection_mode: str = "best_case",
-    collection_schedule: str | dict | None = None,
-    payment_schedule: str | dict | None = None,
-    stress_collection_days: int = 0,
-    stress_revenue_pct: float = 0,
-    stress_cost_pct: float = 0,
-) -> dict:
-    """Run a single stressed projection.
-
-    Returns the same shape as get_liquidity, but with `projection.stress`
-    and `projection.stressed_summary` populated.
-    """
-    _require_read()
-    base = get_liquidity(
-        company=company,
-        fiscal_year=fiscal_year,
-        projection_months=projection_months,
-        projection_baseline=projection_baseline,
-        collection_mode=collection_mode,
-        collection_schedule=collection_schedule,
-        payment_schedule=payment_schedule,
-    )
-    return _apply_stress_to_projection(
-        base,
-        int(stress_collection_days or 0),
-        float(stress_revenue_pct or 0),
-        float(stress_cost_pct or 0),
-    )
-
-
-@frappe.whitelist()
-def get_sensitivity_tornado(
-    company: str,
-    fiscal_year: str | int,
-    projection_months: str | int = 6,
-    projection_baseline: str = "committed",
-    collection_mode: str = "best_case",
-    collection_schedule: str | dict | None = None,
-    payment_schedule: str | dict | None = None,
-) -> dict:
-    """Compute a tornado dataset — each lever's impact on ending cash.
-
-    For each of the three levers, runs a standardised mild/moderate/severe
-    stress and reports the ending-cash delta vs base case. The lever with
-    the largest range is what the CFO should worry about most. This is the
-    real value of sensitivity analysis: ranking the risks.
-
-    Standardised stresses (one-sided, downside only — that's what stress
-    tests measure):
-      collection_days: +10 (mild), +20 (moderate), +30 (severe)
-      revenue_pct:     -5  (mild), -10 (moderate), -20 (severe)
-      cost_pct:        +3  (mild), +7  (moderate), +12 (severe)
-    """
-    _require_read()
-    base = get_liquidity(
-        company=company,
-        fiscal_year=fiscal_year,
-        projection_months=projection_months,
-        projection_baseline=projection_baseline,
-        collection_mode=collection_mode,
-        collection_schedule=collection_schedule,
-        payment_schedule=payment_schedule,
-    )
-    proj_rows = (base.get("projection") or {}).get("rows") or []
-    base_ending = float(proj_rows[-1].get("closing") if proj_rows else 0)
-
-    LEVERS = [
-        {"key": "collection_days", "label": "Collection delay (days)",
-         "stresses": [("mild", 10, 0, 0), ("moderate", 20, 0, 0), ("severe", 30, 0, 0)]},
-        {"key": "revenue_pct", "label": "Revenue shortfall",
-         "stresses": [("mild", 0, -5, 0), ("moderate", 0, -10, 0), ("severe", 0, -20, 0)]},
-        {"key": "cost_pct", "label": "Cost inflation",
-         "stresses": [("mild", 0, 0, 3), ("moderate", 0, 0, 7), ("severe", 0, 0, 12)]},
-    ]
-
-    results = []
-    for lev in LEVERS:
-        scenarios = []
-        for (name, d, r, c) in lev["stresses"]:
-            stressed = _apply_stress_to_projection(base, d, r, c)
-            srows = (stressed.get("projection") or {}).get("rows") or []
-            ending = float(srows[-1].get("closing") if srows else 0)
-            low_point = min((float(rr.get("closing") or 0) for rr in srows), default=0)
-            scenarios.append({
-                "name": name,
-                "label": {"mild": "Mild", "moderate": "Moderate", "severe": "Severe"}[name],
-                "ending_cash": ending,
-                "low_point": low_point,
-                "delta": ending - base_ending,
-                "goes_negative": low_point < 0,
-            })
-        # Range = severe ending - base ending (always negative since downside-only).
-        range_magnitude = abs(scenarios[-1]["delta"])
-        results.append({
-            "lever": lev["key"],
-            "label": lev["label"],
-            "scenarios": scenarios,
-            "range_magnitude": range_magnitude,
-        })
-
-    # Sort by impact — the lever the CFO should focus on first.
-    results.sort(key=lambda x: x["range_magnitude"], reverse=True)
-
-    return {
-        "base_ending_cash": base_ending,
-        "levers": results,
-        "currency": base.get("currency", ""),
-        "horizon_months": int(projection_months),
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Fragility radar (v1.9.41) — Section 3 of the CFO Briefing
-# ───────────────────────────────────────────────────────────────────────────
-# Concentration risk: where the business is exposed to a single party, a
-# single bucket, or a single dimension that could hurt cash if it broke.
-#
-# Metrics computed:
-#   - Customer concentration (top-5, HHI) — from submitted Sales Invoices
-#   - Supplier concentration (top-5, HHI) — from submitted Purchase Invoices
-#   - Receivables ageing skew (% in 90+ days) — from outstanding SI
-#   - Branch concentration (top-5) — from submitted SI when branch is tagged
-#
-# All metrics are computed for a chosen fiscal year. Status thresholds are
-# stated in the response itself (visible to users in the UI help text)
-# so a reviewer can audit our judgement.
-
-
-def _hhi(shares: list[float]) -> float:
-    """Herfindahl-Hirschman Index — concentration measure used by US DOJ/FTC
-    merger guidelines. Each share is a percentage (0..100). HHI of 10000 =
-    one party has 100% share. < 1500 = low concentration, > 2500 = high.
-    """
-    return sum(s * s for s in shares)
-
-
-@frappe.whitelist()
-def get_fragility_radar(
-    company: str,
-    fiscal_year: str | int,
-    top_n: int = 5,
-) -> dict:
-    _require_read()  # v2.77.0 — returns customer revenue concentration
-    """Compute the fragility/concentration radar for a company+fiscal year.
-
-    Returns a dict with four sub-blocks (some may be empty if data isn't
-    tagged in this bench — e.g. no branches → branch block is omitted).
-    Each block has the same shape:
-      {
-        "metric": <name>,
-        "status": "green" | "amber" | "red",
-        "headline": <plain-English sentence — only what the data supports>,
-        "details": <metric-specific table>,
-      }
-    """
-    fy = cint(fiscal_year)
-    if not company:
-        frappe.throw("company is required.")
-    if not fy:
-        frappe.throw("fiscal_year is required.")
-    top_n = max(3, min(20, cint(top_n) or 5))
-
-    today = frappe.utils.getdate(frappe.utils.nowdate())
-
-    # v1.9.59 — use company FY boundaries instead of YEAR(posting_date) = fy.
-    from neotec_insight.neotec_insight.utils.fiscal_year import fiscal_year_bounds
-    _fy_s, _fy_e = fiscal_year_bounds(company, fy)
-    fy_start_d = _fy_s.isoformat()
-    fy_end_d = _fy_e.isoformat()
-
-    # ── Customer concentration ────────────────────────────────────────────
-    # Aggregate submitted Sales Invoices by customer for the fiscal year.
-    si_rows = frappe.db.sql(
-        """SELECT customer, SUM(base_grand_total) AS amt
-           FROM `tabSales Invoice`
-           WHERE company = %s AND docstatus = 1
-             AND posting_date BETWEEN %s AND %s
-           GROUP BY customer
-           ORDER BY amt DESC""",
-        [company, fy_start_d, fy_end_d],
-        as_dict=True,
-    )
-    cust_total = sum(float(r["amt"] or 0) for r in si_rows)
-    customer_block = _concentration_block(
-        items=si_rows, item_key="customer", item_label="customer",
-        total=cust_total, top_n=top_n,
-        metric_label="Customer concentration",
-        denom_label="of revenue",
-    )
-
-    # ── Supplier concentration ────────────────────────────────────────────
-    pi_rows = frappe.db.sql(
-        """SELECT supplier, SUM(base_grand_total) AS amt
-           FROM `tabPurchase Invoice`
-           WHERE company = %s AND docstatus = 1
-             AND posting_date BETWEEN %s AND %s
-           GROUP BY supplier
-           ORDER BY amt DESC""",
-        [company, fy_start_d, fy_end_d],
-        as_dict=True,
-    )
-    supp_total = sum(float(r["amt"] or 0) for r in pi_rows)
-    supplier_block = _concentration_block(
-        items=pi_rows, item_key="supplier", item_label="supplier",
-        total=supp_total, top_n=top_n,
-        metric_label="Supplier concentration",
-        denom_label="of purchases",
-    )
-
-    # ── Receivables ageing skew ───────────────────────────────────────────
-    # Reuse the same logic as get_liquidity: bucket outstanding SI by days
-    # past due. The "skew" is the share in 90+ buckets.
-    ar_rows = frappe.db.sql(
-        """SELECT name, outstanding_amount, due_date
-           FROM `tabSales Invoice`
-           WHERE company = %s AND docstatus = 1 AND outstanding_amount > 0""",
-        [company],
-        as_dict=True,
-    )
-    buckets = {"not_due": 0.0, "0_30": 0.0, "30_60": 0.0, "60_90": 0.0, "90_180": 0.0, "180_plus": 0.0}
-    for r in ar_rows:
-        amt = float(r.get("outstanding_amount") or 0)
-        if amt <= 0:
-            continue
-        due = r.get("due_date")
-        if not due:
-            buckets["0_30"] += amt
-            continue
-        days = (today - frappe.utils.getdate(due)).days
-        if days <= 0:
-            buckets["not_due"] += amt
-        elif days <= 30:
-            buckets["0_30"] += amt
-        elif days <= 60:
-            buckets["30_60"] += amt
-        elif days <= 90:
-            buckets["60_90"] += amt
-        elif days <= 180:
-            buckets["90_180"] += amt
-        else:
-            buckets["180_plus"] += amt
-
-    ar_total = sum(buckets.values())
-    aged_90plus = buckets["90_180"] + buckets["180_plus"]
-    aged_pct = (aged_90plus / ar_total) if ar_total > 0 else 0.0
-
-    # Status thresholds for AR skew — these are commonly cited credit-risk
-    # rules of thumb (not regulatory like HHI, but defensible practice).
-    if ar_total == 0:
-        ar_status = "green"
-        ar_headline = "No outstanding receivables."
-    elif aged_pct < 0.10:
-        ar_status = "green"
-        ar_headline = f"Receivables are healthy: only {aged_pct * 100:.0f}% of outstanding AR is over 90 days overdue."
-    elif aged_pct < 0.25:
-        ar_status = "amber"
-        ar_headline = f"Receivables ageing is concerning: {aged_pct * 100:.0f}% of outstanding AR is over 90 days overdue."
-    else:
-        ar_status = "red"
-        ar_headline = f"Receivables ageing is poor: {aged_pct * 100:.0f}% of outstanding AR is over 90 days overdue. Collection risk is material."
-
-    ageing_block = {
-        "metric": "Receivables ageing skew",
-        "status": ar_status,
-        "headline": ar_headline,
-        "details": {
-            "total_outstanding": ar_total,
-            "aged_90plus_amount": aged_90plus,
-            "aged_90plus_share": aged_pct,
-            "buckets": buckets,
-            "threshold_explainer": "Green < 10% in 90+; Amber 10-25%; Red > 25%. A high share in 90+ buckets indicates collection risk.",
-        },
-    }
-
-    # ── Branch concentration (conditional) ────────────────────────────────
-    branch_block = None
-    try:
-        if frappe.db.has_column("Sales Invoice", "branch"):
-            br_rows = frappe.db.sql(
-                """SELECT branch, SUM(base_grand_total) AS amt
-                   FROM `tabSales Invoice`
-                   WHERE company = %s AND docstatus = 1
-                     AND posting_date BETWEEN %s AND %s
-                     AND branch IS NOT NULL AND branch != ''
-                   GROUP BY branch
-                   ORDER BY amt DESC""",
-                [company, fy_start_d, fy_end_d],
-                as_dict=True,
-            )
-            br_total = sum(float(r["amt"] or 0) for r in br_rows)
-            if br_total > 0 and len(br_rows) >= 2:
-                # Only worth showing if there are at least 2 branches — otherwise
-                # "100% concentration" isn't a useful insight.
-                branch_block = _concentration_block(
-                    items=br_rows, item_key="branch", item_label="branch",
-                    total=br_total, top_n=top_n,
-                    metric_label="Branch concentration",
-                    denom_label="of revenue",
-                )
-    except Exception:
-        branch_block = None  # branch column or query failed — skip silently
-
-    blocks = [customer_block, supplier_block, ageing_block]
-    if branch_block:
-        blocks.insert(2, branch_block)  # branch between supplier and ageing
-
-    return {
-        "company": company,
-        "fiscal_year": fy,
-        "blocks": [b for b in blocks if b],
-    }
-
-
-def _concentration_block(items, item_key, item_label, total, top_n, metric_label, denom_label):
-    """Shared logic for customer/supplier/branch concentration blocks.
-
-    Computes:
-      - Top-N share (sum of top-N as % of total)
-      - HHI (in 0..10000 scale, standard convention)
-      - Top-3 share (used for the headline threshold)
-      - Status: green/amber/red
-
-    Thresholds (cited in the response):
-      Top-3 < 30%: Green. 30-50%: Amber. >50%: Red.
-      HHI < 1500: low concentration; 1500-2500 moderate; >2500 high (US DOJ).
-    """
-    if total == 0 or not items:
-        return {
-            "metric": metric_label,
-            "status": "green",
-            "headline": f"No {item_label} activity recorded — no concentration risk.",
-            "details": {
-                "total": 0,
-                "top_n": [],
-                "top_3_share": 0,
-                "top_n_share": 0,
-                "hhi": 0,
-                "threshold_explainer": "Status uses top-3 share: <30% Green, 30-50% Amber, >50% Red. HHI shown for reference (DOJ standard).",
-            },
-        }
-    shares = [(float(r["amt"] or 0) / total) * 100 for r in items]
-    hhi = _hhi(shares)
-    top_3 = sum(shares[:3])
-    top_n_share = sum(shares[:top_n])
-
-    if top_3 < 30:
-        status = "green"
-        headline = f"Top 3 {item_label}s are {top_3:.0f}% {denom_label} — within the comfort zone."
-    elif top_3 < 50:
-        status = "amber"
-        headline = f"Top 3 {item_label}s are {top_3:.0f}% {denom_label} — meaningful concentration, worth monitoring."
-    else:
-        status = "red"
-        headline = f"Top 3 {item_label}s are {top_3:.0f}% {denom_label} — high concentration. Losing one would materially affect the business."
-
-    return {
-        "metric": metric_label,
-        "status": status,
-        "headline": headline,
-        "details": {
-            "total": total,
-            "top_n": [
-                {"name": r.get(item_key) or "(unspecified)", "amount": float(r["amt"] or 0), "share": shares[i]}
-                for i, r in enumerate(items[:top_n])
-            ],
-            "top_3_share": top_3,
-            "top_n_share": top_n_share,
-            "hhi": hhi,
-            "threshold_explainer": "Status uses top-3 share: <30% Green, 30-50% Amber, >50% Red. HHI is the Herfindahl-Hirschman Index (DOJ standard): <1500 low, 1500-2500 moderate, >2500 high.",
-        },
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Multi-year trend (v1.9.47) — Section 6 of the CFO Briefing
-# ───────────────────────────────────────────────────────────────────────────
-# Runs execute_report once per year for N years. Consistency with the rest
-# of the app matters more than raw speed: same engine → same numbers → no
-# divergence risk between trend view and per-year P&L.
-#
-# Honest scope: P&L rows only. Balance sheet trend is a separate engine
-# path and a separate release if needed.
-
-
-@frappe.whitelist()
-def get_multi_year_trend(
-    report: str,
-    end_year: int,
-    years: int = 5,
-    breakdown: str = "total",
-    company: str | None = None,
-    dimension_filters: dict | str | None = None,
-) -> dict:
-    """Multi-year trend of the report's KPI rows.
-
-    Runs execute_report for each year [end_year - years + 1 .. end_year] and
-    returns annual totals per row. When breakdown='branch', additionally
-    runs per-branch for each year.
-
-    v1.9.52 — accepts dimension_filters dict for custom Accounting Dimensions.
-    Forwarded to execute_report; sanitised against the discovered dimension
-    set to prevent unsafe column injection.
-
-    Returns:
-      years: list of fiscal years in chronological order
-      rows: { row_key: { label, values: [year_total, ...], yoy: [...] } }
-      branches: only present when breakdown='branch' —
-        { branch_name: { row_key: { values: [...] } } }
-      kpi_rows: list of row keys that are recognised as the headline KPIs
-        (a UI hint; full row list is also returned)
-      synthesis: a single auditable sentence summarising the headline trend
-    """
-    _require_read()
-    end_year = cint(end_year)
-    if not end_year:
-        frappe.throw("end_year is required.")
-    years = max(2, min(10, cint(years) or 5))
-    breakdown = (breakdown or "total").strip().lower()
-    if breakdown not in ("total", "branch"):
-        breakdown = "total"
-
-    doc = _resolve_report_doc(report)
-    company = company or doc.company
-    definition = json.loads(doc.definition_json or "{}")
-    flag_to_accounts = load_flag_to_accounts(doc.name)
-    dim_filters_safe = _sanitise_dimension_filters(dimension_filters)
-
-    year_list = list(range(end_year - years + 1, end_year + 1))
-
-    # ── Total-by-year pass ────────────────────────────────────────────────
-    rows_by_key: dict[str, dict] = {}
-    for y in year_list:
-        try:
-            res = execute_report(
-                report_def=definition,
-                fiscal_year=y,
-                month_from=0,
-                month_to=11,
-                segment="total",
-                company=company,
-                flag_to_accounts=flag_to_accounts,
-                dimension_filters=dim_filters_safe or None,
-            )
-        except Exception:
-            res = {"rows": []}
-        for r in (res.get("rows") or []):
-            k = r.get("key")
-            if not k:
-                continue
-            if k not in rows_by_key:
-                rows_by_key[k] = {
-                    "key": k,
-                    "label": r.get("label") or k,
-                    "values": [0.0] * len(year_list),
-                }
-            year_idx = year_list.index(y)
-            monthly = r.get("monthly") or {}
-            total = sum(float(monthly.get(m) or 0) for m in range(12))
-            rows_by_key[k]["values"][year_idx] = total
-
-    # Compute Y/Y growth for each row's values (None for first year).
-    for v in rows_by_key.values():
-        vals = v["values"]
-        yoy = [None]
-        for i in range(1, len(vals)):
-            prev = vals[i - 1]
-            if prev == 0:
-                yoy.append(None)
-            else:
-                yoy.append((vals[i] - prev) / abs(prev))
-        v["yoy"] = yoy
-
-    # Add a synthesised gross_margin_pct row (no engine run needed).
-    rev = rows_by_key.get("total_revenue")
-    gp = rows_by_key.get("gross_profit")
-    if rev and gp:
-        margin_vals = []
-        for i in range(len(year_list)):
-            r = rev["values"][i]
-            g = gp["values"][i]
-            margin_vals.append((g / r) if r != 0 else 0.0)
-        margin_yoy = [None]
-        for i in range(1, len(margin_vals)):
-            prev = margin_vals[i - 1]
-            margin_yoy.append((margin_vals[i] - prev) if prev != 0 or margin_vals[i] != 0 else None)
-        rows_by_key["gross_margin_pct"] = {
-            "key": "gross_margin_pct",
-            "label": "Gross Margin %",
-            "values": margin_vals,
-            "yoy": margin_yoy,
-            "is_ratio": True,
-        }
-
-    # ── Branch breakdown pass (only if requested) ────────────────────────
-    branches_data: dict = {}
-    if breakdown == "branch" and frappe.db.has_column("GL Entry", "branch"):
-        # Discover distinct branches that actually appear in this company's
-        # GL for the year range. This is more accurate than listing every
-        # Branch doctype record — some may have no activity.
-        first_year = year_list[0]
-        last_year = year_list[-1]
-        # v1.9.59 — use company FY bounds for the multi-year discovery window.
-        from neotec_insight.neotec_insight.utils.fiscal_year import fiscal_year_bounds
-        _start_d, _ = fiscal_year_bounds(company, first_year)
-        _, _end_d = fiscal_year_bounds(company, last_year)
-        try:
-            br_rows = frappe.db.sql(
-                """SELECT DISTINCT branch
-                   FROM `tabGL Entry`
-                   WHERE company = %s
-                     AND branch IS NOT NULL AND branch != ''
-                     AND posting_date BETWEEN %s AND %s""",
-                [company, _start_d.isoformat(), _end_d.isoformat()],
-                as_dict=True,
-            )
-            branches_list = [r["branch"] for r in br_rows]
-        except Exception:
-            branches_list = []
-
-        for br in branches_list:
-            br_rows_by_key: dict[str, list[float]] = {}
-            for y in year_list:
-                try:
-                    res = execute_report(
-                        report_def=definition,
-                        fiscal_year=y,
-                        month_from=0,
-                        month_to=11,
-                        segment="total",
-                        branch=br,
-                        company=company,
-                        flag_to_accounts=flag_to_accounts,
-                        dimension_filters=dim_filters_safe or None,
-                    )
-                except Exception:
-                    res = {"rows": []}
-                for r in (res.get("rows") or []):
-                    k = r.get("key")
-                    if not k:
-                        continue
-                    if k not in br_rows_by_key:
-                        br_rows_by_key[k] = [0.0] * len(year_list)
-                    year_idx = year_list.index(y)
-                    monthly = r.get("monthly") or {}
-                    br_rows_by_key[k][year_idx] = sum(float(monthly.get(m) or 0) for m in range(12))
-            branches_data[br] = br_rows_by_key
-
-    # ── Synthesis sentence (revenue-led, honest fallback if data is thin) ─
-    synthesis = _build_trend_synthesis(rows_by_key, year_list)
-
-    return {
-        "report": doc.name,
-        "company": company,
-        "years": year_list,
-        "rows": list(rows_by_key.values()),
-        "kpi_rows": ["total_revenue", "gross_profit", "ebitda", "net_income", "gross_margin_pct"],
-        "branches": branches_data,
-        "synthesis": synthesis,
-        "breakdown": breakdown,
-    }
-
-
-def _build_trend_synthesis(rows_by_key: dict, year_list: list) -> str:
-    """One sentence summarising the revenue trend. Honest with the data:
-    if data is missing or signal is weak, returns a plain factual statement
-    rather than a fabricated narrative.
-    """
-    rev = rows_by_key.get("total_revenue")
-    if not rev or len(year_list) < 2:
-        return ""
-    vals = rev["values"]
-    if vals[0] == 0 or vals[-1] == 0:
-        return ""
-    years_span = year_list[-1] - year_list[0]
-    if years_span < 1:
-        return ""
-    cagr = (vals[-1] / vals[0]) ** (1.0 / years_span) - 1.0
-    # Find best year.
-    best_year_idx = 0
-    best_yoy = -999.0
-    yoy = rev.get("yoy") or []
-    for i in range(1, len(yoy)):
-        if yoy[i] is not None and yoy[i] > best_yoy:
-            best_yoy = yoy[i]
-            best_year_idx = i
-    cagr_str = f"{cagr * 100:.0f}%"
-    if abs(cagr) < 0.01:
-        return f"Revenue has been broadly flat across the {years_span + 1}-year window."
-    direction = "grown" if cagr > 0 else "declined"
-    if best_yoy > 0:
-        return f"Revenue has {direction} at a {cagr_str} CAGR over {years_span + 1} years; the strongest year was FY{year_list[best_year_idx]}."
-    return f"Revenue has {direction} at a {cagr_str} CAGR over {years_span + 1} years."
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -7231,216 +5109,18 @@ def _build_trend_synthesis(rows_by_key: dict, year_list: list) -> str:
 # posting as 'transfer to statutory reserve' versus 'capital increase' is
 # a judgement that ERPNext can't make from chart-of-accounts naming alone.
 
-# v1.9.51 — Equity components and movement types are now configurable
-# DocTypes (Insight Equity Component, Insight Equity Movement Type). The
-# helpers below read them at query time. There are NO hardcoded names or
-# orders in this module anymore.
 
 
-def _list_equity_components_ordered() -> list[str]:
-    """Return component names in admin-configured display order."""
-    rows = frappe.get_all(
-        "Insight Equity Component",
-        fields=["name"],
-        order_by="display_order asc, name asc",
-    )
-    return [r["name"] for r in rows]
 
 
-def _opening_movement_type_names() -> set[str]:
-    """Return the set of movement-type names flagged as the opening balance.
-
-    Plural because in a transitional state the admin might have zero or
-    multiple — the validator warns but doesn't block. We accept any
-    flagged type as an opening marker so the report doesn't crash.
-    """
-    rows = frappe.get_all(
-        "Insight Equity Movement Type",
-        filters={"is_opening_balance": 1},
-        pluck="name",
-    )
-    return set(rows)
 
 
-@frappe.whitelist()
-def list_equity_components() -> list[dict]:
-    """Public endpoint — used by the frontend to populate the component
-    dropdown. Returns components in admin-configured display order.
-    """
-    _require_read()
-    return frappe.get_all(
-        "Insight Equity Component",
-        fields=["name as value", "name as label", "display_order", "is_seeded", "description"],
-        order_by="display_order asc, name asc",
-    )
 
 
-@frappe.whitelist()
-def list_equity_movement_types() -> list[dict]:
-    """Public endpoint — used by the frontend to populate the movement-type
-    dropdown. Includes the is_opening_balance flag so the UI can hint or
-    auto-fill behaviour on a per-type basis.
-    """
-    _require_read()
-    return frappe.get_all(
-        "Insight Equity Movement Type",
-        fields=["name as value", "name as label", "display_order", "is_opening_balance", "default_sign", "is_seeded", "description"],
-        order_by="display_order asc, name asc",
-    )
 
 
-@frappe.whitelist()
-def get_equity_movement(
-    company: str,
-    fiscal_year: str | int,
-    period: str = "FY",
-    report: str | None = None,
-) -> dict:
-    """Statement of Shareholder's Equity for one company / fiscal_year / period.
-
-    Returns:
-      components: ordered list of equity-component blocks, each containing:
-        component, beginning, movements [{type, amount, narration}, ...],
-        movements_total, ending_derived (beginning + movements_total)
-      total_beginning: sum of all components' beginning balances
-      total_ending: sum of all components' ending balances
-      missing_components: configured components that have no entries
-      opening_type_status: 'ok' | 'none' | 'multiple' — diagnostic on the
-        is_opening_balance flag state (lets the UI show a clear warning if
-        the admin's configuration is incomplete).
-    """
-    _require_read()
-    fy = cint(fiscal_year)
-    if not company:
-        frappe.throw("company is required.")
-    if not fy:
-        frappe.throw("fiscal_year is required.")
-    if period not in ("FY", "Q1", "Q2", "Q3", "Q4", "H1", "H2"):
-        period = "FY"
-
-    # Read configuration (not constants).
-    component_order = _list_equity_components_ordered()
-    opening_types = _opening_movement_type_names()
-    opening_type_status = (
-        "ok" if len(opening_types) == 1
-        else "multiple" if len(opening_types) > 1
-        else "none"
-    )
-
-    filters = {"company": company, "fiscal_year": fy, "period": period}
-    if report:
-        # If a specific report is named, include movements tagged to that
-        # report PLUS untagged ones (the global pool). This means a finance
-        # team can have report-specific overrides without losing the
-        # company-wide baseline movements.
-        rows = frappe.get_all(
-            "Insight Equity Movement",
-            filters={**filters, "report": ["in", ["", report]]},
-            fields=["name", "component", "movement_type", "amount", "narration"],
-            order_by="creation asc",
-        )
-    else:
-        rows = frappe.get_all(
-            "Insight Equity Movement",
-            filters=filters,
-            fields=["name", "component", "movement_type", "amount", "narration"],
-            order_by="creation asc",
-        )
-
-    # Bucket by component preserving insertion order within each.
-    by_component: dict[str, dict] = {}
-    for r in rows:
-        c = r["component"]
-        if c not in by_component:
-            by_component[c] = {"component": c, "beginning": 0.0, "movements": [], "movements_total": 0.0}
-        amt = float(r.get("amount") or 0)
-        # Identify opening by flag, not by name.
-        if r["movement_type"] in opening_types:
-            # Last-write-wins for opening (validation prevents duplicates,
-            # but a corrupt dataset shouldn't crash the report).
-            by_component[c]["beginning"] = amt
-        else:
-            by_component[c]["movements"].append({
-                "type": r["movement_type"],
-                "amount": amt,
-                "narration": r.get("narration") or "",
-            })
-            by_component[c]["movements_total"] += amt
-
-    # Compute ending and list in admin-configured order. Components with no
-    # data are omitted from the output (the frontend can show a hint via
-    # missing_components if useful).
-    components_out: list[dict] = []
-    component_order_set = set(component_order)
-    for c in component_order:
-        if c in by_component:
-            blk = by_component[c]
-            blk["ending_derived"] = blk["beginning"] + blk["movements_total"]
-            components_out.append(blk)
-    # Append any non-configured components (e.g. an old reference to a
-    # component that was renamed or deleted) AFTER the configured ordering,
-    # so we never silently drop data. Frontend can flag these visually.
-    for c, blk in by_component.items():
-        if c not in component_order_set:
-            blk["ending_derived"] = blk["beginning"] + blk["movements_total"]
-            blk["unconfigured"] = True
-            components_out.append(blk)
-
-    total_beginning = sum(b["beginning"] for b in components_out)
-    total_movements = sum(b["movements_total"] for b in components_out)
-    total_ending = total_beginning + total_movements
-
-    missing = [c for c in component_order if c not in by_component]
-
-    return {
-        "company": company,
-        "fiscal_year": fy,
-        "period": period,
-        "components": components_out,
-        "total_beginning": total_beginning,
-        "total_movements": total_movements,
-        "total_ending": total_ending,
-        "missing_components": missing,
-        "opening_type_status": opening_type_status,
-    }
 
 
-@frappe.whitelist(methods=["POST"])
-def save_equity_movement(payload: str | dict) -> dict:
-    """Create or update an Insight Equity Movement entry."""
-    _check_edit_permission()
-    data = frappe.parse_json(payload)
-    if not isinstance(data, dict):
-        frappe.throw("Payload must be an object.")
-    name = data.get("name")
-    if name:
-        doc = frappe.get_doc("Insight Equity Movement", name)
-    else:
-        doc = frappe.new_doc("Insight Equity Movement")
-    for fld in ("company", "fiscal_year", "period", "component", "movement_type", "narration", "report"):
-        if fld in data:
-            doc.set(fld, data.get(fld))
-    if "amount" in data:
-        try:
-            doc.amount = float(data.get("amount") or 0)
-        except Exception:
-            frappe.throw("amount must be a number.")
-    if doc.is_new():
-        doc.insert(ignore_permissions=False)
-    else:
-        doc.save(ignore_permissions=False)
-    return {"name": doc.name}
-
-
-@frappe.whitelist(methods=["POST"])
-def delete_equity_movement(name: str) -> dict:
-    _check_edit_permission()
-    if not name:
-        frappe.throw("name is required.")
-    if not frappe.db.exists("Insight Equity Movement", name):
-        return {"deleted": False, "reason": "not_found"}
-    frappe.delete_doc("Insight Equity Movement", name, ignore_permissions=False)
-    return {"deleted": True}
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -7458,60 +5138,12 @@ def delete_equity_movement(name: str) -> dict:
 #   3. Value lookup — a generic lister that reads the underlying DocType
 #      defensively (we don't know its label column in advance).
 
-# Native dimensions we already plumb. The discovery endpoint excludes these
-# to avoid double-rendering them as both built-in and custom filters.
-_NATIVE_DIMENSION_FIELDS = {"cost_center", "project", "department", "branch"}
-_NATIVE_DIMENSION_DOCTYPES = {"Cost Center", "Project", "Department", "Branch"}
 
 
-def _discover_accounting_dimensions_raw() -> list[dict]:
-    """Return the raw active accounting-dimension rows from this bench.
-
-    Defensive: the DocType may not exist on very old ERPNext benches; if so
-    we return an empty list rather than throwing.
-    """
-    if not frappe.db.exists("DocType", "Accounting Dimension"):
-        return []
-    try:
-        rows = frappe.get_all(
-            "Accounting Dimension",
-            filters={"disabled": 0},
-            fields=["name", "document_type", "fieldname", "label"],
-            order_by="document_type asc",
-        )
-    except Exception as e:
-        frappe.log_error(f"Accounting Dimension discovery failed: {e}", "Neotec Insight: dimensions")
-        return []
-    return rows
 
 
-def _accounting_dimension_fieldnames() -> set[str]:
-    """The set of valid fieldnames an admin has configured (active only),
-    excluding the native ones. Used to validate caller-supplied filter keys
-    against actual GL Entry columns.
-    """
-    rows = _discover_accounting_dimensions_raw()
-    out = set()
-    for r in rows:
-        fn = (r.get("fieldname") or "").strip()
-        dt = (r.get("document_type") or "").strip()
-        if not fn:
-            continue
-        # Dedup against natives — both directions.
-        if fn in _NATIVE_DIMENSION_FIELDS:
-            continue
-        if dt in _NATIVE_DIMENSION_DOCTYPES:
-            continue
-        out.add(fn)
-    return out
 
 
-def _all_valid_dimension_fieldnames() -> set[str]:
-    """The full set of fieldnames safe to inject into GL queries — natives
-    plus discovered custom dimensions. Use this to validate every filter
-    key before it enters SQL.
-    """
-    return _NATIVE_DIMENSION_FIELDS | _accounting_dimension_fieldnames()
 
 
 def _normalise_dim_param(val) -> list[str] | None:
@@ -7695,45 +5327,6 @@ def list_dimension_values(fieldname: str, search: str = "", limit: int = 100) ->
         return []
 
 
-def _sanitise_dimension_filters(raw: dict | str | None) -> dict:
-    """Caller-supplied dimension_filters dict → safe dict.
-
-    Validates every key against the union of native + discovered custom
-    dimensions. Anything not on the whitelist is silently dropped — we
-    never let a caller-controlled string become a SQL column name.
-
-    Accepts either a dict or a JSON string (some callers pass strings).
-    """
-    if raw is None:
-        return {}
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except Exception:
-            return {}
-    if not isinstance(raw, dict):
-        return {}
-
-    valid = _all_valid_dimension_fieldnames()
-    out: dict = {}
-    for k, v in raw.items():
-        if not isinstance(k, str):
-            continue
-        if k not in valid:
-            # Silently drop. We log at most one warning to avoid spam.
-            continue
-        # v1.9.58 — value may be scalar or list (multi-select).
-        # Normalise to either a non-empty string or a non-empty list.
-        if v is None or v == "" or v == []:
-            continue
-        if isinstance(v, list):
-            cleaned = [str(x).strip() for x in v if x is not None and str(x).strip()]
-            if not cleaned:
-                continue
-            out[k] = cleaned
-        else:
-            out[k] = v
-    return out
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -7906,6 +5499,7 @@ def _company_contact_fields(company: str | None) -> dict:
             filters={"link_doctype": "Company", "link_name": company, "parenttype": "Address"},
             fields=["parent"],
             limit_page_length=1,
+            order_by="modified desc",
         )
         if addr_links:
             addr = frappe.db.get_value(
@@ -8651,7 +6245,7 @@ def run_trial_balance_multi_period(
         run_multi_period_balance, _load_chart_of_accounts,
     )
     from neotec_insight.neotec_insight.utils.fiscal_year import (
-        fiscal_year_bounds, fy_month_range_to_date_range,
+        fy_month_range_to_date_range,
         format_fy_label, get_company_fy_start_month,
     )
 
@@ -9047,7 +6641,7 @@ def coverage_check(report: str, company: str | None = None, fiscal_year: int | N
             "rows": rows_opts}
 
 
-# ── Company brand (v2.55.0) ─────────────────────────────────────────────────
+
 # The shell header shows the company the operator is actually reporting on —
 # its name and its logo — so a printed pack and the screen it came from can be
 # matched at a glance. ERPNext's Company master carries `company_logo`, but a
@@ -9056,106 +6650,56 @@ def coverage_check(report: str, company: str | None = None, fiscal_year: int | N
 # report picks it up without per-machine configuration.
 
 
-def _abs_file_url(url: str) -> str:
-    """Site-absolute URL for a Frappe /files path; pass anything else through."""
-    if not url:
-        return ""
-    if url.startswith("/"):
-        try:
-            return frappe.utils.get_url().rstrip("/") + url
-        except Exception:
-            return url
-    return url
+# ── v2.91.0: areas moved to their own modules, re-exported here so every
+# endpoint keeps its `neotec_insight.neotec_insight.api.report.<name>` address
+# (the screen, desk scripts and saved links all use it).
+from neotec_insight.neotec_insight.api.brand import (  # noqa: E402,F401
+    _abs_file_url, company_brand, set_company_logo,
+)
+from neotec_insight.neotec_insight.api.config_backup import (  # noqa: E402,F401
+    _app_version, check_config_backup_coverage, config_areas, config_section_counts,
+    export_configuration, import_configuration,
+)
 
 
-@frappe.whitelist()
-def company_brand(company: str | None = None) -> dict:
-    """Name, logo and statutory identifiers for the header brand block.
-
-    Falls back to the global default company so the header is never blank on
-    first paint, and never raises — the shell must render even if the Company
-    doctype is missing or the user cannot read it.
-    """
-    out = {
-        "company": "", "label": "", "logo": "", "logo_source": "",
-        "tax_id": "", "can_edit": 0,
-    }
-    try:
-        if not frappe.db.exists("DocType", "Company"):
-            return out
-        if not company:
-            company = frappe.defaults.get_user_default("Company") \
-                or frappe.defaults.get_global_default("company") or ""
-        if not company:
-            rows = frappe.get_all("Company", fields=["name"], order_by="company_name asc",
-                                  limit_page_length=1)
-            company = rows[0]["name"] if rows else ""
-        if not company:
-            return out
-
-        fields = ["company_name", "tax_id"]
-        try:
-            if frappe.get_meta("Company").get_field("company_logo"):
-                fields.append("company_logo")
-        except Exception:
-            pass
-        c = frappe.db.get_value("Company", company, fields, as_dict=True) or {}
-
-        out["company"] = company
-        out["label"] = c.get("company_name") or company
-        out["tax_id"] = c.get("tax_id") or ""
-        logo = c.get("company_logo") or ""
-        if logo:
-            out["logo"] = _abs_file_url(logo)
-            out["logo_source"] = "company"
-        else:
-            # Provision #2: the site's default Letter Head image, when the
-            # Company master itself carries no logo.
-            try:
-                lh = frappe.db.get_value("Letter Head", {"disabled": 0, "is_default": 1},
-                                         ["image"], as_dict=True)
-                if lh and lh.get("image"):
-                    out["logo"] = _abs_file_url(lh["image"])
-                    out["logo_source"] = "letterhead"
-            except Exception:
-                pass
-        try:
-            out["can_edit"] = 1 if frappe.has_permission("Company", "write", company) else 0
-        except Exception:
-            out["can_edit"] = 0
-    except Exception as e:
-        frappe.log_error(f"company_brand failed: {e}", "Neotec Insight: brand")
-    return out
-
-
-@frappe.whitelist(methods=["POST"])
-def set_company_logo(company: str, logo_url: str = "") -> dict:
-    """Write an uploaded logo back to the Company master.
-
-    This is the 'provision for logo if not available in company master':
-    the operator uploads once from the shell header and every report — screen,
-    Print, PDF and Excel — resolves the same image afterwards. An empty
-    `logo_url` clears it.
-    """
-    if not company:
-        frappe.throw(_("Select a company first."))
-    if not frappe.db.exists("Company", company):
-        frappe.throw(_("Company {0} not found.").format(company))
-    if not frappe.has_permission("Company", "write", company):
-        frappe.throw(_("Not permitted to change the company logo."))
-    try:
-        if not frappe.get_meta("Company").get_field("company_logo"):
-            frappe.throw(_("This site's Company master has no logo field."))
-    except frappe.ValidationError:
-        raise
-    except Exception:
-        pass
-
-    url = (logo_url or "").strip()
-    if url and not (url.startswith("/files/") or url.startswith("/private/files/")):
-        frappe.throw(_("Upload the logo as a file first."))
-
-    frappe.db.set_value("Company", company, "company_logo", url or None)
-    frappe.db.commit()
-    frappe.clear_document_cache("Company", company)
-    return {"ok": True, "logo": _abs_file_url(url)}
+# ── v2.92.0: areas moved to their own modules (re-exported for the same addresses).
+from neotec_insight.neotec_insight.api.saved_dashboards import (  # noqa: E402,F401
+    list_dashboards,
+    get_dashboard,
+    save_dashboard,
+    delete_dashboard,
+    _resolve_dashboard_doc,
+)
+from neotec_insight.neotec_insight.api.liquidity import (  # noqa: E402,F401
+    get_liquidity,
+    _apply_stress_to_projection,
+    get_sensitivity_scenario,
+    get_sensitivity_tornado,
+)
+from neotec_insight.neotec_insight.api.analytics import (  # noqa: E402,F401
+    get_financial_ratios,
+    get_rolling_12,
+    get_fragility_radar,
+    _hhi,
+    _concentration_block,
+    get_multi_year_trend,
+    _build_trend_synthesis,
+)
+from neotec_insight.neotec_insight.api.variance_notes import (  # noqa: E402,F401
+    list_variance_notes,
+    save_variance_note,
+)
+from neotec_insight.neotec_insight.api.group_view import (  # noqa: E402,F401
+    list_group_companies,
+    _avg_rate_for_month,
+    get_group_dashboard,
+)
+from neotec_insight.neotec_insight.api.equity import (  # noqa: E402,F401
+    _list_equity_components_ordered,
+    _opening_movement_type_names,
+    list_equity_components,
+    list_equity_movement_types,
+    get_equity_movement,
+    save_equity_movement,
+    delete_equity_movement,
+)

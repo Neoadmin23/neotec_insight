@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { deskPrefix } from '../../utils/desk';
 import { api } from '../../utils/api';
 
 interface QuickLink {
@@ -69,7 +70,7 @@ export function BackToErpMenu() {
       {open && (
         <div className="erp-menu-pop" role="menu">
           {/* Fixed primary item — same tab, you're leaving Insight. */}
-          <button className="erp-menu-item is-primary" role="menuitem" onClick={() => go('/app', false)}>
+          <button className="erp-menu-item is-primary" role="menuitem" onClick={() => go(deskPrefix(), false)}>
             <i className="ti ti-home-2" aria-hidden />
             <span>Back to ERP Desk</span>
           </button>

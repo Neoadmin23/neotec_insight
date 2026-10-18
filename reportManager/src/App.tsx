@@ -6,6 +6,7 @@ import { GroupApp } from './features/group/GroupApp';
 import { LedgerWorkspace } from './features/gl/LedgerWorkspace';
 import { AllocationApp } from './features/allocation/AllocationApp';
 import { ConfigBackupModal } from './features/shell/ConfigBackupModal';
+import { setDeskPrefix } from './utils/desk';
 const StudioApp = lazy(() => import('./features/studio/StudioApp'));
 const FinancialHealth = lazy(() => import('./features/health/FinancialHealth'));
 const ClassificationTab = lazy(() => import('./features/health/ClassificationTab'));
@@ -98,13 +99,6 @@ const DEFAULT_SECTIONS: NavSection[] = [
 /** Merge the saved layout with the built-in catalog: saved order wins, tabs
  *  unknown to this build are dropped, and tabs missing from the saved layout
  *  (added by newer versions) are appended to their default section. */
-function applySiteNumFormat(saved: any) {
-  try {
-    const site = saved?.num_format;
-    if (site && !localStorage.getItem('ni-numfmt-user')) localStorage.setItem('ni-numfmt', site);
-  } catch { /* ignore */ }
-}
-
 /** The layout this section replaced: three top-level entries holding four
  *  tabs. A site that saved a menu before v2.55.1 still has them, and because
  *  a saved layout deliberately wins over the catalog, the new grouping would
@@ -281,6 +275,7 @@ export default function App() {
     api.insightGetAccessProfile()
       .then((p) => {
         if (cancelled) return;
+        setDeskPrefix(p?.desk_prefix);
         setAccess({
           roleTier: p?.role_tier || 'basic',
           canEdit: !!p?.can_edit,

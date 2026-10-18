@@ -1,3 +1,98 @@
+## v2.93.0 — 2026-10-15 — runs on Frappe v16 as well as v15
+
+Frappe Cloud refused the app on a v16 bench ("Version 16 is not supported by branch main") because `pyproject.toml` declared `frappe >=15,<16`. Only widening that number would have let the app install and then fail at runtime, so the code was first checked against every item in Frappe's "Migrating to version 16" page and its query-builder migration guide. One branch now serves both versions; sites on v15 are unaffected.
+
+### Changed for v16 — every change also behaves identically on v15
+- **Query-builder syntax.** v16 sends `get_all`/`get_list` through the query builder, which rejects SQL inside field strings.
+  - Aggregates: the VAT ledger reconciliation (`sum(credit)`) now aggregates in SQL; the Recover summary (`count/min/max`) now counts in Python. Both would have failed on v16.
+  - Aliases: seven `field as alias` and backticked fields (party pickers, equity lists, VAT voucher search, pack designer, Studio value suggestions) now select plain fields and copy them to the alias name with `compat.with_aliases`. Studio uses `distinct=True`.
+- **Desk route `/app` → `/desk`.** `utils/compat.py` reads the running Frappe version.
+  - Backend links (GL drill to ERPNext's General Ledger, seeded Quick Links) use `desk_url`.
+  - Quick Links stored in the database as `/app/...` are translated on read, so links saved before an upgrade keep working.
+  - The screen gets the prefix with the access profile at startup; all 13 frontend desk links and "Back to ERP" use it.
+- **Implicit sort changed** from `modified` to `creation`. Twelve reads that take "the first row" — default company, company address, fiscal year by date, account match in the map importer, and others — now state `order_by="modified desc"` explicitly, so both versions pick the same row.
+- **`has_permission` hooks** must return `True` explicitly on v16. The report-definition hook now always returns a real `bool`.
+- **Checked, no change needed:** the `doc_events` hooks don't commit (forbidden on v16); there are no `set_value` calls on Singles with a `None` name, no class overrides, no `flags.in_test`, no bleach, no removed modules (Blog, Newsletter, Energy Points, Transaction Log), and no view-specific translation hooks.
+- **`pyproject.toml`:** `frappe = ">=15.0.0,<17.0.0"`. v17 stays excluded until it has been reviewed the same way.
+
+### Python 3.14
+v16 requires Python 3.14. All 192 files compile under CPython 3.14.4 with warnings treated as errors, and the full suite passes on 3.14 as well as 3.12.
+
+### Tests
+12 new (`test_v2_93_frappe16.py`); 484 total. They cover:
+- no SQL in query field strings and no function keys in filters;
+- an explicit order on every first-row read;
+- no hard-coded `/app` links in Python or the frontend;
+- the version helpers;
+- the declared support range;
+- boolean `has_permission` returns and non-committing document hooks;
+- a warning-free compile.
+
+Each was checked to fail when the old code is put back.
+
+### Still to verify on a real v16 bench
+The run-time behaviour was tested against a simulated Frappe, not a live v16 site. After deploying, check the following:
+- Desk links open on `/desk`.
+- These pages load: the VAT ledger check, Backup → Recover, party pickers, Studio value suggestions and Account map.
+- The Insight icon appears on v16's new desktop screen.
+
+## v2.92.0 — 2026-10-15 — report.py split, continued (no behaviour change)
+
+`api/report.py` goes from 8,971 to about 6,690 lines. Six areas moved out unchanged, plus the helpers they share:
+
+- **`report_shared.py`** — permission gates, report resolution and accounting-dimension discovery (15 helpers). `report.py` imports them back, and the module never imports `report.py` (tested), so the split cannot form an import cycle. `utils/balance_execution.py` now imports its dimension helper from here directly.
+- **`saved_dashboards.py`** — saved dashboards.
+- **`liquidity.py`** — liquidity, projection and sensitivity.
+- **`analytics.py`** — ratios, rolling-12, fragility radar and multi-year trend.
+- **`variance_notes.py`** — variance commentary.
+- **`group_view.py`** — multi-company group view.
+- **`equity.py`** — changes in equity.
+
+Each was a leaf, called by nothing else in `report.py`, and needed only the shared helpers. That was checked mechanically before moving.
+
+### Guarantees, each a test
+- **Same addresses, same methods:** all 97 endpoints `report.py` exposed in v2.90.0 still resolve at `api.report.<name>` with the same whitelist decorator.
+- **Same function, any load order:** each new module imports cleanly on its own, before or after `report.py`, and `report.<name>` is the same function object as `<module>.<name>`.
+- **Regression check widened:** the older `_default_company` regression check now covers the new modules too.
+- **Allowlist updated:** the list of read endpoints allowed to refresh a cache was updated for `get_fragility_radar`'s new module.
+
+A section banner left behind by the v2.91.0 move was removed. `docs/architecture.md` has the module map and the rule for moving further areas.
+
+3 new tests; 472 total.
+
+## v2.91.0 — 2026-10-15 — maintenance release (no behaviour change except one bug fix)
+
+The follow-up the 2.89.6 health check asked to keep separate from the security fixes.
+
+### Fixed: custom accounting-dimension labels in the P&L drill-down
+Two places in `api/report.py` imported `list_accounting_dimensions` from `utils.dimensions`, a module that has never existed. The error was caught silently, so dimension headings in the P&L hierarchy always fell back to a title-cased field name (e.g. "Business Division" from `business_division`) instead of the label set in ERPNext. They now import from `utils.balance_execution`. A new test checks that every in-app `from … import` resolves, so a dangling import cannot hide behind a `try/except` again.
+
+### Smaller main bundle: 2.02 MB → 1.10 MB (623 KB → 323 KB gzipped)
+- **Loaded on demand:** SheetJS (430 KB) and jsPDF/autotable (390 KB) now load when an export is clicked, instead of with the app for every user. Budget import loads SheetJS when a file is chosen.
+- **Unchanged behaviour:** the PDF and account-map exports behave the same; a failed library load shows a message.
+- **Vite warnings cleared:** both "dynamic import will not move module" warnings are gone.
+
+### Lint: 83 warnings → 0, and the build now allows none
+- **Mechanical fixes:** stale disable comments removed; expression-statements rewritten as `if` (set toggles, `x && f()`); needless regex escapes removed; unused imports removed.
+- **Dead code removed:** dead functions (`applySiteNumFormat`, `exportBsCsv`, `exportTbCsv`, `escapeHtmlTb`) and unused locals removed. Unused props are prefixed `_`.
+- **Hook dependencies:** all 30 were reviewed by hand, none changed. Each was deliberate (an effect that reads a value once to choose a default, or a function recreated every render) and is now marked `eslint-disable-next-line … -- deliberate: <reason>`. None reads a value that could be stale in a way that changes figures.
+- **Gate:** `npm run lint` and `npm run build` run ESLint with `--max-warnings=0`.
+
+### Python: behaviour-relevant Ruff findings → 0
+- **Closures and dead variables:** a closure over loop variables in Studio time-intelligence is now explicitly bound (it was safe, now it is obviously safe). Seven dead variables are gone, including a stray chained assignment in the liquidity projection.
+- **Loop and length checks:** loop variables shadowing `_()` or unused are renamed. The two `zip()` calls declare `strict=True`.
+- **Unused imports:** 15 removed, after a check that no module imports those names from where they were.
+- **Remaining:** 298 Ruff findings, all style (semicolon-joined lines, import order, deliberate Unicode punctuation in comments). A test now holds app code at zero for the behaviour rules (B023, F841, F402, B007, B905, F401, F811, F821, F823).
+
+### `api/report.py` split begins
+- **Moved unchanged:** Company brand → `api/brand.py`, Backup Export/Import → `api/config_backup.py`.
+- **Addresses unchanged:** `report.py` re-exports every moved name, so every `neotec_insight.neotec_insight.api.report.<name>` address the screen, desk scripts and saved links use still works.
+- **Guarded:** a new test pins all 97 endpoints `report.py` exposed in v2.90.0 and checks each still resolves with the same whitelist decorator (same HTTP methods).
+- **Next:** the "Saved Dashboards" section turned out to span 56 functions across unrelated areas (equity, group consolidation, sensitivity). It needs untangling before it can move, so it is the next step, not part of this release.
+
+### Tests
+3 new (import resolution, Ruff behaviour rules, endpoint preservation); 469 total. The "every screen call has an endpoint" test now follows re-exports, as Frappe does.
+
 ## v2.90.0 — 2026-10-15 — security and correctness release
 
 All thirteen findings of the 2.89.6 health check were confirmed and are fixed; details and test references are in `docs/HEALTH_CHECK_RESPONSE_v2.90.0.md`.

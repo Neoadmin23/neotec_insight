@@ -297,9 +297,10 @@ def seed_default_quick_links() -> None:
     """
     if frappe.db.count("Insight Quick Link") > 0:
         return
+    from neotec_insight.neotec_insight.utils.compat import desk_url
     samples = [
-        {"label": "General Ledger", "url": "/app/general-ledger", "icon": "book", "sort_order": 10},
-        {"label": "Chart of Accounts", "url": "/app/account", "icon": "list-tree", "sort_order": 20},
+        {"label": "General Ledger", "url": desk_url("general-ledger"), "icon": "book", "sort_order": 10},
+        {"label": "Chart of Accounts", "url": desk_url("account"), "icon": "list-tree", "sort_order": 20},
     ]
     for s in samples:
         if frappe.db.exists("Insight Quick Link", s["label"]):

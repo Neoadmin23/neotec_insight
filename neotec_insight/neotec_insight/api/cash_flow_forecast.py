@@ -216,7 +216,7 @@ def download_sample_history_template():
     ws.append(["2026-01-05", "11102022 - Riyad Bank - IRSAA", "Cash Out", "Direct", "GOSI Payment",
               0, 11400, "Journal Entry", "ACC-JV-2026-00002", "GOSI",
               "", "Audit", "GOSI payment for Jan"])
-    for col, width in zip("ABCDEFGHIJKLM", [12, 32, 14, 10, 22, 12, 12, 14, 20, 24, 10, 14, 40]):
+    for col, width in zip("ABCDEFGHIJKLM", [12, 32, 14, 10, 22, 12, 12, 14, 20, 24, 10, 14, 40], strict=True):
         ws.column_dimensions[col].width = width
     buf = io.BytesIO()
     wb.save(buf)

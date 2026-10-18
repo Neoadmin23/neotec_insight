@@ -1,4 +1,5 @@
 import { resolvePrintTokens, printVarsCss } from './theme';
+import { api } from './api';
 
 /* v2.48.0 — the Brand Kit: one presentation frame for every printed output.
  * The per-company setup (logo, position, centered layout, footer, page
@@ -191,7 +192,6 @@ function writeLocalBrand(company: string | null | undefined, brand: Partial<Bran
  *  are silent because the local copy (or the defaults) still render. */
 export async function syncBrandFromServer(): Promise<void> {
   try {
-    const { api } = await import('./api');
     const store = await api.getBrand();
     if (!store || typeof store !== 'object') return;
     for (const [co, brand] of Object.entries(store)) {
@@ -206,7 +206,6 @@ export async function syncBrandFromServer(): Promise<void> {
 export async function saveBrand(company: string | null | undefined, brand: Partial<Brand>): Promise<boolean> {
   writeLocalBrand(company, brand);
   try {
-    const { api } = await import('./api');
     await api.saveBrand(brandKeyFor(company), brand);
     return true;
   } catch {
@@ -260,7 +259,6 @@ export function docTitle(ctx: FrameCtx): string {
 }
 
 /* Approximate rendered line height in millimetres for a px font size. */
-const lineMm = (px: number) => Math.round(px * 0.2646 * 1.35 * 10) / 10;
 
 /** Builds the letterhead band and footer strip as ordinary in-flow markup,
  *  meant to be dropped into a table's <thead> / <tfoot>. Browsers repeat both

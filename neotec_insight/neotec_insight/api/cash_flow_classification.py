@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe import _
 from frappe.utils import cint, flt, get_last_day
 
 from neotec_insight.neotec_insight.api.cash_flow_forecast import (
@@ -21,7 +20,6 @@ from neotec_insight.neotec_insight.api.cash_flow_forecast import (
 )
 from neotec_insight.neotec_insight.utils.cash_flow_forecast import (
     fetch_all_transfer_legs,
-    fetch_bank_leg_and_transfer_vouchers,
     fetch_binding_gl_rows,
     resolve_cash_accounts,
     resolve_company_fy_start_month,
@@ -107,7 +105,7 @@ def mine_rules(min_support: int = 3, min_purity: float = 95.0):
         gl = frappe.get_all(
             "GL Entry",
             filters={"voucher_type": o["voucher_type"], "voucher_no": o["voucher_no"], "is_cancelled": 0},
-            fields=["remarks"], limit_page_length=1)
+            fields=["remarks"], limit_page_length=1, order_by="modified desc")
         labeled_rows.append({"remarks": (gl[0]["remarks"] if gl else "") or "", "target_line": o["line"]})
 
     candidates = mine_candidate_rules(labeled_rows, min_support=min_support, min_purity=min_purity / 100)
@@ -226,7 +224,7 @@ def list_unclassified_transactions(fiscal_year: int, company: str | None = None,
         limit_page_length=0)
 
     out = []
-    for key, r in list(by_voucher.items())[: int(limit)]:
+    for _key, r in list(by_voucher.items())[: int(limit)]:
         against_account = r.get("against") or ""
         txn = {"remarks": r.get("remarks") or "", "against_account": against_account}
         suggestion = classify_transaction(txn, active_rules)

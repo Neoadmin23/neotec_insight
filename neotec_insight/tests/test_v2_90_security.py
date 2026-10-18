@@ -442,7 +442,7 @@ class TestHC10Pdf(Site):
 
 READ_WITH_CACHE_WRITE = {
     "allocation.get_grid", "allocation.run", "allocation.diagnose", "report.get_csrf",
-    "report.get_fragility_radar", "cash_flow_forecast.download_sample_history_template",
+    "analytics.get_fragility_radar", "cash_flow_forecast.download_sample_history_template",  # moved from report in v2.92.0
     "cash_flow_forecast.download_sample_statement_template", "budget_import.budget_import_template",
     "studio.export_xlsx", "vat.vat_return", "packs.generate_pack"}
 MUT = {"insert", "save", "submit", "cancel", "delete_doc", "db_set", "commit", "sendmail", "enqueue",
@@ -584,7 +584,7 @@ class TestHC13Guard(Site):
     def test_destructive_callers_require_the_snapshot(self):
         for f, n in (("api/allocation.py", 5), ("api/recovery.py", 3), ("utils/map_importer.py", 1)):
             self.assertGreaterEqual((APP / f).read_text().count("required=True"), n, f)
-        for f in ("api/report.py", "api/backup.py"):
+        for f in ("api/config_backup.py", "api/backup.py"):   # import_configuration moved in v2.91.0
             self.assertIn("required=not cint(allow_without_snapshot)", (APP / f).read_text())
 
 
