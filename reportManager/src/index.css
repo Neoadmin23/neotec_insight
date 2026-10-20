@@ -4687,3 +4687,32 @@ tr:hover .row-livegroup { opacity: 1; }
 .cp-sql summary { cursor: pointer; color: var(--muted, #6b7280); }
 .cp-sql pre { white-space: pre-wrap; word-break: break-word; background: var(--surface, #fff);
   border: 1px solid var(--border, #e5e7eb); border-radius: 6px; padding: 8px; margin: 6px 0 0; }
+
+/* ── v2.97.0 — Analysis Pack ─────────────────────────────────────────── */
+.ap { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.ap-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 13px; }
+.ap-bar input, .ap-bar select { margin-inline-start: 4px; }
+.ap-period { color: var(--muted, #6b7280); font-size: 12px; margin-inline-start: auto; }
+.ap-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.ap-tile { text-align: start; border: 1px solid var(--border, #e5e7eb); background: var(--surface, #fff); color: inherit;
+  border-radius: 10px; padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.ap-tile span { font-size: 12px; color: var(--muted, #6b7280); line-height: 1.35; }
+.ap-tile.on { border-color: var(--info, #2563eb); box-shadow: 0 0 0 2px color-mix(in srgb, var(--info, #2563eb) 25%, transparent); }
+.ap-card { border: 1px solid var(--border, #e5e7eb); border-radius: 12px; padding: 14px; background: var(--surface, #fff); }
+.ap-busy { opacity: .6; }
+.ap-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ap-head h3 { margin: 0; font-size: var(--text-lg, 17px); }
+.ap-tools { display: flex; gap: 10px; align-items: center; }
+.ap-figs { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.ap-fig { flex: 1 1 150px; border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 8px 12px; background: var(--surface-2, #fafafa); }
+.ap-fig span { display: block; font-size: 12px; color: var(--muted, #6b7280); }
+.ap-fig b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.ap-chart { position: relative; height: 360px; }
+.ap-table { max-height: 480px; }
+.ap-note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted, #6b7280); }
+
+/* ── v2.98.0 — Studio: second-level links, related totals ─────────────── */
+.studio-go-further { margin: 8px 0 0; padding-inline-start: 10px; border-inline-start: 2px solid var(--border, #e5e7eb); }
+.studio-rel-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.studio-rel-item { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 12.5px;
+  border-top: 1px solid var(--border, #eee); }

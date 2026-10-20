@@ -412,6 +412,117 @@ def _run_pivot(doctype, ftype, flabel, config, pivot):
     }
 
 
+def _link_target(doctype: str | None, fieldname: str) -> str | None:
+    """The DocType a Link field points to (v2.98.0)."""
+    if not doctype:
+        return None
+    df = frappe.get_meta(doctype).get_field(fieldname)
+    return df.options if df and df.fieldtype == "Link" and df.options else None
+
+
+RELATED_MEASURES = ("sum", "count", "avg", "min", "max")
+RELATED_ROW_CAP = 200000
+
+
+def _related_spec_ok(base: str, spec: dict) -> dict | None:
+    """Validate one related-total spec; None if anything is off."""
+    dt, lf = spec.get("doctype"), spec.get("link_field")
+    measure = (spec.get("measure") or "sum").lower()
+    field = spec.get("field") or None
+    if measure not in RELATED_MEASURES or not dt or not lf or not _can_read(dt):
+        return None
+    if _link_target(dt, lf) != base:
+        return None
+    readable = _readable_fieldnames(dt)
+    if lf not in readable:
+        return None
+    if measure != "count":
+        df = frappe.get_meta(dt).get_field(field) if field else None
+        if not df or df.fieldtype not in _NUMERIC or field not in readable:
+            return None
+    return {"doctype": dt, "link_field": lf, "measure": measure, "field": field,
+            "filters": spec.get("filters") or [], "submitted_only": bool(spec.get("submitted_only")),
+            "label": (spec.get("label") or "").strip()}
+
+
+def _apply_related(base: str, rows: list, specs: list, col_meta: dict) -> list[str]:
+    """For each spec, aggregate the related document rows that point at each
+    base row (by its name) and add the result as a numeric column. Rows come
+    through get_list, so only related records the user may read are counted."""
+    keys_out = []
+    names = [r.get("name") for r in rows if r.get("name")]
+    for i, raw in enumerate(specs[:8]):
+        spec = _related_spec_ok(base, raw or {})
+        if not spec:
+            continue
+        key = f"rel_{i}"
+        dt, lf, field, measure = spec["doctype"], spec["link_field"], spec["field"], spec["measure"]
+        values: dict[str, list[float]] = {}
+        if names:
+            filters = [[dt, lf, "in", names]] + _coerce_filters(dt, spec["filters"])
+            meta = frappe.get_meta(dt)
+            kwargs = {}
+            if meta.istable:
+                parent = _child_parent(dt)
+                if not parent or not _can_read(parent):
+                    continue
+                filters.append([dt, "parenttype", "=", parent])
+                kwargs["parent_doctype"] = parent
+            elif spec["submitted_only"] and meta.is_submittable:
+                filters.append([dt, "docstatus", "=", 1])
+            fields = [lf] + ([field] if field else [])
+            for rr in frappe.get_list(dt, filters=filters, fields=fields, limit_page_length=RELATED_ROW_CAP,
+                                      order_by="creation asc", **kwargs):
+                values.setdefault(rr.get(lf), []).append(float(rr.get(field) or 0) if field else 1.0)
+        for r in rows:
+            v = values.get(r.get("name"), [])
+            if measure == "count":
+                r[key] = len(v)
+            elif not v:
+                r[key] = 0.0 if measure == "sum" else None
+            elif measure == "sum":
+                r[key] = round(sum(v), 2)
+            elif measure == "avg":
+                r[key] = round(sum(v) / len(v), 2)
+            else:
+                r[key] = round((min if measure == "min" else max)(v), 2)
+        what = _("count") if measure == "count" else f"{_(measure)} {frappe.get_meta(dt).get_label(field)}"
+        col_meta[key] = {"label": spec["label"] or f"{_(dt)} · {what}", "type": "Float", "numeric": True}
+        keys_out.append(key)
+    return keys_out
+
+
+@frappe.whitelist()
+def list_related(doctype=None):
+    """Document types with a Link field pointing at `doctype` that the user can
+    read — the 'totals from related documents' choices (v2.98.0)."""
+    _require_read()
+    if not doctype or not _can_read(doctype):
+        return []
+    found = {}
+    for src in ("DocField", "Custom Field"):
+        for r in frappe.get_all(src, filters={"fieldtype": "Link", "options": doctype},
+                                fields=["parent" if src == "DocField" else "dt", "fieldname", "label"],
+                                limit_page_length=0, order_by="fieldname asc"):
+            dt = r.get("parent") or r.get("dt")
+            if dt and (dt, r["fieldname"]) not in found and dt != doctype and _can_read(dt):
+                found[(dt, r["fieldname"])] = r.get("label") or r["fieldname"]
+    out = []
+    for (dt, lf), lab in sorted(found.items()):
+        meta = frappe.get_meta(dt)
+        if meta.issingle:
+            continue
+        readable = _readable_fieldnames(dt)
+        if lf not in readable:
+            continue
+        nums = [{"fieldname": f.fieldname, "label": _(f.label) if f.label else f.fieldname}
+                for f in meta.fields if f.fieldtype in _NUMERIC and f.fieldname in readable]
+        out.append({"doctype": dt, "link_field": lf, "label": f"{_(dt)} · {_(lab)}",
+                    "is_child": bool(meta.istable), "submittable": bool(meta.is_submittable),
+                    "numeric_fields": nums})
+    return out
+
+
 @frappe.whitelist()
 def run_query(config=None):
     """Execute a Studio report config and return rows (+ optional grouping).
@@ -466,10 +577,21 @@ def run_query(config=None):
     plain_cols, dotted_cols = [], []
     for c in raw_cols:
         if "." in c:
-            lf, tf = c.split(".", 1)
-            if lf in link_opts and _can_read(link_opts[lf]) \
-                    and tf in _readable_fieldnames(link_opts[lf]):
-                dotted_cols.append((c, lf, tf, link_opts[lf]))
+            parts = c.split(".")
+            lf = parts[0]
+            if len(parts) == 2:
+                tf = parts[1]
+                if lf in link_opts and _can_read(link_opts[lf]) \
+                        and tf in _readable_fieldnames(link_opts[lf]):
+                    dotted_cols.append((c, lf, tf, link_opts[lf]))
+            elif len(parts) == 3:
+                # v2.98.0 — two levels: link.link.field (e.g. customer.territory.parent_territory)
+                mid, tf = parts[1], parts[2]
+                t1 = link_opts.get(lf)
+                t2 = _link_target(t1, mid) if t1 else None
+                if t1 and t2 and _can_read(t1) and _can_read(t2) and mid in _readable_fieldnames(t1) \
+                        and tf in _readable_fieldnames(t2):
+                    dotted_cols.append((c, lf, f"{mid}.{tf}", t1))
         elif c in ftype:
             plain_cols.append(c)
     columns = plain_cols + [d[0] for d in dotted_cols]
@@ -480,7 +602,8 @@ def run_query(config=None):
     if group_by and group_by not in ftype:
         group_by = None
 
-    fetch = list(dict.fromkeys(plain_cols + ([group_by] if group_by else [])
+    fetch = list(dict.fromkeys(plain_cols + (["name"] if config.get("related") else [])
+                               + ([group_by] if group_by else [])
                                + [d[1] for d in dotted_cols]))
     sort = config.get("sort") or []
     order_by = ", ".join(f"`{s['field']}` {('desc' if s.get('dir') == 'desc' else 'asc')}"
@@ -513,7 +636,16 @@ def run_query(config=None):
         ttype = {f.fieldname: f.fieldtype for f in tmeta.fields}
         tlabel = {f.fieldname: (_(f.label) if f.label else f.fieldname) for f in tmeta.fields}
         tlabel.setdefault("name", "ID")
-        tfields = list(dict.fromkeys(["name"] + [tf for _ck, tf in pairs if tf in ttype or tf == "name"]))
+        # v2.98.0 — a "mid.field" pair needs the mid link fetched here and a
+        # second batched, permission-aware lookup on the next document type.
+        hop1 = [tf for _ck, tf in pairs if "." not in tf]
+        hop2: dict[str, list[tuple[str, str]]] = {}
+        for ck, tf in pairs:
+            if "." in tf:
+                mid, tf2 = tf.split(".", 1)
+                hop2.setdefault(mid, []).append((ck, tf2))
+        tfields = list(dict.fromkeys(["name"] + [tf for tf in hop1 if tf in ttype or tf == "name"]
+                                     + [m for m in hop2 if m in ttype]))
         keys = list({r.get(lf) for r in rows if r.get(lf)})
         lookup = {}
         if keys:
@@ -522,14 +654,43 @@ def run_query(config=None):
             for trow in frappe.get_list(target, filters={"name": ["in", keys]}, fields=tfields,
                                         limit_page_length=0):
                 lookup[trow["name"]] = trow
+        second: dict[str, dict] = {}
+        for mid, mpairs in hop2.items():
+            t2 = _link_target(target, mid)
+            t2meta = frappe.get_meta(t2)
+            t2type = {f.fieldname: f.fieldtype for f in t2meta.fields}
+            t2label = {f.fieldname: (_(f.label) if f.label else f.fieldname) for f in t2meta.fields}
+            t2label.setdefault("name", "ID")
+            k2 = list({row.get(mid) for row in lookup.values() if row.get(mid)})
+            lk2 = {}
+            if k2:
+                f2 = list(dict.fromkeys(["name"] + [tf2 for _ck, tf2 in mpairs if tf2 in t2type or tf2 == "name"]))
+                for trow in frappe.get_list(t2, filters={"name": ["in", k2]}, fields=f2, limit_page_length=0):
+                    lk2[trow["name"]] = trow
+            second[mid] = {"lookup": lk2, "pairs": mpairs, "type": t2type, "label": t2label}
         for r in rows:
             src = lookup.get(r.get(lf), {})
             for (ckey, tf) in pairs:
-                r[ckey] = src.get(tf)
+                if "." not in tf:
+                    r[ckey] = src.get(tf)
+            for mid, info in second.items():
+                src2 = info["lookup"].get(src.get(mid), {})
+                for (ckey, tf2) in info["pairs"]:
+                    r[ckey] = src2.get(tf2)
         for (ckey, tf) in pairs:
-            col_meta[ckey] = {"label": f"{flabel.get(lf, lf)} · {tlabel.get(tf, tf)}",
-                              "type": ttype.get(tf, "Data"),
-                              "numeric": ttype.get(tf) in _NUMERIC}
+            if "." in tf:
+                mid, tf2 = tf.split(".", 1)
+                info = second[mid]
+                col_meta[ckey] = {"label": f"{flabel.get(lf, lf)} · {tlabel.get(mid, mid)} · {info['label'].get(tf2, tf2)}",
+                                  "type": info["type"].get(tf2, "Data"), "numeric": info["type"].get(tf2) in _NUMERIC}
+            else:
+                col_meta[ckey] = {"label": f"{flabel.get(lf, lf)} · {tlabel.get(tf, tf)}",
+                                  "type": ttype.get(tf, "Data"),
+                                  "numeric": ttype.get(tf) in _NUMERIC}
+
+    # ── v2.98.0 — totals from related documents (they point back at each row) ──
+    related_keys = _apply_related(doctype, rows, config.get("related") or [], col_meta)
+    columns = columns + related_keys
 
     # ── Calculated (formula) columns, computed per row over numeric scope. ──
     calculated = config.get("calculated") or []

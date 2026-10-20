@@ -14,6 +14,12 @@
   "ai_max_tokens",
   "ai_timeout_seconds",
   "ai_api_version",
+  "ai_fallback_section",
+  "ai_fallback_model",
+  "ai_fallback_provider",
+  "ai_fallback_col",
+  "ai_fallback_endpoint",
+  "ai_fallback_api_key",
   "ai_system_prompt",
   "loc_section",
   "default_language",
@@ -98,6 +104,42 @@
    "label": "Azure API Version",
    "default": "2024-10-21",
    "depends_on": "eval:doc.ai_provider=='Azure OpenAI'"
+  },
+  {
+   "fieldname": "ai_fallback_section",
+   "fieldtype": "Section Break",
+   "label": "Fallback model",
+   "collapsible": 1,
+   "description": "Used only when the main model is still overloaded or rate-limited after three retries. Leave the model blank for no fallback."
+  },
+  {
+   "fieldname": "ai_fallback_model",
+   "fieldtype": "Data",
+   "label": "Fallback Model",
+   "description": "e.g. gemini-2.5-flash on the same provider, or claude-haiku-5-5 with the Claude provider below."
+  },
+  {
+   "fieldname": "ai_fallback_provider",
+   "fieldtype": "Select",
+   "label": "Fallback Provider",
+   "options": "\nOpenAI-compatible\nAnthropic (Claude)\nAzure OpenAI",
+   "description": "Blank = same as the main provider."
+  },
+  {
+   "fieldname": "ai_fallback_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ai_fallback_endpoint",
+   "fieldtype": "Data",
+   "label": "Fallback Endpoint",
+   "description": "Blank = the main endpoint (same provider) or the provider's default (Claude)."
+  },
+  {
+   "fieldname": "ai_fallback_api_key",
+   "fieldtype": "Password",
+   "label": "Fallback API Key",
+   "description": "Blank = the main key (same provider only)."
   },
   {
    "fieldname": "ai_system_prompt",
@@ -207,7 +249,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-18 12:00:00",
+ "modified": "2026-10-20 09:00:00",
  "module": "Neotec Insight",
  "name": "Insight AI Settings",
  "owner": "Administrator",

@@ -11,6 +11,10 @@ interface Field { fieldname: string; label: string; fieldtype: string; options?:
 interface Source { name: string; label: string; module: string; }
 interface Filter { field: string; op: string; value: string; value2?: string; ask?: boolean }
 interface LinkField { link_field: string; label: string; target_doctype: string; }
+// v2.98.0 — totals from related documents
+interface RelatedChoice { doctype: string; link_field: string; label: string; is_child: boolean; submittable: boolean;
+  numeric_fields: { fieldname: string; label: string }[] }
+interface RelatedSpec { doctype: string; link_field: string; measure: string; field?: string; label?: string; submitted_only?: boolean }
 interface Calc { key: string; label: string; formula: string; decimals: number; }
 interface ColMeta { label?: string; decimals?: number; align?: string; color?: string; width?: number; }
 
@@ -47,6 +51,17 @@ export default function StudioApp() {
   const [linkFields, setLinkFields] = useState<LinkField[]>([]);
   const [openLink, setOpenLink] = useState('');
   const [linkTargetFields, setLinkTargetFields] = useState<Record<string, Field[]>>({});
+  // v2.98.0 — second level of links, and totals from related documents
+  const [linkLinks, setLinkLinks] = useState<Record<string, LinkField[]>>({});
+  const [openMid, setOpenMid] = useState('');
+  const [midFields, setMidFields] = useState<Record<string, Field[]>>({});
+  const [related, setRelated] = useState<RelatedSpec[]>([]);
+  const [relChoices, setRelChoices] = useState<RelatedChoice[]>([]);
+  const [relPick, setRelPick] = useState('');
+  const [relMeasure, setRelMeasure] = useState('sum');
+  const [relField, setRelField] = useState('');
+  const [relLabel, setRelLabel] = useState('');
+  const [relSubmitted, setRelSubmitted] = useState(true);
   const [fieldVals, setFieldVals] = useState<Record<string, { value: string; label: string }[]>>({});
 
   const [calculated, setCalculated] = useState<Calc[]>([]);
@@ -121,6 +136,8 @@ export default function StudioApp() {
       if (f.some((x: Field) => x.fieldname === 'is_return')) setRetField('is_return');
     }).catch(() => {});
     api.studioListLinkFields(dt).then(setLinkFields).catch(() => {});
+    setLinkLinks({}); setOpenMid(''); setMidFields({}); setRelated([]); setRelPick('');
+    api.studioListRelated(dt).then(setRelChoices).catch(() => setRelChoices([]));
   }
 
   function toggleLink(lf: LinkField) {
@@ -128,6 +145,24 @@ export default function StudioApp() {
     setOpenLink(lf.link_field);
     if (!linkTargetFields[lf.link_field])
       api.studioListFields(lf.target_doctype).then((f) => setLinkTargetFields((m) => ({ ...m, [lf.link_field]: f }))).catch(() => {});
+    if (!linkLinks[lf.link_field])
+      api.studioListLinkFields(lf.target_doctype)
+        .then((l) => setLinkLinks((m) => ({ ...m, [lf.link_field]: (l as LinkField[]).filter((x) => x.link_field !== 'parent') })))
+        .catch(() => {});
+  }
+  function toggleMid(lf: string, mid: LinkField) {
+    const k = `${lf}.${mid.link_field}`;
+    if (openMid === k) { setOpenMid(''); return; }
+    setOpenMid(k);
+    if (!midFields[k]) api.studioListFields(mid.target_doctype).then((f) => setMidFields((m) => ({ ...m, [k]: f }))).catch(() => {});
+  }
+  function addRelated() {
+    const ch = relChoices.find((c) => `${c.doctype}|${c.link_field}` === relPick);
+    if (!ch || (relMeasure !== 'count' && !relField)) return;
+    setRelated((r) => [...r, { doctype: ch.doctype, link_field: ch.link_field, measure: relMeasure,
+      field: relMeasure === 'count' ? undefined : relField, label: relLabel.trim() || undefined,
+      submitted_only: ch.submittable ? relSubmitted : undefined }]);
+    setRelLabel(''); setRelField('');
   }
   function toggleCol(fn: string) { setCols((c) => c.includes(fn) ? c.filter((x) => x !== fn) : [...c, fn]); }
   function moveCol(from: number, to: number) {
@@ -190,7 +225,7 @@ export default function StudioApp() {
       ...(f.ask ? { ask: 1 } : {}),
     }));
     return {
-      doctype, columns: cols, filters: fl, group_by: groupBy || null, limit, calculated, col_modes: colModes,
+      doctype, columns: cols, filters: fl, group_by: groupBy || null, limit, calculated, col_modes: colModes, related,
       returns: retOn && retField ? { field: retField, value: retValue } : null,
       pivot: pivotOn && pivotRow && (pivotVal || pivotAgg === 'count') ? { row: pivotRow, column: pivotCol, value: pivotVal, agg: pivotAgg } : null,
     };
@@ -242,7 +277,7 @@ export default function StudioApp() {
       setFilters((c.filters || []).map((f: any) => ({ field: f.field, op: f.op, value: Array.isArray(f.value) ? (f.value[0] ?? '') : (f.value ?? ''), value2: Array.isArray(f.value) ? (f.value[1] ?? '') : '', ask: !!f.ask })));
       // Prompted report: parameters marked "Ask" open a prompt before first run.
       if ((c.filters || []).some((f: any) => f.ask)) setPromptOpen(true);
-      setGroupBy(c.group_by || ''); setLimit(c.limit || 500); setCalculated(c.calculated || []); setColModes(c.col_modes || {}); setColMeta(c.colMeta || {});
+      setGroupBy(c.group_by || ''); setLimit(c.limit || 500); setCalculated(c.calculated || []); setColModes(c.col_modes || {}); setRelated(c.related || []); setColMeta(c.colMeta || {});
       const ui = c._ui || {}; setRetOn(!!ui.retOn); setRetField(ui.retField || ''); setRetValue(ui.retValue || '1');
       setTimeout(run, 60);
     } catch (e: any) { setErr(String(e?.message || e)); }
@@ -536,8 +571,76 @@ export default function StudioApp() {
                           </label>
                         );
                       })}
+                      {!!linkLinks[lf.link_field]?.length && (
+                        <div className="studio-go-further">
+                          <div className="studio-lbl">{t('Go further')}</div>
+                          {linkLinks[lf.link_field].map((mid) => {
+                            const mk = `${lf.link_field}.${mid.link_field}`;
+                            return (
+                              <div key={mk} className="studio-link">
+                                <button className={'studio-link-h' + (openMid === mk ? ' on' : '')} onClick={() => toggleMid(lf.link_field, mid)}>
+                                  <span>{mid.label}</span><small>{mid.target_doctype}</small>
+                                </button>
+                                {openMid === mk && (
+                                  <div className="studio-link-fields">
+                                    {(midFields[mk] || []).map((tf) => {
+                                      const key = `${mk}.${tf.fieldname}`;
+                                      return (
+                                        <label key={key} className={'studio-field' + (cols.includes(key) ? ' on' : '')}>
+                                          <input type="checkbox" checked={cols.includes(key)} onChange={() => toggleCol(key)} />
+                                          <span className="studio-field-lbl">{tf.label}</span>
+                                          <span className={'studio-chip-t t-' + (tf.numeric ? 'num' : 'txt')}>{tf.fieldtype}</span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {doctype && relChoices.length > 0 && (
+            <div className="studio-card">
+              <div className="studio-card-h">{t('Totals from related documents')}</div>
+              <p className="studio-hint">{t('Add a column totalled from documents that point at each row — e.g. invoiced, paid and ordered per customer.')}</p>
+              <select value={relPick} onChange={(e) => { setRelPick(e.target.value); setRelField(''); }} style={{ width: '100%' }}>
+                <option value="">{t('Choose a related document…')}</option>
+                {relChoices.map((c) => <option key={`${c.doctype}|${c.link_field}`} value={`${c.doctype}|${c.link_field}`}>{c.label}</option>)}
+              </select>
+              {relPick && (() => {
+                const ch = relChoices.find((c) => `${c.doctype}|${c.link_field}` === relPick)!;
+                return (
+                  <div className="studio-rel-form">
+                    <select value={relMeasure} onChange={(e) => setRelMeasure(e.target.value)}>
+                      {['sum', 'count', 'avg', 'min', 'max'].map((m) => <option key={m} value={m}>{t(m === 'avg' ? 'average' : m)}</option>)}
+                    </select>
+                    {relMeasure !== 'count' && (
+                      <select value={relField} onChange={(e) => setRelField(e.target.value)}>
+                        <option value="">{t('Field…')}</option>
+                        {ch.numeric_fields.map((f) => <option key={f.fieldname} value={f.fieldname}>{f.label}</option>)}
+                      </select>
+                    )}
+                    <input placeholder={t('Column label (optional)')} value={relLabel} onChange={(e) => setRelLabel(e.target.value)} />
+                    {ch.submittable && (
+                      <label className="studio-hint"><input type="checkbox" checked={relSubmitted} onChange={(e) => setRelSubmitted(e.target.checked)} /> {t('Submitted only')}</label>
+                    )}
+                    <button type="button" className="bk-btn bk-primary" onClick={addRelated}
+                      disabled={relMeasure !== 'count' && !relField}>{t('Add column')}</button>
+                  </div>
+                );
+              })()}
+              {related.map((r, i) => (
+                <div key={i} className="studio-rel-item">
+                  <span>{r.label || `${r.doctype} · ${r.measure}${r.field ? ' ' + r.field : ''}`}{r.submitted_only ? ` · ${t('submitted')}` : ''}</span>
+                  <button type="button" className="cp-link" onClick={() => setRelated((rs) => rs.filter((_x, j) => j !== i))}>{t('Remove')}</button>
                 </div>
               ))}
             </div>

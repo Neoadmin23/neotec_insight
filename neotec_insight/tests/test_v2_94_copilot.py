@@ -92,8 +92,9 @@ class TestShaping(unittest.TestCase):
 
     def test_catalog_matches_runners(self):
         src = (HERE.parents[0] / "neotec_insight" / "api" / "copilot.py").read_text()
+        runners = src[src.index("RUNNERS = {"):]
         for name in core.TOOLS:
-            self.assertIn(f'"{name}": t_{name}', src)
+            self.assertIn(f'"{name}":', runners, name)
 
 
 class Site(unittest.TestCase):

@@ -86,9 +86,10 @@ class Calls(unittest.TestCase):
         test = self
 
         class R:
-            def __init__(self, code, body):
+            def __init__(self, code, body, headers=None):
                 self.status_code, self._b = code, body
                 self.text = json.dumps(body)
+                self.headers = headers or {}
 
             def json(self):
                 return self._b
@@ -102,17 +103,19 @@ class Calls(unittest.TestCase):
 
         def post(url, headers=None, json=None, timeout=None):
             test.sent.append((url, headers, json, timeout))
-            code, body = test.replies.pop(0)
+            reply = test.replies.pop(0)
+            code, body = reply[0], reply[1]
             if code == "down":
                 raise RequestException("connection refused")
-            return R(code, body)
+            return R(code, body, reply[2] if len(reply) > 2 else None)
         req = types.ModuleType("requests")
         req.post = post
         req.get = lambda *a, **k: R(200, {"data": [{"id": "models/gemini-3.8-flash"}, {"id": "gemini-2.5-pro"}]})
         req.exceptions = types.SimpleNamespace(RequestException=RequestException)
         sys.modules["requests"] = req
         import time
-        time.sleep = lambda s: None
+        self.slept = []
+        time.sleep = lambda secs: self.slept.append(secs)
         from neotec_insight.neotec_insight.utils import ai_client
         self.c = ai_client
 
@@ -148,7 +151,7 @@ class Calls(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
 
     def test_unreachable(self):
-        self.replies = [("down", None)]
+        self.replies = [("down", None)] * 4          # retried like any temporary failure (v2.96.1)
         with self.assertRaises(self.c.AIError) as cm:
             self.c.chat("s", "u")
         self.assertIn("Could not reach", str(cm.exception))
@@ -163,6 +166,60 @@ class Calls(unittest.TestCase):
 
     def test_models_list_strips_gemini_prefix(self):
         self.assertEqual(self.c.list_models(), ["gemini-2.5-pro", "gemini-3.8-flash"])
+
+
+BUSY = (503, {"error": {"message": "This model is currently experiencing high demand."}})
+OK = (200, {"choices": [{"message": {"content": "OK"}}]})
+
+
+class Resilience(Calls):
+    """v2.96.1 — riding out a provider's demand spikes."""
+
+    def test_overload_is_retried_with_growing_waits(self):
+        self.replies = [BUSY, BUSY, OK]
+        self.assertEqual(self.c.chat("s", "u"), "OK")
+        self.assertEqual(self.slept, [3, 8])
+
+    def test_retry_after_is_honoured(self):
+        self.replies = [(429, {}, {"retry-after": "11"}), OK]
+        self.c.chat("s", "u")
+        self.assertEqual(self.slept, [11.0])
+
+    def test_still_busy_without_fallback_says_try_again(self):
+        self.replies = [BUSY] * 4
+        with self.assertRaises(self.c.AIError) as cm:
+            self.c.chat("s", "u")
+        self.assertIn("high demand", str(cm.exception))
+        self.assertIn("try again", str(cm.exception).lower())
+        self.assertEqual(len(self.sent), 4)
+
+    def test_fallback_model_on_same_provider(self):
+        self.settings.ai_fallback_model = "gemini-2.5-flash"
+        self.replies = [BUSY] * 4 + [OK]
+        self.assertEqual(self.c.chat("s", "u"), "OK")
+        self.assertEqual(self.sent[-1][2]["model"], "gemini-2.5-flash")
+        self.assertTrue(self.sent[-1][0].endswith("/v1beta/openai/chat/completions"))
+        self.assertEqual(self.sent[-1][1]["Authorization"], "Bearer KEY")
+
+    def test_fallback_to_claude(self):
+        self.settings.ai_fallback_model = "claude-haiku-5-5"
+        self.settings.ai_fallback_provider = "Anthropic (Claude)"
+        self.settings.ai_fallback_api_key = "set"
+        self.settings.get_password = lambda field, **k: "ANTH" if field == "ai_fallback_api_key" else "KEY"
+        self.replies = [BUSY] * 4 + [(200, {"content": [{"type": "text", "text": "OK from Claude"}]})]
+        self.assertEqual(self.c.chat("s", "u"), "OK from Claude")
+        url, headers, body, _t = self.sent[-1]
+        self.assertEqual(url, "https://api.anthropic.com/v1/messages")
+        self.assertEqual(headers["x-api-key"], "ANTH")
+        self.assertEqual(body["model"], "claude-haiku-5-5")
+
+    def test_bad_key_never_falls_back(self):
+        self.settings.ai_fallback_model = "gemini-2.5-flash"
+        self.replies = [(401, {"error": {"message": "API key not valid"}})]
+        with self.assertRaises(self.c.AIError) as cm:
+            self.c.chat("s", "u")
+        self.assertIn("API key was rejected", str(cm.exception))
+        self.assertEqual(len(self.sent), 1)
 
 
 class EveryFeatureUsesTheClient(unittest.TestCase):

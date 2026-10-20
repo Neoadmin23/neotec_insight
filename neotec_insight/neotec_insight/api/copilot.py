@@ -233,10 +233,24 @@ def readable_doctypes() -> list[str]:
     return out
 
 
+def _analysis(key):
+    """Copilot runner over an Analysis Pack analysis (v2.97.0)."""
+    def run(company, f, t, **_kw):
+        from neotec_insight.neotec_insight.api.analysis_pack import compute
+        d = compute(key, company, f, t)
+        cols = [{"key": c["key"], "label": c["label"],
+                 "type": "currency" if c["type"] in ("currency", "number", "percent") else "text"}
+                for c in d["columns"]]
+        return cols, d["rows"], d["title"]
+    return run
+
+
 RUNNERS = {
     "revenue_expense_trend": t_revenue_expense_trend, "kpis": t_kpis, "top_accounts": t_top_accounts,
     "by_dimension": t_by_dimension, "top_parties": t_top_parties, "ageing": t_ageing,
     "cash_position": t_cash_position, "find_records": t_find_records,
+    "profit_bridge": _analysis("profit_bridge"), "variance_drivers": _analysis("variance_drivers"),
+    "working_capital_cycle": _analysis("working_capital_cycle"), "gl_anomalies": _analysis("gl_anomalies"),
 }
 
 

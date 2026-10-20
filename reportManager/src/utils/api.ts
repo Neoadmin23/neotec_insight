@@ -273,6 +273,11 @@ export const api = {
     call<any>('report.import_configuration',
       { payload: JSON.stringify(payload), mode, allow_partial: allowPartial ? 1 : 0 }, 'POST'),
   configBackupCoverage: () => call<any>('report.check_config_backup_coverage'),
+  // v2.97.0 — Analysis Pack
+  analysisList: () => call<{ key: string; title: string; description: string }[]>('analysis_pack.list_analyses'),
+  analysisRun: (key: string, opts: { company?: string; from_date?: string; to_date?: string; compare?: string } = {}) =>
+    call<any>('analysis_pack.run_analysis', { key, company: opts.company || '', from_date: opts.from_date || '',
+      to_date: opts.to_date || '', compare: opts.compare || 'prior_year' }),
   // v2.94.0 — Insight Copilot
   copilotAsk: (question: string, opts: { company?: string | null; from_date?: string; to_date?: string; lang?: string; source?: string } = {}) =>
     call<any>('copilot.ask', { question, company: opts.company || '', from_date: opts.from_date || '',
@@ -315,6 +320,8 @@ export const api = {
   studioListSources: (search = '') => call<any[]>('studio.list_sources', { search }),
   studioListFields: (doctype: string) => call<any[]>('studio.list_fields', { doctype }),
   studioListLinkFields: (doctype: string) => call<any[]>('studio.list_link_fields', { doctype }),
+  // v2.98.0 — documents that point back at this one (totals from related documents)
+  studioListRelated: (doctype: string) => call<any[]>('studio.list_related', { doctype }),
   studioFieldValues: (doctype: string, field: string, search = '') =>
     call<any[]>('studio.field_values', { doctype, field, search }),
   studioRunQuery: (config: any) => call<any>('studio.run_query', { config: JSON.stringify(config) }, 'POST'),

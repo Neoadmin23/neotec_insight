@@ -113,3 +113,6 @@ Press **Test AI connection** after saving. It reports the provider, model and re
 3. **Save, press Test AI connection, then try AI Deep Analysis and the Copilot.**
 
 Model names and prices change; check Anthropic's models page before choosing.
+
+### When a provider is busy
+Calls that fail because the provider is overloaded or rate-limited are retried three times with growing waits. To keep answers coming during a long outage, set a **Fallback model** in Insight AI Settings. It can be a lighter model on the same provider, or another provider (for example Claude) with its own key.

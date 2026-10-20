@@ -7,9 +7,11 @@ import { LedgerWorkspace } from './features/gl/LedgerWorkspace';
 import { AllocationApp } from './features/allocation/AllocationApp';
 import { ConfigBackupModal } from './features/shell/ConfigBackupModal';
 import { setDeskPrefix } from './utils/desk';
+import { foldLegacyPerformance as foldLegacy } from './utils/menuFold';
 import { CopilotPanel } from './features/copilot/CopilotPanel';
 const StudioApp = lazy(() => import('./features/studio/StudioApp'));
 const FinancialHealth = lazy(() => import('./features/health/FinancialHealth'));
+const AnalysisPack = lazy(() => import('./features/analysis/AnalysisPack'));
 const ClassificationTab = lazy(() => import('./features/health/ClassificationTab'));
 const VatSettings = lazy(() => import('./features/vat/VatSettings'));
 const VatReturn = lazy(() => import('./features/vat/VatReturn'));
@@ -58,6 +60,7 @@ const DEFAULT_SECTIONS: NavSection[] = [
       { ws: 'briefing', label: 'CFO Briefing', title: "The financial situation on one screen — CFO's primary view" },
       { ws: 'dashboard', label: 'Dashboard' },
       { ws: 'health', label: 'Financial Health' },
+      { ws: 'insights', label: 'Analysis', title: 'Profit bridge, what moved profit, common-size statements, working-capital cycle, DuPont, concentration and journal checks' },
       { ws: 'classification', label: 'Classification',
         title: 'Tag an account once — COGS, Cash, Investing, Financing, Provisions and your own labels. Financial Health, Cash Flow and Zakat all obey it' },
       { ws: 'group', label: 'Group', title: 'Multi-company group view', needsGroup: true },
@@ -110,35 +113,10 @@ const DEFAULT_SECTIONS: NavSection[] = [
  *  was a decision and we leave it alone; they can merge by hand in Menu setup.
  *  The merged section lands where the earliest of the three sat, so the nav
  *  doesn't reshuffle around the operator. */
-const LEGACY_PERF: Record<string, string[]> = {
-  briefing: ['briefing'],
-  dashboard: ['dashboard'],
-  analysis: ['health', 'group'],
-};
-
 function foldLegacyPerformance(sections: MenuSectionCfg[]): MenuSectionCfg[] {
-  if (sections.some((s) => s.key === PERFORMANCE_KEY)) return sections;
-  const legacyKeys = Object.keys(LEGACY_PERF);
-  if (!legacyKeys.every((k) => sections.some((s) => s.key === k))) return sections;
-  for (const k of legacyKeys) {
-    const sec = sections.find((s) => s.key === k)!;
-    const have = (sec.tabs || []).map((tb) => tb.ws);
-    const want = LEGACY_PERF[k];
-    if (have.length !== want.length || want.some((w) => !(have as string[]).includes(w))) return sections;
-  }
-  const merged: MenuSectionCfg = {
-    key: PERFORMANCE_KEY,
-    label: PERFORMANCE_LABEL,
-    // Carry each tab's hidden flag across — a tab someone switched off stays off.
-    tabs: legacyKeys.flatMap((k) => (sections.find((s) => s.key === k)!.tabs || [])),
-  };
-  const out: MenuSectionCfg[] = [];
-  let placed = false;
-  for (const sec of sections) {
-    if (!(sec.key in LEGACY_PERF)) { out.push(sec); continue; }
-    if (!placed) { out.push(merged); placed = true; }
-  }
-  return out;
+  // v2.97.1 — pure, tested logic in utils/menuFold.ts.
+  const perfOrder = (DEFAULT_SECTIONS.find((s) => s.key === PERFORMANCE_KEY)?.tabs || []).map((t) => t.ws as string);
+  return foldLegacy(sections, PERFORMANCE_KEY, PERFORMANCE_LABEL, perfOrder);
 }
 
 function mergeMenu(saved: { sections?: MenuSectionCfg[] } | null): NavSection[] {
@@ -453,6 +431,11 @@ export default function App() {
         {workspace === 'studio' && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading Studio…')}</div>}>
             <StudioApp />
+          </Suspense>
+        )}
+        {workspace === 'insights' && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
+            <AnalysisPack />
           </Suspense>
         )}
         {workspace === 'health' && (

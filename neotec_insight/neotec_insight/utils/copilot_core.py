@@ -49,6 +49,15 @@ TOOLS: dict[str, dict] = {
     "cash_position": {
         "desc": "Cash and bank balances per account as at the period end.",
         "args": {}, "view": "pie"},
+    # v2.97.0 — Analysis Pack
+    "profit_bridge": {"desc": "Profit bridge: revenue to net profit step by step (cost of sales, expense groups).",
+                      "args": {}, "view": "table"},
+    "variance_drivers": {"desc": "Which accounts moved profit most against the same period last year.",
+                         "args": {}, "view": "bar"},
+    "working_capital_cycle": {"desc": "DSO, DPO, DIO and cash conversion cycle month by month.",
+                              "args": {}, "view": "line"},
+    "gl_anomalies": {"desc": "Manual journal entries worth reviewing: round amounts, weekend or period-end "
+                             "postings, unusual size.", "args": {}, "view": "table"},
     "find_records": {
         "desc": "List or summarise documents (invoices, orders, payments, customers, items…) matching a request.",
         "args": {"doctype": ("doctype", True, RECORD_DOCTYPES), "request": ("text", True, 300)},
@@ -163,6 +172,17 @@ def rule_plan(question: str) -> dict | None:
     supplier = _has(q, "supplier", "vendor", "payable", "مورد", "الموردين", "الدائن")
     party = "supplier" if supplier else "customer"
 
+    if _has(q, "anomal", "unusual journal", "suspicious", "red flag", "second look", "audit the journal",
+            "قيود غير عادية", "مشبوه"):
+        return {"tool": "gl_anomalies", "args": {}}
+    if _has(q, "bridge", "waterfall", "revenue to profit", "from revenue to", "جسر الربح"):
+        return {"tool": "profit_bridge", "args": {}}
+    if _has(q, "what moved", "why did profit", "why is profit", "profit change", "variance", "drivers",
+            "compared to last year", "vs last year", "مقارنة بالعام الماضي", "أسباب تغير الربح"):
+        return {"tool": "variance_drivers", "args": {}}
+    if _has(q, "working capital", "cash conversion", "dso", "dpo", "dio", "days sales outstanding",
+            "رأس المال العامل", "دورة النقد"):
+        return {"tool": "working_capital_cycle", "args": {}}
     if _has(q, "ageing", "aging", "overdue bucket", "age bucket", "أعمار", "تعمير"):
         return {"tool": "ageing", "args": {"party": party}}
     if _has(q, "owe", "outstanding", "unpaid", "receivable", "payable", "overdue", "مستحق", "المدينين"):
@@ -231,6 +251,10 @@ def plain_summary(tool: str, title: str, columns: list[dict], rows: list[dict]) 
 
 
 FOLLOW_UPS = {
+    "profit_bridge": ["What moved profit vs last year?", "Expenses by cost centre", "Show the KPIs"],
+    "variance_drivers": ["Show the profit bridge", "Biggest expenses this year", "Show the monthly trend"],
+    "working_capital_cycle": ["Who owes us the most?", "Receivables ageing", "Cash position"],
+    "gl_anomalies": ["Biggest expenses this year", "What moved profit vs last year?", "Show the KPIs"],
     "revenue_expense_trend": ["Which expenses grew the most?", "Show profit by cost centre", "Top 10 customers this year"],
     "kpis": ["Show the monthly trend", "Who owes us the most?", "Biggest expenses this year"],
     "top_accounts": ["Show the monthly trend", "Split expenses by cost centre", "Show the KPIs"],

@@ -46,6 +46,18 @@ class _Meta:
     def get_field(self, fn):
         return next((f for f in self.fields if f["fieldname"] == fn), None)
 
+    def get_label(self, fn):
+        f = self.get_field(fn)
+        return (f or {}).get("label") or fn
+
+    @property
+    def is_submittable(self):
+        return bool(self._d.get("is_submittable"))
+
+    @property
+    def issingle(self):
+        return bool(self._d.get("issingle"))
+
 
 class _dict(dict):
     def __getattr__(self, k):
@@ -100,7 +112,8 @@ SITE: FakeSite | None = None
 def _match(rec, filters):
     if not filters:
         return True
-    items = filters.items() if isinstance(filters, dict) else [(f[0], f[1:]) for f in filters]
+    items = filters.items() if isinstance(filters, dict) else [
+        ((f[1], f[2:]) if len(f) == 4 else (f[0], f[1:])) for f in filters]
     for k, cond in items:
         v = rec.get(k)
         if isinstance(cond, (list, tuple)) and cond and isinstance(cond[0], str) and cond[0] in (
@@ -424,13 +437,16 @@ def install():
                 return [r for r in rows if r in allowed]
             return [r for r in rows if r.get("name") in allowed]
         if SITE.perm is not None and not k.get("group_by"):
-            out = []
-            for r in rows:
-                nm = r if k.get("pluck") else r.get("name")
-                if SITE.perm(dt, "read", nm, SITE.user) is False:
-                    continue
-                out.append(r)
-            return out
+            # Like Frappe: permissions apply to the record, whichever fields
+            # are selected — so check on full rows, then project.
+            full = get_all(dt, *a, **{**k, "fields": ["*"], "pluck": None})
+            keep = [r for r in full if SITE.perm(dt, "read", r.get("name"), SITE.user) is not False]
+            if k.get("pluck"):
+                return [r.get(k["pluck"]) for r in keep]
+            fields = k.get("fields") or ["name"]
+            if fields == ["*"]:
+                return keep
+            return [_dict({f: r.get(f) for f in fields}) for r in keep]
         return rows
     m.get_list = get_list
     m.get_single = lambda dt: get_doc(dt)

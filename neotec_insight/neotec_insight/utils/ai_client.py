@@ -152,38 +152,89 @@ def is_external(endpoint: str) -> bool:
 
 # ── calls ────────────────────────────────────────────────────────────────────
 
+TRANSIENT = (408, 429, 500, 502, 503, 504, 529)
+BACKOFF = (3, 8, 20)          # seconds between attempts; calls run in the background
+
+
+def _targets(s) -> list[dict]:
+    """The main model, then the optional fallback (v2.96.1)."""
+    main = {"provider": provider(s), "endpoint": _endpoint(s), "model": (getattr(s, "ai_model", "") or "").strip(),
+            "key": _key(s), "label": "main"}
+    out = [main]
+    fb_model = (getattr(s, "ai_fallback_model", "") or "").strip()
+    if fb_model:
+        fb_prov = getattr(s, "ai_fallback_provider", "") or main["provider"]
+        fb_prov = fb_prov if fb_prov in PROVIDERS else main["provider"]
+        same = fb_prov == main["provider"]
+        ep = (getattr(s, "ai_fallback_endpoint", "") or "").strip().rstrip("/") or \
+            (main["endpoint"] if same else DEFAULT_ENDPOINT.get(fb_prov, ""))
+        try:
+            fb_key = s.get_password("ai_fallback_api_key", raise_exception=False) \
+                if getattr(s, "ai_fallback_api_key", None) else None
+        except Exception:
+            fb_key = None
+        out.append({"provider": fb_prov, "endpoint": ep, "model": fb_model,
+                    "key": fb_key or (main["key"] if same else None), "label": "fallback"})
+    return out
+
+
+def _retry_after(r) -> float | None:
+    try:
+        v = float((getattr(r, "headers", None) or {}).get("retry-after") or 0)
+        return min(v, 60) if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 def chat(system: str, user: str, temperature: float = 0.2, max_tokens: int | None = None,
          timeout: int | None = None) -> str:
-    """Send one system+user exchange; return the reply text. Raises AIError."""
+    """Send one system+user exchange; return the reply text. Raises AIError.
+
+    v2.96.1 — a busy or rate-limited provider (429/5xx) is retried up to three
+    times with growing waits, honouring Retry-After; if it is still busy and a
+    fallback model is configured, the fallback is tried. A wrong key or model
+    name fails at once — retrying cannot fix configuration."""
     import requests
     s = settings()
     if not ready(s):
         raise AIError(_("AI is off. Turn it on in Insight AI Settings."))
-    prov = provider(s)
-    model = (getattr(s, "ai_model", None) or "").strip()
-    if not model:
+    if not (getattr(s, "ai_model", None) or "").strip():
         raise AIError(_("Set AI Model in Insight AI Settings."))
-    url, headers, body = build_request(
-        prov, _endpoint(s), model, _key(s), system, user, temperature,
-        max_tokens or int(getattr(s, "ai_max_tokens", 0) or 4096), getattr(s, "ai_api_version", "") or "")
+    max_tokens = max_tokens or int(getattr(s, "ai_max_tokens", 0) or 4096)
     timeout = timeout or int(getattr(s, "ai_timeout_seconds", 0) or 120)
-    last = None
-    for attempt in range(2):
-        try:
-            r = requests.post(url, headers=headers, json=body, timeout=timeout)
-        except requests.exceptions.RequestException as e:
-            raise AIError(_("Could not reach the AI endpoint ({0}): {1}").format(prov, str(e)[:200])) from None
-        if r.status_code < 300:
-            text = parse_response(prov, r.json())
-            if not text:
-                raise AIError(_("The AI returned an empty answer ({0}).").format(prov))
-            return text
-        last = explain_error(prov, r.status_code, r.text)
-        if r.status_code in (429, 500, 502, 503, 529) and attempt == 0:
-            time.sleep(2)
-            continue
-        break
-    raise AIError(last)
+    errors = []
+    for target in _targets(s):
+        prov = target["provider"]
+        url, headers, body = build_request(prov, target["endpoint"], target["model"], target["key"], system,
+                                           user, temperature, max_tokens, getattr(s, "ai_api_version", "") or "")
+        transient = False
+        for attempt in range(len(BACKOFF) + 1):
+            try:
+                r = requests.post(url, headers=headers, json=body, timeout=timeout)
+            except requests.exceptions.RequestException as e:
+                last = _("Could not reach the AI endpoint ({0}): {1}").format(prov, str(e)[:200])
+                transient = True
+                if attempt < len(BACKOFF):
+                    time.sleep(BACKOFF[attempt])
+                    continue
+                break
+            if r.status_code < 300:
+                text = parse_response(prov, r.json())
+                if text:
+                    return text
+                last, transient = _("The AI returned an empty answer ({0}).").format(prov), True
+                break
+            last = explain_error(prov, r.status_code, r.text)
+            transient = r.status_code in TRANSIENT
+            if transient and attempt < len(BACKOFF):
+                time.sleep(_retry_after(r) or BACKOFF[attempt])
+                continue
+            break
+        errors.append(f"{target['model']}: {last}" if len(_targets(s)) > 1 else last)
+        if not transient:
+            break                 # configuration problem: do not hide it behind the fallback
+    raise AIError(" · ".join(errors) + (" " + _("Please try again in a few minutes.")
+                                       if transient else ""))
 
 
 def list_models() -> list[str]:

@@ -1,3 +1,101 @@
+## v2.98.0 — 2026-10-20 — Studio across several documents
+
+### Added: links two levels deep
+Studio columns could follow one link (`customer.territory`). They can now follow two: `customer.territory.parent_territory`, or from a line-item source `item_code.item_group.parent_item_group`.
+- **Go further:** each linked document's panel has a **Go further** list of *its* links; pick a field there.
+- **Checked at every level:** each document type on the path must be readable, the final field must be one the user may see (never a Password field), and each level is fetched in one permission-aware batch. A linked record the user cannot read gives blanks.
+
+### Added: totals from related documents
+A new **Totals from related documents** card adds columns totalled from documents that point at each row. For example, a Customer report with *Invoiced* (sum of Sales Invoice grand total, submitted only), *Invoices* (count), *Paid* (from Payment Entry) and *Open orders* (from Sales Order).
+- **Measures:** sum, count, average, minimum and maximum, with an optional label and a "submitted only" option.
+- **Choices:** any document with a Link to the report's document type that the user can read, including custom fields and line-item tables (e.g. quantity sold per Item, from Sales Invoice Item, with the invoice's permissions applied).
+- **Permissions and limits:** totals count only related records the user may read. They are computed in Python, so they work the same on Frappe v15 and v16. Up to 8 related columns per report, and up to 200,000 related rows per column.
+- **Saved and grouped:** related columns are saved with the report, restored when it is reopened, and total up like any numeric column when grouping.
+
+Endpoint: `studio.list_related` (the choices). `run_query` accepts `related` and three-part column paths.
+
+### Tests
+9 new; 585 total. They cover:
+- a Customer report with territory and parent territory two levels deep;
+- invoiced amount and invoice count with drafts excluded, and the maximum including drafts;
+- unreadable records left blank or not counted;
+- invalid paths and specs dropped (a link that does not point back, a non-numeric field, an unknown measure, an unreadable document);
+- `run_query` still an endpoint, with its helpers not exposed.
+
+The test site now applies record permissions whatever fields are selected, as Frappe does; all earlier tests still pass under that stricter model.
+
+## v2.97.1 — 2026-10-20 — CFO Briefing and Analysis back under Performance
+
+### Fixed: Briefing, Dashboard and Analysis showed as separate top-level sections
+This was a regression in v2.97.0. Older saved menus have three top-level sections (Briefing, Dashboard, Analysis), which are folded into Performance when the menu loads. The fold only runs on a section in the exact old layout, and v2.97.0 added the new Analysis tab to that description. A saved old-layout menu (Analysis = Financial Health + Group) therefore no longer matched, the fold was skipped, and the new tab landed in a fresh Performance section beside the old ones.
+
+The fold now lives in `utils/menuFold.ts`:
+- **Exact old layout:** it is described exactly as it shipped.
+- **Folds in either state:** a section still in that layout folds whether or not a Performance section already exists, which repairs menus left by v2.97.0.
+- **Hand-made sections stay:** sections someone changed by hand (other tabs added) are left as they are.
+- **Hidden tabs stay hidden, and a renamed Performance keeps its name.**
+- **Standard order:** CFO Briefing, Dashboard, Financial Health, Analysis, Classification, Group.
+
+### Tests
+Six Node cases, including the exact menu from the report. They run with `npm run check`, in every build, and from the Python suite. 576 total.
+
+## v2.97.0 — 2026-10-20 — Analysis Pack
+
+### Added: Performance → Analysis
+Nine analyses of the GL, P&L and balance sheet:
+
+| Analysis | What it shows |
+|---|---|
+| **Profit bridge** | A true waterfall from revenue through cost of sales and the largest expense groups to net profit, with gross and net margin |
+| **What moved profit** | The accounts that changed profit most against the comparison period, signed by their effect on profit (income up helps, expense up hurts), with totals helped and hurt |
+| **Common-size P&L** | Every line as % of revenue, now vs comparison, with the change in percentage points |
+| **Common-size balance sheet** | Current and non-current assets and liabilities and equity as % of total assets, with cash, receivables and inventory, vs the year-end comparison |
+| **Working-capital cycle** | DSO, DPO, DIO and the cash conversion cycle for each of the last 12 months, on trailing-12-month revenue and cost of sales |
+| **Return on equity (DuPont)** | ROE = net margin × asset turnover × equity multiplier, with the component that changed most |
+| **Customer concentration** | A Pareto of revenue by customer: how many customers make 80%, the top-1 share, and the HHI with its level |
+| **Expense Pareto** | How few accounts make up 80% of costs |
+| **Journal entries worth a second look** | Manual journal lines scored by round amounts, postings on the Saudi weekend (Friday/Saturday), the last day of a month, and amounts over 3× the account's usual size. Flags are prompts to review, not findings |
+
+- **Period and comparison:** pick the dates (default: this fiscal year to date), compared with the same dates last year or the period before.
+- **Shared figures:** balance and P&L figures come from the same building blocks as Financial Health, so the two agree. Equity is taken as assets − liabilities, so profit not yet closed is included.
+- **One dataset shape for every analysis:** headline figures, columns, rows, chart and notes. The coming dashboard designer will bind to this shape.
+- **Copilot:** four new tools answer "show the profit bridge", "what moved profit vs last year?", "how is our cash conversion cycle?" and "any suspicious journal entries?" (English and Arabic phrasing).
+
+Endpoints: `analysis_pack.list_analyses`, `analysis_pack.run_analysis` (finance permission and company scope apply).
+
+### Tests
+16 new; 574 total. They check the finance itself:
+- the bridge adds up to net profit, with correctly floating bars;
+- the signs of the effect on profit;
+- the day counts behind DSO, DPO and DIO;
+- the DuPont identity;
+- the Pareto count and HHI;
+- each anomaly rule, including Sunday being a working day in KSA;
+- the comparison periods;
+- the standard shape for all nine analyses;
+- People-only users refused;
+- Copilot routing to the new tools.
+
+## v2.96.1 — 2026-10-20 — riding out AI provider overload
+
+### Fixed: "The provider is overloaded or down … high demand"
+Gemini returned HTTP 503 during a demand spike, and the client gave up after one retry two seconds later. AI calls now run in the background (v2.95.1), so they can wait properly:
+- **Patient retries:** a busy, rate-limited or unreachable provider (408, 429, 500, 502, 503, 504, 529, or a network error) is retried up to **three times**, waiting about 3, 8 and 20 seconds, or the provider's own `Retry-After`.
+- **Optional fallback model:** new **Fallback model** section in Insight AI Settings. If the main model is still busy after the retries, the fallback is tried once.
+  - It can be another model on the same provider (e.g. `gemini-2.5-flash`), or a different provider with its own endpoint and key (e.g. Claude).
+  - A wrong key or model name **fails at once and never falls back**, so configuration problems are not hidden.
+- **Clear message:** when everything is busy, the message names each model's error and suggests trying again in a few minutes.
+- **Try again** button on the Financial Health AI analysis.
+
+Patch: `v2_96.ai_fallback_fields`.
+
+### Tests
+6 new; 558 total. They cover:
+- growing waits, and honouring Retry-After;
+- the "try again" message;
+- falling back on the same provider and to Claude with its own key;
+- no fallback on a bad key.
+
 ## v2.96.0 — 2026-10-18 — any AI provider: Gemini, OpenAI, Claude, Azure, Ollama…
 
 ### One AI client for every feature

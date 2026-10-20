@@ -332,7 +332,12 @@ export default function FinancialHealth() {
             <div className="fh-ai">
               <div className="fh-ai-h">✨ {t('AI Financial Analysis')}</div>
               {ai.loading && <div className="fh-ai-loading">{t('The AI is reviewing your ratios…')}{ai.secs ? ` ${ai.secs}s` : ''}</div>}
-              {ai.error && <div className="fh-ai-err">{ai.error}</div>}
+              {ai.error && (
+                <div className="fh-ai-err">
+                  {ai.error}{' '}
+                  <button type="button" className="bk-btn" onClick={runAi}>{t('Try again')}</button>
+                </div>
+              )}
               {ai.text && <Markdown className="fh-ai-body" text={ai.text} />}
             </div>
           )}
