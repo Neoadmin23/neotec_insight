@@ -1,0 +1,77 @@
+{
+ "actions": [],
+ "autoname": "field:title",
+ "creation": "2026-10-18 00:00:00",
+ "description": "A saved Copilot query on an outside database (v2.95.0).",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "source",
+  "view",
+  "question",
+  "sql"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Link",
+   "label": "Data Source",
+   "options": "Insight Data Source",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "view",
+   "fieldtype": "Select",
+   "label": "Show As",
+   "options": "table\nbar\nline\npie",
+   "default": "table"
+  },
+  {
+   "fieldname": "question",
+   "fieldtype": "Small Text",
+   "label": "Question"
+  },
+  {
+   "fieldname": "sql",
+   "fieldtype": "Code",
+   "label": "Query",
+   "options": "SQL",
+   "reqd": 1,
+   "description": "Checked again on every run: one SELECT, allowed tables only."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-18 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Source Report",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "export": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "title"
+}

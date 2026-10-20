@@ -65,3 +65,51 @@ See [docs/architecture.md](docs/architecture.md).
 ## License
 
 MIT
+
+## Copilot on an outside database (v2.95.0)
+
+1. **Create a read-only account on that database.** This account is the main protection; Insight's query checks are a second line.
+   - MySQL / MariaDB: `CREATE USER 'insight_ro'@'%' IDENTIFIED BY '…'; GRANT SELECT ON salesdb.sales TO 'insight_ro'@'%'; GRANT SELECT ON salesdb.items TO 'insight_ro'@'%';`
+   - PostgreSQL: `CREATE ROLE insight_ro LOGIN PASSWORD '…'; GRANT USAGE ON SCHEMA public TO insight_ro; GRANT SELECT ON sales, items TO insight_ro;`
+   - SQL Server: create a login and user, then `GRANT SELECT ON dbo.sales TO insight_ro;` (needs the `pymssql` package on the server).
+2. **Make the database reachable from your Frappe server.** On Frappe Cloud this means a public address with TLS, restricted to Frappe Cloud's outbound IPs, or a tunnel.
+3. **Desk → Insight Data Source → New.**
+   - Enter the connection.
+   - List the **Allowed Tables**.
+   - Set **Allowed Roles** (blank means System Managers only).
+   - Press **Test connection & read tables**.
+4. **In Insight, open ✨ Ask Insight** and pick the source in the **Data** selector.
+
+What happens to each question, and what goes where:
+- The model sees the allowed tables' structure and writes one SELECT.
+- Insight refuses anything else before it reaches the database: more than one statement, comments, writes, server functions, or tables not on the list.
+- The query runs in a read-only session with a timeout and a row cap.
+- The query used is shown with every answer.
+- Only the table structure and up to 60 result rows are sent to the AI model configured in Insight AI Settings; with a self-hosted model they stay on your infrastructure.
+
+## AI providers (v2.96.0)
+
+Every AI feature (Financial Health analysis, the Copilot, Studio's AI builder) uses one client, configured in **Insight AI Settings**:
+
+| Provider (AI Provider) | AI Endpoint | AI Model (example) | AI API Key |
+|---|---|---|---|
+| OpenAI-compatible — Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-3.8-flash` | Google AI Studio key |
+| OpenAI-compatible — OpenAI | `https://api.openai.com/v1` | `gpt-4.1-mini` | OpenAI key |
+| OpenAI-compatible — Ollama (self-hosted) | `http://<host>:11434/v1` | `llama3.3` | blank |
+| OpenAI-compatible — Groq, Mistral, DeepSeek, OpenRouter, vLLM, LM Studio | the provider's `/v1` URL | their model name | their key |
+| Anthropic (Claude) | blank (`https://api.anthropic.com`) | `claude-sonnet-5-5` | Claude Console key (`sk-ant-…`) |
+| Azure OpenAI | `https://<resource>.openai.azure.com` | your deployment name | Azure key; set Azure API Version |
+
+Press **Test AI connection** after saving. It reports the provider, model and response time; whether the endpoint is **outside your network** (figures sent to the AI then leave your servers); and the reply, or the provider's error in plain words.
+
+### Switching to Claude
+1. **Get an API key.** Create an account at console.anthropic.com, add billing, and create a key under API Keys.
+2. **Fill in Insight AI Settings:**
+   - **AI Provider:** `Anthropic (Claude)`
+   - **AI Endpoint:** leave blank
+   - **AI Model:** e.g. `claude-sonnet-5-5`; `claude-haiku-5-5` is faster and cheaper, `claude-opus-5-5` gives the deepest analysis
+   - **AI API Key:** paste the key
+   - **Max Answer Tokens:** 4096
+3. **Save, press Test AI connection, then try AI Deep Analysis and the Copilot.**
+
+Model names and prices change; check Anthropic's models page before choosing.

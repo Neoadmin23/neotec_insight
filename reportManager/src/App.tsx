@@ -7,6 +7,7 @@ import { LedgerWorkspace } from './features/gl/LedgerWorkspace';
 import { AllocationApp } from './features/allocation/AllocationApp';
 import { ConfigBackupModal } from './features/shell/ConfigBackupModal';
 import { setDeskPrefix } from './utils/desk';
+import { CopilotPanel } from './features/copilot/CopilotPanel';
 const StudioApp = lazy(() => import('./features/studio/StudioApp'));
 const FinancialHealth = lazy(() => import('./features/health/FinancialHealth'));
 const ClassificationTab = lazy(() => import('./features/health/ClassificationTab'));
@@ -422,6 +423,8 @@ export default function App() {
 
       {showConfigBackup && <ConfigBackupModal initialTab={backupTab as any}
         onClose={() => { setShowConfigBackup(false); setBackupTab(undefined); }} />}
+      {/* v2.94.0 — Insight Copilot, on every screen (Ctrl/⌘+K). */}
+      {!access.hrOnly && <CopilotPanel />}
       {showThemePicker && <ThemePicker onClose={() => setShowThemePicker(false)} />}
       {showMenuSetup && (
         <MenuSetupModal initialNumFormat={(savedMenu as any)?.num_format}

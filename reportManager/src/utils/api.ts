@@ -124,8 +124,21 @@ async function call<T>(method: string, args?: Record<string, any>, httpMethod: '
       if (!detail) detail = body?.exc_type || '';
       if (!detail && typeof body?.message === 'string') detail = body.message;
     } catch { /* not JSON */ }
-    if (!detail) detail = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
-    throw new Error(`API ${method} failed: ${res.status}${detail ? ' — ' + detail : ''}`);
+    // v2.95.1 — a gateway/proxy error page is HTML with inline CSS: drop
+    // <style>/<script> contents (they used to be shown as the message) and
+    // say what the status means instead.
+    const GATEWAY: Record<number, string> = {
+      502: 'The server could not be reached (502). Try again in a moment.',
+      503: 'The server is busy or restarting (503). Try again in a moment.',
+      504: 'The server took too long to answer (504 Gateway Timeout). Try again; if it keeps happening, the request is too heavy for one web call.',
+    };
+    if (!detail && GATEWAY[res.status]) detail = GATEWAY[res.status];
+    if (!detail) {
+      detail = raw.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ').trim().slice(0, 300);
+    }
+    throw new Error(GATEWAY[res.status] && detail === GATEWAY[res.status]
+      ? detail : `API ${method} failed: ${res.status}${detail ? ' — ' + detail : ''}`);
   }
   const body = await res.json();
   return body.message as T;
@@ -260,6 +273,22 @@ export const api = {
     call<any>('report.import_configuration',
       { payload: JSON.stringify(payload), mode, allow_partial: allowPartial ? 1 : 0 }, 'POST'),
   configBackupCoverage: () => call<any>('report.check_config_backup_coverage'),
+  // v2.94.0 — Insight Copilot
+  copilotAsk: (question: string, opts: { company?: string | null; from_date?: string; to_date?: string; lang?: string; source?: string } = {}) =>
+    call<any>('copilot.ask', { question, company: opts.company || '', from_date: opts.from_date || '',
+      to_date: opts.to_date || '', lang: opts.lang || 'en', source: opts.source || '' }, 'POST'),
+  // v2.95.0 — outside databases
+  sourcesList: () => call<{ name: string; db_type: string }[]>('sources.list_sources'),
+  sourceReports: () => call<{ name: string; source: string; view: string; question?: string }[]>('sources.list_source_reports'),
+  sourceRunReport: (name: string) => call<any>('sources.run_source_report', { name }),
+  sourceSaveReport: (r: { title: string; source: string; sql: string; question?: string; view?: string }) =>
+    call<any>('sources.save_source_report', r, 'POST'),
+  copilotStartAsk: (question: string, opts: { company?: string | null; from_date?: string; to_date?: string; lang?: string; source?: string } = {}) =>
+    call<{ job_id: string }>('copilot.start_ask', { question, company: opts.company || '', from_date: opts.from_date || '',
+      to_date: opts.to_date || '', lang: opts.lang || 'en', source: opts.source || '' }, 'POST'),
+  copilotExamples: () => call<{ ai: boolean; examples: string[] }>('copilot.examples'),
+  copilotSaveReport: (title: string, config: any) =>
+    call<any>('copilot.save_as_report', { title, config: JSON.stringify(config) }, 'POST'),
   // v2.89.5 — Backup → Recover
   recoveryReportVersions: (report: string) => call<any>('recovery.report_versions', { report }),
   recoveryRestoreReport: (report: string, versionId: string) =>
@@ -298,6 +327,11 @@ export const api = {
     call<any>('health.financial_health', { company: company ?? null, fiscal_year: fiscalYear ?? null }),
   healthBreakdown: (bucket: string, company?: string | null) =>
     call<any>('health.health_breakdown', { bucket, company: company ?? null }),
+  // v2.95.1 — background AI jobs
+  healthStartAi: (company?: string | null, fiscalYear?: string | null, lang = 'en') =>
+    call<{ job_id: string }>('health.start_health_ai_analysis', { company: company ?? '', fiscal_year: fiscalYear ?? '', lang }, 'POST'),
+  aiJobStatus: (jobId: string) =>
+    call<{ status: string; result?: any; error?: string; elapsed?: number }>('ai.ai_job_status', { job_id: jobId }),
   healthAiAnalysis: (company?: string | null, fiscalYear?: string | null, lang = 'en') =>
     call<any>('health.health_ai_analysis', { company: company ?? null, fiscal_year: fiscalYear ?? null, lang }),
   scanAccountTypes: (company?: string | null) =>

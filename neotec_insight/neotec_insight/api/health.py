@@ -505,3 +505,14 @@ def health_ai_analysis(company=None, fiscal_year=None, lang="en"):
         "margin), note that it likely indicates an account-type misclassification to verify."
     )
     return ask_ai(question=question, company=company, context=json.dumps(ctx, default=str), lang=lang)
+
+
+@frappe.whitelist(methods=["POST"])
+def start_health_ai_analysis(company=None, fiscal_year=None, lang="en"):
+    """v2.95.1 — the same analysis as a background job: the model may take
+    longer than the web gateway allows (504), so the screen polls
+    ai.ai_job_status instead of waiting on one request."""
+    _require_read()
+    from neotec_insight.neotec_insight.utils import ai_jobs
+    return ai_jobs.start("neotec_insight.neotec_insight.api.health.health_ai_analysis",
+                         {"company": company, "fiscal_year": fiscal_year, "lang": lang})

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { runAiJob } from '../../utils/aiJob';
+import { Markdown } from '../../components/Markdown';
 import { api } from '../../utils/api';
 import ClassificationStudio from './ClassificationStudio';
 import { t } from '../../utils/i18n';
@@ -40,13 +42,16 @@ export default function FinancialHealth() {
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<'cards' | 'graphical'>('cards');
   const [fy, setFy] = useState('');
-  const [ai, setAi] = useState<{ loading?: boolean; text?: string; error?: string } | null>(null);
+  const [ai, setAi] = useState<{ loading?: boolean; text?: string; error?: string; secs?: number } | null>(null);
   const [expanded, setExpanded] = useState<string>('');
   const [breakdowns, setBreakdowns] = useState<Record<string, any>>({});
 
   function runAi() {
+    // v2.95.1 — background job + polling: a slow model no longer hits the
+    // gateway's time limit (504).
     setAi({ loading: true });
-    api.healthAiAnalysis(company || null, fy || null)
+    runAiJob<any>(() => api.healthStartAi(company || null, fy || null),
+      (secs) => setAi((a) => (a?.loading ? { loading: true, secs } : a)))
       .then((d) => setAi({ text: d?.text || '' }))
       .catch((e: any) => setAi({ error: String(e?.message || e) }));
   }
@@ -326,9 +331,9 @@ export default function FinancialHealth() {
           {ai && (ai.text || ai.error || ai.loading) && (
             <div className="fh-ai">
               <div className="fh-ai-h">✨ {t('AI Financial Analysis')}</div>
-              {ai.loading && <div className="fh-ai-loading">{t('The AI is reviewing your ratios…')}</div>}
+              {ai.loading && <div className="fh-ai-loading">{t('The AI is reviewing your ratios…')}{ai.secs ? ` ${ai.secs}s` : ''}</div>}
               {ai.error && <div className="fh-ai-err">{ai.error}</div>}
-              {ai.text && <div className="fh-ai-body">{ai.text.split('\n').map((ln, i) => <p key={i}>{ln}</p>)}</div>}
+              {ai.text && <Markdown className="fh-ai-body" text={ai.text} />}
             </div>
           )}
 

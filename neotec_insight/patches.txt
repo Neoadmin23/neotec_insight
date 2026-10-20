@@ -5,3 +5,4 @@ neotec_insight.patches.v2_88.reload_changed_doctypes
 neotec_insight.patches.v2_89.install_snapshot_store
 neotec_insight.patches.v2_89.allocation_rule_layout_fields
 neotec_insight.patches.v2_90.security_fields
+neotec_insight.patches.v2_96.ai_provider_fields

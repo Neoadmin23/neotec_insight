@@ -1,0 +1,187 @@
+{
+ "actions": [],
+ "autoname": "field:title",
+ "creation": "2026-10-18 00:00:00",
+ "description": "A read-only connection to an outside database that Insight Copilot can report on (v2.95.0).",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "enabled",
+  "db_type",
+  "column_break_c",
+  "status",
+  "section_conn",
+  "host",
+  "port",
+  "database",
+  "column_break_x",
+  "username",
+  "password",
+  "use_ssl",
+  "section_scope",
+  "allowed_tables",
+  "allowed_roles",
+  "column_break_l",
+  "row_limit",
+  "timeout_seconds",
+  "section_schema",
+  "schema_read_on",
+  "schema_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Name",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "db_type",
+   "fieldtype": "Select",
+   "label": "Database Type",
+   "options": "MariaDB / MySQL\nPostgreSQL\nSQL Server",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Small Text",
+   "label": "Last Test",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_conn",
+   "fieldtype": "Section Break",
+   "label": "Connection"
+  },
+  {
+   "fieldname": "host",
+   "fieldtype": "Data",
+   "label": "Host",
+   "reqd": 1
+  },
+  {
+   "fieldname": "port",
+   "fieldtype": "Int",
+   "label": "Port",
+   "description": "Blank = the default for the database type (3306, 5432, 1433)."
+  },
+  {
+   "fieldname": "database",
+   "fieldtype": "Data",
+   "label": "Database",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_x",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "username",
+   "fieldtype": "Data",
+   "label": "User",
+   "reqd": 1,
+   "description": "Use an account that can only SELECT the tables to report on. That account is the real protection; Insight's query checks are the second line."
+  },
+  {
+   "fieldname": "password",
+   "fieldtype": "Password",
+   "label": "Password"
+  },
+  {
+   "fieldname": "use_ssl",
+   "fieldtype": "Check",
+   "label": "Use TLS/SSL",
+   "default": "1"
+  },
+  {
+   "fieldname": "section_scope",
+   "fieldtype": "Section Break",
+   "label": "What it may read, and who"
+  },
+  {
+   "fieldname": "allowed_tables",
+   "fieldtype": "Small Text",
+   "label": "Allowed Tables",
+   "description": "One per line or comma-separated (schema.table allowed). Queries reading any other table are refused. Blank = every table the database user can see \u2014 not recommended."
+  },
+  {
+   "fieldname": "allowed_roles",
+   "fieldtype": "Small Text",
+   "label": "Allowed Roles",
+   "description": "Roles that may ask questions about this source, comma-separated. Blank = System Managers only."
+  },
+  {
+   "fieldname": "column_break_l",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "row_limit",
+   "fieldtype": "Int",
+   "label": "Row Limit",
+   "default": "500"
+  },
+  {
+   "fieldname": "timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (seconds)",
+   "default": "20"
+  },
+  {
+   "fieldname": "section_schema",
+   "fieldtype": "Section Break",
+   "label": "Table structure",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "schema_read_on",
+   "fieldtype": "Datetime",
+   "label": "Read On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "schema_json",
+   "fieldtype": "Long Text",
+   "label": "Tables and Columns",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-18 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Data Source",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "export": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "title"
+}

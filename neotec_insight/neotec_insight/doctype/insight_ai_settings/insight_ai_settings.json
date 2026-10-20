@@ -6,10 +6,14 @@
  "field_order": [
   "ai_section",
   "ai_enabled",
+  "ai_provider",
   "ai_endpoint",
   "ai_model",
   "ai_api_key",
   "ai_col",
+  "ai_max_tokens",
+  "ai_timeout_seconds",
+  "ai_api_version",
   "ai_system_prompt",
   "loc_section",
   "default_language",
@@ -43,17 +47,26 @@
    "description": "When on, the Ask Neotec AI panel on the Reports screen sends live report figures to the endpoint below."
   },
   {
+   "fieldname": "ai_provider",
+   "fieldtype": "Select",
+   "label": "AI Provider",
+   "options": "OpenAI-compatible\nAnthropic (Claude)\nAzure OpenAI",
+   "default": "OpenAI-compatible",
+   "description": "OpenAI-compatible covers OpenAI, Google Gemini, Ollama, Groq, Mistral, DeepSeek, OpenRouter, vLLM and LM Studio. Use Anthropic (Claude) for Claude, and Azure OpenAI for OpenAI models hosted on Azure."
+  },
+  {
    "fieldname": "ai_endpoint",
    "fieldtype": "Data",
    "label": "AI Endpoint (OpenAI-compatible base URL)",
    "default": "http://host.docker.internal:11434/v1",
-   "description": "NeoNexus / Ollama / LM Studio / OpenAI base URL. /chat/completions is appended automatically."
+   "description": "OpenAI: https://api.openai.com/v1 · Gemini: https://generativelanguage.googleapis.com/v1beta/openai/ · Ollama: http://<host>:11434/v1 · Claude: leave blank (https://api.anthropic.com) · Azure: https://<resource>.openai.azure.com"
   },
   {
    "fieldname": "ai_model",
    "fieldtype": "Data",
    "label": "Model",
-   "default": "llama3.3"
+   "default": "llama3.3",
+   "description": "The provider's model name, e.g. gpt-4.1-mini, gemini-3.8-flash, llama3.3, claude-sonnet-5-5. For Azure, the deployment name."
   },
   {
    "fieldname": "ai_api_key",
@@ -64,6 +77,27 @@
   {
    "fieldname": "ai_col",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ai_max_tokens",
+   "fieldtype": "Int",
+   "label": "Max Answer Tokens",
+   "default": "4096",
+   "description": "Upper limit for one answer. Claude requires a limit; others use it if given."
+  },
+  {
+   "fieldname": "ai_timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (seconds)",
+   "default": "120",
+   "description": "How long one call may take. Calls run in the background, so this is not limited by the web gateway."
+  },
+  {
+   "fieldname": "ai_api_version",
+   "fieldtype": "Data",
+   "label": "Azure API Version",
+   "default": "2024-10-21",
+   "depends_on": "eval:doc.ai_provider=='Azure OpenAI'"
   },
   {
    "fieldname": "ai_system_prompt",
@@ -173,7 +207,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-01-01 00:00:00",
+ "modified": "2026-10-18 12:00:00",
  "module": "Neotec Insight",
  "name": "Insight AI Settings",
  "owner": "Administrator",

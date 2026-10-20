@@ -96,6 +96,14 @@ DATA_REGISTRY: list[dict] = [
 ]
 CONFIG_REGISTRY.extend(DATA_REGISTRY)
 
+# v2.95.0 — Copilot's outside data sources. The connection's password lives in
+# Frappe's encrypted password store, not on the record, so a backup carries
+# host/database/allowlist settings but never the credential.
+CONFIG_REGISTRY.extend([
+    {"doctype": "Insight Data Source", "area": "Copilot — outside data sources"},
+    {"doctype": "Insight Source Report", "area": "Copilot — outside data sources"},
+])
+
 # Anything in the module that is in neither list is NOT a gap any more: the
 # export discovers it and includes it under this area, so a doctype added by
 # a future release is in the backup the day it ships, before anyone edits this

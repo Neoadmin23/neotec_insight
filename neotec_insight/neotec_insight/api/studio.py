@@ -629,7 +629,8 @@ def ai_build(doctype=None, prompt=None):
     field_catalog = "\n".join(f"- {f['fieldname']} ({f['fieldtype']}): {f['label']}" for f in fields)
 
     s = frappe.get_doc("Insight AI Settings")
-    if not getattr(s, "ai_enabled", 0) or not getattr(s, "ai_endpoint", None):
+    from neotec_insight.neotec_insight.utils import ai_client
+    if not ai_client.ready(s):
         frappe.throw(_("AI is not configured. Enable it in Insight AI Settings."))
 
     system = (
@@ -642,21 +643,12 @@ def ai_build(doctype=None, prompt=None):
     )
     user = f"DocType: {doctype}\nAvailable fields:\n{field_catalog}\n\nRequest: {prompt}\n\nReturn JSON only."
 
-    headers = {"Content-Type": "application/json"}
-    api_key = s.get_password("ai_api_key") if s.ai_api_key else None
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    endpoint = s.ai_endpoint.rstrip("/") + "/chat/completions"
-    payload = {"model": s.ai_model or "llama3",
-               "messages": [{"role": "system", "content": system},
-                            {"role": "user", "content": user}],
-               "stream": False, "temperature": 0.1}
-    import requests
+    # v2.96.0 — one client for every provider (utils/ai_client.py).
+    from neotec_insight.neotec_insight.utils import ai_client
     try:
-        resp = requests.post(endpoint, headers=headers, json=payload, timeout=120)
-        resp.raise_for_status()
-        data = resp.json()
-        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        text = ai_client.chat(system, user, temperature=0.1)
+    except ai_client.AIError as e:
+        frappe.throw(str(e))
     except Exception as e:  # noqa: BLE001
         frappe.log_error(frappe.get_traceback(), "Studio · ai_build")
         frappe.throw(_("AI request failed: {0}").format(str(e)[:200]))

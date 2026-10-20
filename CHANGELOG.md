@@ -1,3 +1,139 @@
+## v2.96.0 — 2026-10-18 — any AI provider: Gemini, OpenAI, Claude, Azure, Ollama…
+
+### One AI client for every feature
+AI analysis, Studio's AI builder and the Copilot each had their own OpenAI-format request code. They now all use `utils/ai_client.py`. The **AI Provider** setting picks the wire format:
+
+| Provider | Covers |
+|---|---|
+| OpenAI-compatible | OpenAI, Google Gemini (`…/v1beta/openai/`), Ollama, Groq, Mistral, DeepSeek, OpenRouter, vLLM, LM Studio |
+| Anthropic (Claude) | Native Messages API: `x-api-key`, `anthropic-version: 2023-06-01`, `max_tokens`, top-level `system`. The endpoint may be left blank. |
+| Azure OpenAI | `/openai/deployments/<deployment>/chat/completions?api-version=…` with an `api-key` header |
+
+- **Plain-language errors:** wrong key, unknown model, quota or rate limit, provider outage, with the provider's own message attached. Gemini's list-wrapped error format is understood.
+- **Automatic retry:** a rate-limit or server error is retried once.
+
+New settings: **AI Provider**, **Max Answer Tokens**, **Timeout (seconds)** and **Azure API Version**. Existing setups (your Gemini configuration included) keep working unchanged as *OpenAI-compatible*; patch `v2_96.ai_provider_fields` sets that default.
+
+### Test AI connection
+A button on Insight AI Settings (`ai.test_ai_connection`, System Manager) makes one short call. It shows the provider, model and response time, whether the endpoint is **outside your network** (so figures leave your servers), and the reply or the error. The AI status endpoint also reports the provider and that flag.
+
+### Tests
+14 new; 545 total. They cover:
+- the exact request each provider receives (your Gemini URL with its trailing slash, Claude's headers and required `max_tokens`, Azure's deployment URL);
+- response parsing, including multi-part content;
+- error translation;
+- one retry on rate limits, and no retry on a bad key;
+- unreachable endpoints;
+- Claude ready without an endpoint;
+- the internal/external endpoint check;
+- no feature keeping its own request code.
+
+## v2.95.1 — 2026-10-18 — AI no longer times out at the gateway (504)
+
+### Fixed: "API health.health_ai_analysis failed: 504 — Gateway Timeout"
+The AI analysis waited up to 120 seconds for the model inside one web request. Frappe Cloud's gateway ends web requests before that, so a slow model, a long prompt or a cold start returned 504. The Copilot (up to two model calls) had the same exposure. Raising timeouts cannot fix it, because the gateway limit is not the app's to change.
+
+AI work now runs as a **background job** (`utils/ai_jobs.py`):
+- **Instant reply:** the screen gets a job id at once and polls `ai.ai_job_status`, showing elapsed seconds and giving up after 15 minutes. No web request waits on the model.
+- **Same permissions:** the job runs on the long queue as the user who started it, so the same permission checks apply. Access is also checked before queuing, so a user without rights is refused immediately.
+- **Private results:** only that user can read the job's result. Only listed functions (the health analysis and Copilot `ask`) can be queued.
+- **Fallback:** if background workers are unavailable, the work runs inline instead of failing.
+
+New endpoints: `health.start_health_ai_analysis`, `copilot.start_ask` (both POST) and `ai.ai_job_status`. The earlier synchronous endpoints still work.
+
+### Fixed: gateway error pages shown as raw CSS
+The error message stripped HTML tags but kept the text of `<style>` blocks, which is the CSS in the report. Style and script contents are now dropped, and 502, 503 and 504 are explained in plain words.
+
+### Tests
+10 new; 531 total. They cover:
+- the inline fallback, and the queued path executed by a worker as the owner, with the original user restored;
+- errors reported, not raised;
+- other users refused the result;
+- only listed functions queueable;
+- People-only users and users without source access refused before anything is queued;
+- both screens using the job path.
+
+## v2.95.0 — 2026-10-18 — Copilot designs reports from any ERPNext document type and from outside databases
+
+### ERPNext: every document type, including custom apps
+Record searches were limited to 16 common document types. They now cover **every document type the user can read**, including custom apps such as AlphaX and Neotec doctypes. Frappe's own system modules are excluded.
+- The model sees a shortlist ranked by relevance to the question (`copilot_core.rank_doctypes`).
+- Its choice is validated against what the user can actually read.
+- Results still go through Studio's permission-checked query and can be kept with **Save as report**.
+
+### Outside databases: MariaDB/MySQL, PostgreSQL, SQL Server
+- **Insight Data Source** (System Manager) holds a connection:
+  - host, database and user, with the password in Frappe's encrypted store;
+  - TLS;
+  - **Allowed Tables** and **Allowed Roles**;
+  - a row limit and a timeout.
+
+  **Test connection & read tables** reads and caches the table structure.
+- **Copilot:** pick the source in the new **Data** selector and ask. The model writes one SELECT from the allowed tables' structure, and Insight checks and runs it.
+  - The answer comes with a table and/or chart, a written explanation, and the **query used**.
+  - **Save as report** creates an *Insight Source Report*. Saved reports appear as one-click chips and are re-checked on every run.
+- **Drivers:** MariaDB/MySQL and PostgreSQL use drivers that ship with Frappe. SQL Server loads `pymssql` only if it is installed, with a clear message otherwise, so it cannot break a build.
+
+**Safety — three layers**
+1. **The database account:** use a SELECT-only user. The README has the exact commands for each database.
+2. **The session:** read-only transaction mode and a statement timeout.
+3. **`utils/sql_guard.py`** checks every statement:
+   - exactly one SELECT/WITH and no comments;
+   - nothing that can act from inside a SELECT: data-changing CTEs, `SELECT … INTO`, `FOR UPDATE`, sleep, file and remote-execution functions (including PostgreSQL's `query_to_xml`, which runs SQL given as text);
+   - only allowlisted tables, with comma joins refused because they would let a table escape the check (found while testing the guard);
+   - an outer row cap that the query cannot override.
+
+   A refused query gets one corrected retry; a second refusal stops with the reason.
+
+Only the table structure and up to 60 result rows reach the AI model, which stays on your infrastructure with a self-hosted model. Both new doctypes are in backups; the password is not.
+
+### Tests
+21 new; 521 total. Outside-database queries run for real against SQLite standing in for the source, covering:
+- aggregates and joins;
+- the row cap overriding the query's own LIMIT;
+- refused queries never reaching the database;
+- the retry, and saved reports re-checked after tampering;
+- role-based access to sources;
+- custom ERPNext doctypes accepted only when readable.
+
+## v2.94.0 — 2026-10-18 — Insight Copilot
+
+### Added: ask anything, on any screen
+A ✨ **Ask Insight** button (or Ctrl/⌘+K) opens the Copilot on every screen. Ask in plain English or Arabic and get:
+- a written answer;
+- the figures as a **table** or a **chart** (bar, line or pie, with a Chart/Table switch);
+- **CSV export**;
+- three **follow-up suggestions** you can click.
+
+Record searches ("unpaid sales invoices over 50,000") can be kept with **Save as report**, which creates a Studio report. A period picker covers this year, last year, this quarter and the last 30 days.
+
+**How it answers — and why the numbers can be trusted**
+1. **Plan.** Common questions go through a built-in planner, instantly and with no AI needed (top customers or suppliers, who owes us, ageing, expenses by cost centre, project, department or branch, monthly trend, biggest expenses, cash position, key figures). Anything else goes to the model configured in Insight AI Settings, which may only **pick one tool and fill its options**.
+2. **Validate.** `copilot_core.validate_plan` refuses unknown tools, unknown or out-of-range options, bad dates and periods over five years. A plan that fails never touches the database.
+3. **Compute.** Eight read-only tools compute the figures here, with the asking user's permissions:
+   - the finance gate and company scope apply;
+   - cost-centre, project, department and branch rows the user cannot read are left out;
+   - record searches use Studio's permission-checked query, readable fields only.
+4. **Explain.** The model explains the computed figures and suggests follow-ups, using only numbers present in the data. If AI is off or the model fails, a factual summary is written from the data instead.
+
+The model never writes SQL and never produces a figure. Questions are limited to 30 per user per minute, and People-only (HR) users don't see the Copilot.
+
+Endpoints: `copilot.ask` (POST), `copilot.examples`, `copilot.save_as_report` (POST).
+
+### Fixed: AI analysis showed raw Markdown
+Financial Health's AI analysis printed `###`, `**bold**` and `---` literally. A new Markdown renderer (`components/Markdown.tsx`) formats headings, bold, italics, lists, rules and inline code. It builds the elements directly and never inserts HTML, so text from a model cannot inject markup. The Copilot uses the same renderer.
+
+### Tests
+16 new; 500 total. They cover:
+- the validator, including hostile plans (SQL in an option, unknown tools, foreign doctypes such as User) that never reach the database;
+- the built-in planner in English and Arabic;
+- charts and summaries computed from the data only;
+- answers with and without AI, and the fallback when the model fails;
+- People-only users refused;
+- cost centres hidden from users who cannot read them.
+
+The tests caught two bugs before release: a planner pattern that missed "top 10 customers", and a parameter name that hid the translation function inside the tools.
+
 ## v2.93.0 — 2026-10-15 — runs on Frappe v16 as well as v15
 
 Frappe Cloud refused the app on a v16 bench ("Version 16 is not supported by branch main") because `pyproject.toml` declared `frappe >=15,<16`. Only widening that number would have let the app install and then fail at runtime, so the code was first checked against every item in Frappe's "Migrating to version 16" page and its query-builder migration guide. One branch now serves both versions; sites on v15 are unaffected.

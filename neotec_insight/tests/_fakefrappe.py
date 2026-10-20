@@ -433,6 +433,7 @@ def install():
             return out
         return rows
     m.get_list = get_list
+    m.get_single = lambda dt: get_doc(dt)
 
     class _Session:
         @property

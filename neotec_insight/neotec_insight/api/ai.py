@@ -221,7 +221,10 @@ def ai_bootstrap():
     return {
         "enabled": bool(s.ai_enabled),
         "model": s.ai_model or "llama3",
-        "endpoint_set": bool(s.ai_endpoint),
+        "endpoint_set": bool(s.ai_endpoint) or getattr(s, "ai_provider", "") == "Anthropic (Claude)",
+        # v2.96.0 — which provider, and whether data leaves your network.
+        "provider": getattr(s, "ai_provider", "") or "OpenAI-compatible",
+        "external": _external_endpoint(s),
         "default_language": s.default_language or "en",
         "reports": reports,
         "companies": companies,
@@ -582,7 +585,8 @@ def ask_ai(question=None, company=None, from_date=None, to_date=None, report=Non
     """Answer a question grounded in the live financial figures."""
     _require_read()
     s = _settings()
-    if not s.ai_enabled or not s.ai_endpoint:
+    from neotec_insight.neotec_insight.utils import ai_client as _aic
+    if not _aic.ready(s):
         return {"text": _("Neotec AI is not configured. Enable it and set a reachable AI Endpoint in "
                           "Insight AI Settings."), "ok": False}
     if not question:
@@ -606,35 +610,13 @@ def ask_ai(question=None, company=None, from_date=None, to_date=None, report=Non
         f"LIVE FINANCIAL DATA (JSON):\n{context}\n\n"
         f"Question: {question}"
     )
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_msg},
-    ]
-
-    headers = {"Content-Type": "application/json"}
-    api_key = s.get_password("ai_api_key") if s.ai_api_key else None
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    endpoint = s.ai_endpoint.rstrip("/") + "/chat/completions"
-    payload = {"model": s.ai_model or "llama3", "messages": messages, "stream": False, "temperature": 0.2}
-
-    import requests
+    # v2.96.0 — one client for every provider (utils/ai_client.py).
+    from neotec_insight.neotec_insight.utils import ai_client
     try:
-        resp = requests.post(endpoint, headers=headers, json=payload, timeout=120)
-        resp.raise_for_status()
-        data = resp.json()
-        text = data.get("choices", [{}])[0].get("message", {}).get("content", "") if isinstance(data, dict) else ""
-        if not text:
-            return {"text": _("The AI endpoint returned an empty response."), "ok": False}
-        return {"text": text, "ok": True}
-    except requests.exceptions.RequestException as e:
-        # endpoint unreachable / DNS / timeout — expected when misconfigured; don't spam Error Log
-        frappe.logger("neotec_insight").warning(f"AI endpoint unreachable: {e}")
-        return {"text": _("The AI endpoint could not be reached at {0}. Check Insight AI Settings → "
-                          "AI Endpoint. Note: 'host.docker.internal' only works when Frappe and the model "
-                          "run in Docker on the same machine; on Frappe Cloud use a publicly reachable "
-                          "HTTPS URL, or turn AI off.").format(s.ai_endpoint), "ok": False}
+        return {"text": ai_client.chat(system_prompt, user_msg, temperature=0.2), "ok": True}
+    except ai_client.AIError as e:
+        frappe.logger("neotec_insight").warning(f"AI request failed: {e}")
+        return {"text": str(e), "ok": False}
     except Exception as e:  # noqa: BLE001
         frappe.log_error(frappe.get_traceback(), "Neotec AI · ask_ai")
         return {"text": _("AI request failed: {0}").format(str(e)[:200]), "ok": False}
@@ -642,20 +624,37 @@ def ask_ai(question=None, company=None, from_date=None, to_date=None, report=Non
 
 @frappe.whitelist()
 def list_models():
-    s = _settings()
-    if not s.ai_endpoint:
-        return {"models": []}
-    import requests
-    headers = {}
-    api_key = s.get_password("ai_api_key") if s.ai_api_key else None
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    from neotec_insight.neotec_insight.utils import ai_client
+    return {"models": ai_client.list_models()}
+
+
+@frappe.whitelist(methods=["POST"])
+def test_ai_connection():
+    """v2.96.0 — one short call with the saved settings: provider, model, time
+    taken, whether the endpoint is outside your network, and the reply or the
+    provider's error in plain words."""
+    frappe.only_for("System Manager")
+    import time as _t
+    from neotec_insight.neotec_insight.utils import ai_client
+    info = ai_client.describe()
+    started = _t.time()
     try:
-        resp = requests.get(s.ai_endpoint.rstrip("/") + "/models", headers=headers, timeout=8)
-        resp.raise_for_status()
-        data = resp.json()
-        items = data.get("data", data) if isinstance(data, dict) else data
-        models = [m.get("id") for m in items if isinstance(m, dict) and m.get("id")]
-        return {"models": models}
-    except Exception:
-        return {"models": []}
+        reply = ai_client.chat("Reply with exactly: OK", "Connection test.", temperature=0, max_tokens=16,
+                               timeout=60)
+        return {**info, "ok": True, "reply": reply[:80], "ms": int((_t.time() - started) * 1000)}
+    except ai_client.AIError as e:
+        return {**info, "ok": False, "error": str(e), "ms": int((_t.time() - started) * 1000)}
+
+
+# ── v2.95.1: background AI jobs (avoid gateway timeouts) ──────────────────────
+
+@frappe.whitelist()
+def ai_job_status(job_id=None):
+    """Poll a background AI job started by this user."""
+    from neotec_insight.neotec_insight.utils import ai_jobs
+    return ai_jobs.status(job_id)
+
+
+def _external_endpoint(s) -> bool:
+    from neotec_insight.neotec_insight.utils import ai_client
+    return ai_client.is_external(ai_client._endpoint(s)) if ai_client.ready(s) else False
