@@ -50,16 +50,29 @@ TOOLS: dict[str, dict] = {
         "desc": "Cash and bank balances per account as at the period end.",
         "args": {}, "view": "pie"},
     # v3.0.1 — people (HR or payroll access needed)
-    "headcount": {"desc": "How many EMPLOYEES (people), active by default, split by designation, department, "
-                          "branch, grade, employment type, company or status. Use this for any 'how many "
+    "headcount": {"desc": "How many EMPLOYEES (people), active by default, split by any employee field — e.g. "
+                          "designation, department, branch, nationality, gender, grade, employment type, status. "
+                          "For Saudization / Nitaqat questions group by nationality. Use split_by for a second "
+                          "dimension as columns, e.g. group_by department + split_by saudi for Saudi vs non-Saudi. Use this for any 'how many "
                           "employees / staff / headcount' question — never count Designation or Department records.",
-                  "args": {"group_by": ("enum", False, ("designation", "department", "branch", "grade",
-                                                        "employment_type", "company", "status"))},
+                  # v3.0.2 — any Employee field (nationality, gender, custom fields…),
+                  # resolved against the Employee form at run time.
+                  "args": {"group_by": ("text", False, 60),
+                           # v3.1.1 — a second dimension as columns: "saudi" (Saudi / non-Saudi
+                           # by the Saudization rules) or any employee field (gender…)
+                           "split_by": ("text", False, 60)},
                   "view": "bar"},
     "people_cost": {"desc": "Payroll cost from submitted salary slips in a period (gross and net pay, employees "
                             "paid), split by department, designation or branch.",
                     "args": {"group_by": ("enum", False, ("department", "designation", "branch"))},
                     "view": "bar"},
+    # v3.1.0 — compliance
+    "saudization": {"desc": "Nitaqat-style Saudization estimate: weighted Saudi count (part-time, wage, disability, "
+                            "nationalities counted as Saudi), percentage, band and Saudis needed for the next band.",
+                    "args": {}, "view": "table"},
+    "compliance_overview": {"desc": "Company compliance checklist: Saudization band, employee data gaps (nationality, "
+                                    "ID, bank), ID/iqama expiries, VAT position and Zakat estimate.",
+                            "args": {}, "view": "table"},
     # v2.97.0 — Analysis Pack
     "profit_bridge": {"desc": "Profit bridge: revenue to net profit step by step (cost of sales, expense groups).",
                       "args": {}, "view": "table"},
@@ -192,14 +205,25 @@ def rule_plan(question: str) -> dict | None:
         ("branch", ("branch", "فرع", "الفروع")), ("grade", ("grade", "الدرجة")),
         ("employment_type", ("employment type", "contract type", "نوع التوظيف")),
         ("status", ("status", "active and left", "الحالة"))) if _has(q, *words)), None)
+    if group is None:
+        group = people_group_phrase(q)
+    if _has(q, "compliance", "compliant", "regulatory", "iqama", "wps", "gosi", "zatca", "امتثال", "الالتزام"):
+        return {"tool": "compliance_overview", "args": {}}
+    if _has(q, "saudization", "saudisation", "saudiazation", "saudiz", "nitaqat", "saudi ratio",
+            "saudi percentage", "band", "سعودة", "نطاقات"):
+        return {"tool": "saudization", "args": {}}
     if _has(q, "payroll", "salary cost", "salaries by", "people cost", "staff cost", "wage bill",
             "تكلفة الرواتب", "الرواتب"):
         return {"tool": "people_cost", "args": {"group_by": group if group in ("department", "designation", "branch")
                                                  else "department"}}
     people_word = _has(q, "employee", "staff", "workforce", "people", "موظف", "الموظفين", "العاملين")
+    split = people_split(q, group)
     if _has(q, "headcount", "head count", "how many employees", "number of employees", "employee count",
-            "staff count", "how many staff", "manpower", "عدد الموظفين", "القوى العاملة") or (people_word and group):
-        return {"tool": "headcount", "args": {"group_by": group or "department"}}
+            "staff count", "how many staff", "manpower", "عدد الموظفين", "القوى العاملة") or (people_word and (group or split)):
+        args = {"group_by": group or "department"}
+        if split and split != args["group_by"]:
+            args["split_by"] = split
+        return {"tool": "headcount", "args": args}
     if _has(q, "anomal", "unusual journal", "suspicious", "red flag", "second look", "audit the journal",
             "قيود غير عادية", "مشبوه"):
         return {"tool": "gl_anomalies", "args": {}}
@@ -236,6 +260,44 @@ def rule_plan(question: str) -> dict | None:
             "revenue", "ملخص", "الأداء", "الربح", "الإيرادات"):
         return {"tool": "kpis", "args": {}}
     return None
+
+
+# v3.0.2 — "by nationality", "nationality wise", "حسب الجنسية" → "nationality"
+_ARABIC_GROUPS = {"الجنسية": "nationality", "الجنس": "gender", "المسمى": "designation", "القسم": "department",
+                  "الفرع": "branch", "الدرجة": "grade"}
+_BY = re.compile(r"\bby\s+([a-z][a-z _]{2,40}?)(?=\s*(?:\?|$|\.|,|\band\b|\bin\b|\bfor\b|\bwith\b|\bthis\b))")
+_WISE = re.compile(r"\b([a-z][a-z_]{2,30})[\s-]*wise\b")
+_STOP = {"employee", "employees", "staff", "people", "count", "headcount", "the", "each", "every"}
+
+
+def people_group_phrase(q: str) -> str | None:
+    """The grouping a people question asks for, as free text, or None."""
+    for ar, en in _ARABIC_GROUPS.items():
+        if ar in q:
+            return en
+    for rx in (_WISE, _BY):
+        m = rx.search(q)
+        if m:
+            words = [w for w in m.group(1).split() if w not in _STOP]
+            if words:
+                return " ".join(words)[:60]
+    return None
+
+
+_SAUDI_SPLIT = ("saudi and non", "saudi vs", "saudi/non", "non-saudi", "non saudi", "saudis and", "saudi & non",
+                "سعودي وغير", "السعوديين وغير")
+_SECOND = (("nationality", ("nationality", "الجنسية")), ("gender", ("gender", "male and female", "الجنس")),
+           ("department", ("department", "القسم")), ("branch", ("branch", "الفرع")),
+           ("designation", ("designation", "job title")), ("employment_type", ("employment type",)))
+
+
+def people_split(q: str, group: str | None) -> str | None:
+    """Second dimension of a people question, shown as columns (v3.1.1)."""
+    if _has(q, *_SAUDI_SPLIT):
+        return "saudi"
+    named = [g for g, words in _SECOND if _has(q, *words)]
+    rest = [g for g in named if g != (group or "department")]
+    return rest[0] if len(named) >= 2 and rest else None
 
 
 # ── shaping ──────────────────────────────────────────────────────────────────
@@ -279,6 +341,8 @@ def plain_summary(tool: str, title: str, columns: list[dict], rows: list[dict]) 
 
 
 FOLLOW_UPS = {
+    "saudization": ["Headcount by nationality", "Compliance overview", "Payroll cost by department"],
+    "compliance_overview": ["Saudization estimate", "Show the KPIs", "Any suspicious journal entries?"],
     "headcount": ["Headcount by department", "Payroll cost by department", "Headcount by branch"],
     "people_cost": ["Headcount by department", "Payroll cost by designation", "Show the KPIs"],
     "profit_bridge": ["What moved profit vs last year?", "Expenses by cost centre", "Show the KPIs"],

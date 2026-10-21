@@ -237,25 +237,147 @@ def _people_gate():
     require_people_read()
 
 
-def t_headcount(company, f, t, group_by="department", **_kw):
-    """Employees (people), not designation records (v3.0.1). HR access needed;
-    Employee rows come through get_list, so record permissions apply."""
+_GROUPABLE = ("Link", "Select", "Data", "Check", "Int", "Dynamic Link")
+_SYNONYMS = {"position": "designation", "job title": "designation", "title": "designation", "role": "designation",
+             "dept": "department", "location": "branch", "office": "branch", "contract": "employment_type",
+             "employment type": "employment_type", "sex": "gender", "citizenship": "nationality",
+             "country": "nationality", "nation": "nationality"}
+SAUDI_VALUES = ("saudi", "سعود", "ksa")
+
+
+def resolve_employee_field(phrase: str) -> tuple[str | None, list[str]]:
+    """(fieldname, groupable labels). Matches the fieldname, a custom_ prefix,
+    or the label — e.g. "nationality" → custom_nationality. Only fields the
+    user may read, of a type that makes sense to group by."""
+    from neotec_insight.neotec_insight.api.studio import _readable_fieldnames
+    meta = frappe.get_meta("Employee")
+    readable = _readable_fieldnames("Employee")
+    fields = [f for f in meta.fields if f.fieldtype in _GROUPABLE and f.fieldname in readable]
+    labels = sorted({(f.label or f.fieldname) for f in fields})
+    p = (phrase or "").strip().lower()
+    p = _SYNONYMS.get(p, p)
+    key = p.replace(" ", "_")
+    for test in (lambda f: f.fieldname == key, lambda f: f.fieldname in (f"custom_{key}", f"{key}_custom"),
+                 lambda f: (f.label or "").strip().lower() == p,
+                 lambda f: key in f.fieldname, lambda f: p in (f.label or "").lower()):
+        hit = next((f for f in fields if test(f)), None)
+        if hit:
+            return hit.fieldname, labels
+    return None, labels
+
+
+def _saudi_label(value, rules) -> str:
+    """Saudi / Counted as Saudi / Non-Saudi / Nationality missing — by the rules."""
+    from neotec_insight.neotec_insight.utils import saudization_core as sc
+    cat = sc.classify({"name": "", "nationality": value}, {**rules, "salary_source": "Not used",
+                                                            "disability_field": None})[0]
+    return {"Saudi": _("Saudi"), "Counted as Saudi": _("Counted as Saudi"), "Non-Saudi": _("Non-Saudi")}.get(
+        cat, _("Nationality missing"))
+
+
+def t_headcount(company, f, t, group_by=None, split_by=None, **_kw):
+    """Employees (people), not designation records. HR access needed; Employee
+    rows come through get_list, so record permissions apply.
+
+    v3.0.2 — groups by any readable Employee field (nationality, gender,
+    custom fields…); an unknown grouping is refused with the choices instead of
+    silently falling back to department. Grouping by nationality adds the
+    Saudization share (Saudi employees ÷ all employees)."""
     _people_gate()
+    field = "department"
+    if group_by:
+        field, labels = resolve_employee_field(group_by)
+        if not field:
+            frappe.throw(_("Employees have no field matching “{0}” on this site. You can group by: {1}.")
+                         .format(group_by, ", ".join(labels[:25])))
     flt_ = {"company": company}
-    if group_by != "status":
+    if field != "status":
         flt_["status"] = "Active"
+    # v3.1.1 — optional second dimension as columns
+    split_field, saudi_mode, rules = None, False, {}
+    if split_by:
+        if str(split_by).strip().lower() in ("saudi", "saudi vs non-saudi", "saudization", "saudi/non-saudi"):
+            rules = _saudization_rules()
+            split_field = rules.get("nationality_field") or resolve_employee_field("nationality")[0]
+            if not split_field:
+                frappe.throw(_("Employees have no nationality field. Add one (Customize Form → Employee) or set "
+                               "it in Insight Saudization Rules."))
+            saudi_mode = True
+        else:
+            split_field, labels = resolve_employee_field(split_by)
+            if not split_field:
+                frappe.throw(_("Employees have no field matching “{0}” on this site. You can split by: {1}.")
+                             .format(split_by, ", ".join(labels[:25])))
+            if split_field == field:
+                split_field = None
     counts: dict[str, int] = {}
-    for r in frappe.get_list("Employee", filters=flt_, fields=[group_by], limit_page_length=0,
-                             order_by="creation asc"):
-        k = r.get(group_by) or _("(not set)")
+    cross: dict[str, dict[str, int]] = {}
+    for r in frappe.get_list("Employee", filters=flt_, fields=[field] + ([split_field] if split_field else []),
+                             limit_page_length=0, order_by="creation asc"):
+        k = r.get(field)
+        k = _("(not set)") if k in (None, "") else str(k)
         counts[k] = counts.get(k, 0) + 1
-    rows = [{"group": k, "employees": v} for k, v in sorted(counts.items(), key=lambda kv: -kv[1])]
-    label = frappe.get_meta("Employee").get_label(group_by) or group_by
-    cols = [{"key": "group", "label": _(label), "type": "text"},
-            {"key": "employees", "label": _("Employees"), "type": "number"}]
+        if split_field:
+            sv = _saudi_label(r.get(split_field), rules) if saudi_mode else \
+                (str(r.get(split_field)) if r.get(split_field) not in (None, "") else _("(not set)"))
+            cross.setdefault(k, {})[sv] = cross.setdefault(k, {}).get(sv, 0) + 1
     total = sum(counts.values())
+    if split_field:
+        return _crosstab(field, split_field, counts, cross, total, saudi_mode)
+    rows = [{"group": k, "employees": v, "share": round(v / total * 100, 1) if total else 0}
+            for k, v in sorted(counts.items(), key=lambda kv: -kv[1])]
+    label = frappe.get_meta("Employee").get_label(field) or field
+    cols = [{"key": "group", "label": _(label), "type": "text"},
+            {"key": "employees", "label": _("Employees"), "type": "number"},
+            {"key": "share", "label": _("Share %"), "type": "percent"}]
     title = _("Headcount by {0}: {1} {2} employees").format(_(label).lower(), total,
-                                                             _("active") if group_by != "status" else _("all"))
+                                                             _("active") if field != "status" else _("all"))
+    if "national" in field or "national" in label.lower():
+        saudi = sum(v for k, v in counts.items() if any(s in k.lower() for s in SAUDI_VALUES))
+        title += " · " + _("Saudi share {0}% ({1} Saudi of {2}, plain count — ask for the Saudization "
+                           "estimate for the weighted Nitaqat view)").format(
+            round(saudi / total * 100, 1) if total else 0, saudi, total)
+    return cols, rows, title
+
+
+def _crosstab(field, split_field, counts, cross, total, saudi_mode):
+    """Rows = first dimension, columns = second (top 8 values + Other)."""
+    meta = frappe.get_meta("Employee")
+    label = meta.get_label(field) or field
+    totals: dict[str, int] = {}
+    for row in cross.values():
+        for v, n in row.items():
+            totals[v] = totals.get(v, 0) + n
+    if saudi_mode:
+        order = [x for x in (_("Saudi"), _("Counted as Saudi"), _("Non-Saudi"), _("Nationality missing")) if x in totals]
+    else:
+        order = [v for v, _n in sorted(totals.items(), key=lambda kv: -kv[1])]
+    keep, other = order[:8], order[8:]
+    cols = [{"key": "group", "label": _(label), "type": "text"}]
+    keys = {v: f"c{i}" for i, v in enumerate(keep)}
+    cols += [{"key": keys[v], "label": v, "type": "number"} for v in keep]
+    if other:
+        cols.append({"key": "c_other", "label": _("Other"), "type": "number"})
+    cols.append({"key": "employees", "label": _("Total"), "type": "number"})
+    if saudi_mode:
+        cols.append({"key": "saudi_share", "label": _("Saudi share %"), "type": "percent"})
+    rows = []
+    for g, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        row = {"group": g, "employees": n}
+        for v in keep:
+            row[keys[v]] = cross.get(g, {}).get(v, 0)
+        if other:
+            row["c_other"] = sum(cross.get(g, {}).get(v, 0) for v in other)
+        if saudi_mode:
+            s_ = cross.get(g, {}).get(_("Saudi"), 0) + cross.get(g, {}).get(_("Counted as Saudi"), 0)
+            row["saudi_share"] = round(s_ / n * 100, 1) if n else 0
+        rows.append(row)
+    split_label = _("Saudi / non-Saudi") if saudi_mode else (meta.get_label(split_field) or split_field)
+    title = _("Headcount by {0} and {1}: {2} active employees").format(_(label).lower(), _(split_label).lower(), total)
+    if saudi_mode:
+        saudi = totals.get(_("Saudi"), 0) + totals.get(_("Counted as Saudi"), 0)
+        title += " · " + _("Saudi share {0}% (plain count; ask for the Saudization estimate for the weighted view)").format(
+            round(saudi / total * 100, 1) if total else 0)
     return cols, rows, title
 
 
@@ -283,6 +405,150 @@ def t_people_cost(company, f, t, group_by="department", **_kw):
     return cols, rows, _("Payroll cost by {0}").format(_(label).lower())
 
 
+def _saudization_rules() -> dict:
+    try:
+        d = frappe.get_single("Insight Saudization Rules")
+        return {k: getattr(d, k, None) for k in (
+            "nationality_field", "saudi_values", "counted_as_saudi_values", "part_time_values", "part_time_weight",
+            "disability_field", "disabled_weight", "salary_source", "wage_field", "min_wage_full", "min_wage_floor",
+            "weight_below_full", "platinum", "high_green", "medium_green", "low_green", "activity")}
+    except Exception:
+        return {"saudi_values": "Saudi\nSaudi Arabia\nKSA", "salary_source": "Not used"}
+
+
+def saudization_data(company) -> dict:
+    """Active employees classified by the configured rules (HR access needed)."""
+    from neotec_insight.neotec_insight.utils import saudization_core as sc
+    _people_gate()
+    rules = _saudization_rules()
+    nat_field = rules.get("nationality_field") or resolve_employee_field("nationality")[0]
+    if not nat_field:
+        frappe.throw(_("Employees have no nationality field. Add one (Customize Form → Employee) or set it in "
+                       "Insight Saudization Rules."))
+    meta = frappe.get_meta("Employee")
+    fields = ["name", nat_field] + [f for f in ("employment_type", rules.get("disability_field"),
+                                                rules.get("wage_field") if rules.get("salary_source") == "Employee field" else None)
+                                    if f and meta.get_field(f)]
+    emps = frappe.get_list("Employee", filters={"company": company, "status": "Active"}, fields=list(dict.fromkeys(fields)),
+                           limit_page_length=0, order_by="creation asc")
+    wages = {}
+    if rules.get("salary_source") == "Salary Structure Assignment" and frappe.db.exists("DocType", "Salary Structure Assignment"):
+        for r in frappe.get_list("Salary Structure Assignment", filters={"company": company, "docstatus": 1,
+                                                                         "from_date": ["<=", nowdate()]},
+                                 fields=["employee", "base", "from_date"], order_by="from_date desc", limit_page_length=0):
+            wages.setdefault(r["employee"], flt(r.get("base")))
+    people = [{"name": e["name"], "nationality": e.get(nat_field), "employment_type": e.get("employment_type"),
+               "disabled": e.get(rules.get("disability_field")) if rules.get("disability_field") else None,
+               "wage": (flt(e.get(rules["wage_field"])) if rules.get("salary_source") == "Employee field"
+                        and e.get(rules.get("wage_field")) is not None else wages.get(e["name"]))}
+              for e in emps]
+    return sc.estimate(people, rules) | {"rules_activity": rules.get("activity") or ""}
+
+
+def t_saudization(company, f, t, **_kw):
+    est = saudization_data(company)
+    rows = [{"category": c["category"], "employees": c["employees"], "weight": c["weight"],
+             "weighted": round(c["weighted"], 2)} for c in est["categories"]]
+    cols = [{"key": "category", "label": _("Category"), "type": "text"},
+            {"key": "employees", "label": _("Employees"), "type": "number"},
+            {"key": "weight", "label": _("Weight each"), "type": "number"},
+            {"key": "weighted", "label": _("Counts as Saudi"), "type": "number"}]
+    title = _("Saudization estimate: {0}% weighted ({1} of {2}) · {3}").format(
+        est["pct"], est["weighted_saudis"], est["total"], est["band_label"])
+    if est["next"]:
+        n = est["next"]
+        title += " · " + _("{0} more Saudi hires for {1} ({2}%)").format(n["saudis_needed"], n["label"], n["threshold"])
+    rows.append({"category": _("Estimate only — weightings and bands from Insight Saudization Rules; verify in Qiwa"),
+                 "employees": None, "weight": None, "weighted": None})
+    return cols, rows, title
+
+
+def t_compliance_overview(company, f, t, **_kw):
+    """Checklist across Saudization, employee data, ID expiry, VAT and Zakat.
+    Each check runs on its own: a missing permission or module marks that one
+    line Unknown instead of failing the overview."""
+    from frappe.utils import add_days
+    out = []
+
+    def add(area, status, detail):
+        out.append({"area": area, "status": status, "detail": detail})
+
+    def check(area, fn):
+        try:
+            fn()
+        except frappe.PermissionError:
+            add(area, _("Unknown"), _("Needs HR or payroll access."))
+        except Exception as e:
+            add(area, _("Unknown"), str(e)[:200])
+
+    def saud():
+        est = saudization_data(company)
+        st = _("Attention") if est["band"] in ("red", "low_green") else _("OK") if est["band"] != "unknown" else _("Unknown")
+        nxt = est["next"]
+        add(_("Saudization (estimate)"), st, _("{0}% weighted · {1}").format(est["pct"], est["band_label"])
+            + (_(" · {0} Saudi hires to {1}").format(nxt["saudis_needed"], nxt["label"]) if nxt else "")
+            + _(" · verify in Qiwa"))
+    check(_("Saudization (estimate)"), saud)
+
+    def data_gaps():
+        _people_gate()
+        meta = frappe.get_meta("Employee")
+        want = {"nationality": resolve_employee_field("nationality")[0],
+                "ID / iqama number": resolve_employee_field("iqama")[0] or resolve_employee_field("national id")[0],
+                "bank account": "bank_ac_no" if meta.get_field("bank_ac_no") else resolve_employee_field("iban")[0]}
+        have = {k: v for k, v in want.items() if v}
+        emps = frappe.get_list("Employee", filters={"company": company, "status": "Active"},
+                               fields=["name"] + list(have.values()), limit_page_length=0, order_by="creation asc")
+        gaps = {k: sum(1 for e in emps if not e.get(v)) for k, v in have.items()}
+        missing_fields = [k for k in want if k not in have]
+        bad = {k: n for k, n in gaps.items() if n}
+        add(_("Employee records"), _("Attention") if bad or missing_fields else _("OK"),
+            "; ".join([_("{0} without {1}").format(n, k) for k, n in bad.items()]
+                      + [_("no {0} field on Employee").format(k) for k in missing_fields]) or
+            _("{0} active employees complete").format(len(emps)))
+    check(_("Employee records"), data_gaps)
+
+    def expiries():
+        _people_gate()
+        meta = frappe.get_meta("Employee")
+        fld = next((x.fieldname for x in meta.fields if x.fieldtype == "Date" and
+                    any(w in (x.fieldname + " " + (x.label or "")).lower() for w in ("iqama", "residency", "id expiry", "valid upto", "passport expiry"))), None)
+        if not fld:
+            add(_("ID / iqama expiry"), _("Unknown"), _("No ID or iqama expiry date field on Employee."))
+            return
+        soon = frappe.get_list("Employee", filters={"company": company, "status": "Active",
+                                                    fld: ["between", [nowdate(), str(add_days(nowdate(), 60))]]},
+                               fields=["name"], limit_page_length=0, order_by="creation asc")
+        late = frappe.get_list("Employee", filters={"company": company, "status": "Active", fld: ["<", nowdate()]},
+                               fields=["name"], limit_page_length=0, order_by="creation asc")
+        add(_("ID / iqama expiry"), _("Attention") if soon or late else _("OK"),
+            _("{0} expired, {1} expiring within 60 days ({2})").format(len(late), len(soon), meta.get_label(fld)))
+    check(_("ID / iqama expiry"), expiries)
+
+    def vat():
+        from neotec_insight.neotec_insight.api.vat import vat_return
+        r = vat_return(company, f, t)
+        net = r.get("net")
+        val = net.get("amount") if isinstance(net, dict) else net
+        add(_("VAT (period)"), _("Info"), _("Net VAT for {0} → {1}: {2}").format(f, t, frappe.format(val, {"fieldtype": "Currency"})
+                                                                                if val is not None else "—"))
+    check(_("VAT (period)"), vat)
+
+    def zakat():
+        from neotec_insight.neotec_insight.api.zakat import zakat_estimate
+        r = zakat_estimate(company, f, t)
+        due = r.get("zakat_due") or (r.get("result") or {}).get("zakat_due")
+        add(_("Zakat (estimate)"), _("Info"), _("Estimated zakat for the period: {0}").format(
+            frappe.format(due, {"fieldtype": "Currency"}) if due is not None else "—"))
+    check(_("Zakat (estimate)"), zakat)
+
+    cols = [{"key": "area", "label": _("Area"), "type": "text"},
+            {"key": "status", "label": _("Status"), "type": "text"},
+            {"key": "detail", "label": _("Detail"), "type": "text"}]
+    attention = sum(1 for r in out if r["status"] == _("Attention"))
+    return cols, out, _("Compliance overview: {0} area(s) need attention").format(attention)
+
+
 def _analysis(key):
     """Copilot runner over an Analysis Pack analysis (v2.97.0)."""
     def run(company, f, t, **_kw):
@@ -300,6 +566,7 @@ RUNNERS = {
     "by_dimension": t_by_dimension, "top_parties": t_top_parties, "ageing": t_ageing,
     "cash_position": t_cash_position, "find_records": t_find_records,
     "headcount": t_headcount, "people_cost": t_people_cost,
+    "saudization": t_saudization, "compliance_overview": t_compliance_overview,
     "profit_bridge": _analysis("profit_bridge"), "variance_drivers": _analysis("variance_drivers"),
     "working_capital_cycle": _analysis("working_capital_cycle"), "gl_anomalies": _analysis("gl_anomalies"),
 }

@@ -1,0 +1,201 @@
+{
+ "actions": [],
+ "creation": "2026-10-21 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "issingle": 1,
+ "field_order": [
+  "intro",
+  "section_people",
+  "nationality_field",
+  "saudi_values",
+  "counted_as_saudi_values",
+  "column_break_a",
+  "part_time_values",
+  "part_time_weight",
+  "disability_field",
+  "disabled_weight",
+  "section_wage",
+  "salary_source",
+  "wage_field",
+  "column_break_w",
+  "min_wage_full",
+  "min_wage_floor",
+  "weight_below_full",
+  "section_bands",
+  "activity",
+  "column_break_b",
+  "platinum",
+  "high_green",
+  "medium_green",
+  "low_green"
+ ],
+ "fields": [
+  {
+   "fieldname": "intro",
+   "fieldtype": "HTML",
+   "label": "Read me",
+   "options": "<p><b>Verify every value in Qiwa.</b> Nitaqat weightings, the minimum wage for a full Saudi count, which nationalities count as Saudi, and the band thresholds for your economic activity are set by MHRSD and change over time. The values below are commonly published defaults, not official figures for your company. Insight's result is an estimate for management, not the official band.</p>"
+  },
+  {
+   "fieldname": "section_people",
+   "fieldtype": "Section Break",
+   "label": "Who counts as Saudi"
+  },
+  {
+   "fieldname": "nationality_field",
+   "fieldtype": "Data",
+   "label": "Employee nationality field",
+   "description": "Fieldname on Employee. Blank = find it automatically (nationality, custom_nationality…)."
+  },
+  {
+   "fieldname": "saudi_values",
+   "fieldtype": "Small Text",
+   "label": "Values meaning Saudi",
+   "default": "Saudi\nSaudi Arabia\nSaudi Arabian\nKSA\nسعودي\nالسعودية"
+  },
+  {
+   "fieldname": "counted_as_saudi_values",
+   "fieldtype": "Small Text",
+   "label": "Other nationalities counted as Saudi",
+   "default": "Bahrain\nKuwait\nOman\nQatar\nUnited Arab Emirates",
+   "description": "Commonly published: GCC nationals. Verify in Qiwa."
+  },
+  {
+   "fieldname": "column_break_a",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "part_time_values",
+   "fieldtype": "Small Text",
+   "label": "Employment types that are part-time",
+   "default": "Part-time\nPart Time"
+  },
+  {
+   "fieldname": "part_time_weight",
+   "fieldtype": "Float",
+   "label": "Weight of a part-time Saudi",
+   "default": "0.5"
+  },
+  {
+   "fieldname": "disability_field",
+   "fieldtype": "Data",
+   "label": "Employee disability field (Check)",
+   "description": "Blank = not used."
+  },
+  {
+   "fieldname": "disabled_weight",
+   "fieldtype": "Float",
+   "label": "Weight of a Saudi with a disability",
+   "default": "4"
+  },
+  {
+   "fieldname": "section_wage",
+   "fieldtype": "Section Break",
+   "label": "Wage rules"
+  },
+  {
+   "fieldname": "salary_source",
+   "fieldtype": "Select",
+   "label": "Monthly wage from",
+   "options": "Salary Structure Assignment\nEmployee field\nNot used",
+   "default": "Salary Structure Assignment"
+  },
+  {
+   "fieldname": "wage_field",
+   "fieldtype": "Data",
+   "label": "Employee wage field",
+   "description": "Only when wage comes from an Employee field (e.g. ctc). Monthly amount.",
+   "depends_on": "eval:doc.salary_source=='Employee field'"
+  },
+  {
+   "fieldname": "column_break_w",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "min_wage_full",
+   "fieldtype": "Currency",
+   "label": "Monthly wage for a full count",
+   "default": "4000"
+  },
+  {
+   "fieldname": "min_wage_floor",
+   "fieldtype": "Currency",
+   "label": "Monthly wage below which a Saudi does not count",
+   "default": "0"
+  },
+  {
+   "fieldname": "weight_below_full",
+   "fieldtype": "Float",
+   "label": "Weight between the floor and the full-count wage",
+   "default": "0.5"
+  },
+  {
+   "fieldname": "section_bands",
+   "fieldtype": "Section Break",
+   "label": "Band thresholds for your activity and size (from Qiwa)"
+  },
+  {
+   "fieldname": "activity",
+   "fieldtype": "Data",
+   "label": "Economic activity / size"
+  },
+  {
+   "fieldname": "column_break_b",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "platinum",
+   "fieldtype": "Percent",
+   "label": "Platinum from %"
+  },
+  {
+   "fieldname": "high_green",
+   "fieldtype": "Percent",
+   "label": "High Green from %"
+  },
+  {
+   "fieldname": "medium_green",
+   "fieldtype": "Percent",
+   "label": "Medium Green from %"
+  },
+  {
+   "fieldname": "low_green",
+   "fieldtype": "Percent",
+   "label": "Low Green from %",
+   "description": "Below Low Green is Red."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-21 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Saudization Rules",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "role": "System Manager"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "role": "HR Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

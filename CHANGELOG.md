@@ -1,3 +1,89 @@
+## v3.1.1 — 2026-10-21 — headcount cross-tabs (Saudi / non-Saudi per department)
+
+### Fixed: "Department wise saudi and non-saudi employee head count" gave departments only
+Headcount grouped by one dimension, so the Saudi split was dropped and the explanation wrongly said nationality was not in the data.
+
+### Added: a second dimension as columns
+- **Saudi split:** "Saudi and non-Saudi" (also "saudi vs", "non-saudi", "السعوديين وغير السعوديين") splits each row into **Saudi · Counted as Saudi · Non-Saudi · Nationality missing**. It uses the same values as Insight Saudization Rules (GCC counted as Saudi by default) and adds each row's **Saudi share %**.
+- **Any second field:** "by department and gender", "branch wise by nationality" and the like put the second field's values as columns (top 8, plus Other).
+- **Totals and charts:** every row has a Total, and the chart shows one bar series per column.
+- **Unknown fields refused:** a second field that does not exist is refused, with the choices listed.
+- **Plain share:** the title gives the overall plain Saudi share and points to the Saudization estimate for the weighted Nitaqat view.
+
+### Tests
+3 new, including the reported question; 625 total.
+
+## v3.1.0 — 2026-10-21 — Nitaqat-style Saudization estimate and a compliance overview in the Copilot
+
+### Added: Insight Saudization Rules (Desk → Insight Saudization Rules)
+One settings page holds everything the estimate depends on. It is pre-filled with commonly published values, and the page states plainly that every value must be **verified in Qiwa**: MHRSD sets them and revises them, and band thresholds depend on the company's activity and size.
+- **Who counts as Saudi:** the values meaning Saudi, plus other nationalities counted as Saudi (GCC by default).
+- **Part-time:** which employment types are part-time, and their weight.
+- **Disability:** a disability check field and its weight.
+- **Wage rules:** the monthly wage source (Salary Structure Assignment, an Employee field, or not used), the full-count wage, a floor below which a Saudi does not count, and the weight in between.
+- **Bands:** the thresholds for your activity (Platinum, High Green, Medium Green, Low Green; below that is Red).
+
+Only System Managers and HR Managers can edit; Accounts Managers can read. The page is included in backups.
+
+### Added: Copilot — Saudization estimate
+Ask "What is our Saudization?", "nitaqat band" or "سعودة". You get a table by category:
+- Saudi;
+- part-time;
+- below the full-count wage or the wage floor;
+- disability;
+- counted as Saudi;
+- non-Saudi;
+- nationality missing.
+
+Each category shows its weight and how many count as Saudi. The title gives the weighted %, the band and **how many more Saudi hires reach the next band**.
+- **Unknown wages:** an employee whose wage is unknown is counted fully and listed for checking.
+- **Labelled as an estimate:** a closing line states that the figures come from the rules page and must be verified in Qiwa.
+- **Separate from headcount:** headcount by nationality now labels its figure "Saudi share (plain count)" and points to this estimate, so the two are not confused.
+
+### Added: Copilot — compliance overview
+Ask "Are we compliant?", "iqama status", "ZATCA", "GOSI" or "امتثال". You get a checklist with a status (OK, Attention, Unknown or Info) and a reason for each area:
+- the Saudization band (estimate);
+- employee records missing nationality, ID/iqama number or bank account, or with no such field on Employee;
+- IDs or iqamas expired or expiring within 60 days, when an expiry date field exists;
+- the VAT position for the period (from the ZATCA return);
+- the Zakat estimate.
+
+Each area is checked on its own: a missing permission or module marks that line "Unknown", with the reason, and the rest of the overview still reports. The people areas need HR, payroll or executive access.
+
+### Tests
+9 new; 622 total. They cover:
+- every weighting;
+- the bands, including no thresholds set;
+- the gap formula (23 of 61 needs 3 hires to reach 40%);
+- the end-to-end estimate with wages from salary structure assignments;
+- the overview surviving a failing area;
+- HR access enforced;
+- routing in English and Arabic.
+
+## v3.0.2 — 2026-10-21 — headcount by nationality, with Saudization
+
+### Fixed: "employees by nationality" answered by department, or not at all
+Headcount could only group by a fixed list (designation, department, branch, grade, employment type, company, status).
+- **Unknown grouping:** when a question asked for anything else, the built-in rules **silently fell back to department**, which looked like an answer but wasn't.
+- **No route:** the AI planner had no tool that fitted, so it answered "couldn't map".
+
+### Changed
+- **Any Employee field:** headcount groups by any readable Employee field, resolved from the wording ("by nationality", "nationality wise", "حسب الجنسية", "by job title", "by gender"…).
+  - **Matching:** the fieldname, a `custom_` field, or the label, so a site's `custom_nationality` is found.
+  - **Excluded:** pay and other numeric fields.
+- **No silent fallback:** a grouping that matches no field is **refused**, with the list of fields that can be used. Department is only the default when a question names no grouping at all.
+- **Share column:** each group shows its share %.
+
+### Added: Saudization
+Grouping by nationality adds the **Saudization share** (Saudi employees ÷ active employees) to the title, e.g. "Saudization 38.5% (23 Saudi of 61)".
+- **Saudi detection:** "Saudi", "Saudi Arabia" and the Arabic forms all count as Saudi.
+- **Wording:** "Saudization", "Nitaqat", "سعودة" and common misspellings route there directly.
+
+The People access rule still applies: HR, payroll or an executive role.
+
+### Tests
+4 new, including both reported questions and a site with a custom nationality field; 616 total.
+
 ## v3.0.1 — 2026-10-21 — headcount means employees; payables with POs on the Ageing screen
 
 ### Fixed: "headcount by designation" counted designations, not employees
