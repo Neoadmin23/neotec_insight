@@ -49,6 +49,17 @@ TOOLS: dict[str, dict] = {
     "cash_position": {
         "desc": "Cash and bank balances per account as at the period end.",
         "args": {}, "view": "pie"},
+    # v3.0.1 — people (HR or payroll access needed)
+    "headcount": {"desc": "How many EMPLOYEES (people), active by default, split by designation, department, "
+                          "branch, grade, employment type, company or status. Use this for any 'how many "
+                          "employees / staff / headcount' question — never count Designation or Department records.",
+                  "args": {"group_by": ("enum", False, ("designation", "department", "branch", "grade",
+                                                        "employment_type", "company", "status"))},
+                  "view": "bar"},
+    "people_cost": {"desc": "Payroll cost from submitted salary slips in a period (gross and net pay, employees "
+                            "paid), split by department, designation or branch.",
+                    "args": {"group_by": ("enum", False, ("department", "designation", "branch"))},
+                    "view": "bar"},
     # v2.97.0 — Analysis Pack
     "profit_bridge": {"desc": "Profit bridge: revenue to net profit step by step (cost of sales, expense groups).",
                       "args": {}, "view": "table"},
@@ -172,6 +183,23 @@ def rule_plan(question: str) -> dict | None:
     supplier = _has(q, "supplier", "vendor", "payable", "مورد", "الموردين", "الدائن")
     party = "supplier" if supplier else "customer"
 
+    # v3.0.1 — people questions first: "employees by department" must not
+    # fall into the cost-centre/department expense split below, and "by
+    # designation" must count employees, not designation records.
+    group = next((g for g, words in (
+        ("designation", ("designation", "job title", "position", "role", "المسمى", "الوظيف")),
+        ("department", ("department", "قسم", "الأقسام", "الإدارات")),
+        ("branch", ("branch", "فرع", "الفروع")), ("grade", ("grade", "الدرجة")),
+        ("employment_type", ("employment type", "contract type", "نوع التوظيف")),
+        ("status", ("status", "active and left", "الحالة"))) if _has(q, *words)), None)
+    if _has(q, "payroll", "salary cost", "salaries by", "people cost", "staff cost", "wage bill",
+            "تكلفة الرواتب", "الرواتب"):
+        return {"tool": "people_cost", "args": {"group_by": group if group in ("department", "designation", "branch")
+                                                 else "department"}}
+    people_word = _has(q, "employee", "staff", "workforce", "people", "موظف", "الموظفين", "العاملين")
+    if _has(q, "headcount", "head count", "how many employees", "number of employees", "employee count",
+            "staff count", "how many staff", "manpower", "عدد الموظفين", "القوى العاملة") or (people_word and group):
+        return {"tool": "headcount", "args": {"group_by": group or "department"}}
     if _has(q, "anomal", "unusual journal", "suspicious", "red flag", "second look", "audit the journal",
             "قيود غير عادية", "مشبوه"):
         return {"tool": "gl_anomalies", "args": {}}
@@ -251,6 +279,8 @@ def plain_summary(tool: str, title: str, columns: list[dict], rows: list[dict]) 
 
 
 FOLLOW_UPS = {
+    "headcount": ["Headcount by department", "Payroll cost by department", "Headcount by branch"],
+    "people_cost": ["Headcount by department", "Payroll cost by designation", "Show the KPIs"],
     "profit_bridge": ["What moved profit vs last year?", "Expenses by cost centre", "Show the KPIs"],
     "variance_drivers": ["Show the profit bridge", "Biggest expenses this year", "Show the monthly trend"],
     "working_capital_cycle": ["Who owes us the most?", "Receivables ageing", "Cash position"],

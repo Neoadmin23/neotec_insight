@@ -1,19 +1,20 @@
 {
   "name": "neotec-insight-frontend",
   "private": true,
-  "version": "2.98.0",
+  "version": "3.0.1",
   "type": "module",
   "engines": {
     "node": ">=18.16.0"
   },
   "scripts": {
     "dev": "vite",
-    "build": "bash scripts/typecheck.sh && eslint src scripts --max-warnings=0 && npm run test:menu && vite build --base=/assets/neotec_insight/insight/ && node scripts/copy-html-entry.js",
+    "build": "bash scripts/typecheck.sh && eslint src scripts --max-warnings=0 && npm run test:menu && npm run test:board && vite build --base=/assets/neotec_insight/insight/ && node scripts/copy-html-entry.js",
     "preview": "vite preview",
     "lint": "eslint src scripts --max-warnings=0",
     "typecheck": "bash scripts/typecheck.sh",
-    "check": "npm run typecheck && npm run lint && npm run test:menu",
-    "test:menu": "node --experimental-strip-types --no-warnings scripts/test-menu-fold.mjs"
+    "check": "npm run typecheck && npm run lint && npm run test:menu && npm run test:board",
+    "test:menu": "node --experimental-strip-types --no-warnings scripts/test-menu-fold.mjs",
+    "test:board": "node --experimental-strip-types --no-warnings scripts/test-board.mjs"
   },
   "dependencies": {
     "chart.js": "^4.4.1",

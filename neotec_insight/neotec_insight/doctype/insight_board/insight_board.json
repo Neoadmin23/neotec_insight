@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-20 00:00:00",
+ "description": "A dashboard built in Performance \u2192 Designer: a grid of visuals over Analysis Pack analyses and Studio reports, with page filters (v2.99.0).",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "shared_roles",
+  "column_break_a",
+  "filters_json",
+  "layout_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "shared_roles",
+   "fieldtype": "Small Text",
+   "label": "Shared With Roles",
+   "description": "Comma-separated roles that may open this dashboard. The owner and System Managers can edit."
+  },
+  {
+   "fieldname": "column_break_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "filters_json",
+   "fieldtype": "Small Text",
+   "label": "Default Filters",
+   "read_only": 1
+  },
+  {
+   "fieldname": "layout_json",
+   "fieldtype": "Long Text",
+   "label": "Layout",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-20 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Board",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "export": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1
+}

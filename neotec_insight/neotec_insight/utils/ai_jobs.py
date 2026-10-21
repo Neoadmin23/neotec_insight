@@ -24,6 +24,8 @@ PREFIX = "neotec_insight:ai_job:"
 ALLOWED = {
     "neotec_insight.neotec_insight.api.health.health_ai_analysis",
     "neotec_insight.neotec_insight.api.copilot.ask",
+    "neotec_insight.neotec_insight.api.ai_design.design_board",
+    "neotec_insight.neotec_insight.api.ai_design.design_statement",
 }
 
 

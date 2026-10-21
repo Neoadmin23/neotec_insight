@@ -1,3 +1,98 @@
+## v3.0.1 — 2026-10-21 — headcount means employees; payables with POs on the Ageing screen
+
+### Fixed: "headcount by designation" counted designations, not employees
+Asked "What is the total headcount across all 99 designations?", the Copilot listed 99 job titles with a count of 1 each.
+- **The cause:** it had searched the *Designation* list. Its document shortlist ranks by word overlap with the question, so "designation" made the Designation doctype the top match.
+
+### Added: people tools in the Copilot (HR or payroll access needed)
+- **Headcount** counts **employees**, active by default, by designation, department, branch, grade, employment type, company or status (status includes leavers). The total is in the title.
+- **People cost** totals payroll from **submitted salary slips** in the period (gross pay, net pay, employees paid), by department, designation or branch. Needs HRMS.
+- **Routing:** people questions are matched before finance ones. Any question that mentions employees or staff together with a grouping goes to Headcount, and payroll wording goes to People cost, in English and Arabic. "Expenses by department" is still the finance split.
+- **AI guidance:** the AI planner is told never to answer headcount by counting Designation or Department records.
+- **Permissions:** both tools apply the v2.90 People rule (HR, payroll or executive access) and read Employee and Salary Slip through permission-checked queries.
+
+### Added: payables including open purchase orders, from the Ageing screen
+With **Payables (AP)** selected, links to *Accounts Payable with PO* (detail) and *Accounts Payable Summary with PO* appear beside the AR/AP switch. They open in a new tab with the company and "Both" (invoices and POs) filled in.
+- **Where the reports live:** they stay the site's own Script Reports and are not copied into Insight. They are adapted from ERPNext's Accounts Payable report (GPL-3.0), and Insight is MIT-licensed; linking keeps the licences separate.
+- **When a link shows:** only when the report exists, is enabled and the user's roles allow it (`ageing.linked_reports`). To make these reports available on every site, package them in a separate GPL-licensed companion app.
+
+### Tests
+7 new, including the reported question; 612 total. The two v2.99.1 tests that used "employee by designation" for the grouped record-search path now use a question that path still serves.
+
+## v3.0.0 — 2026-10-20 — AI designs dashboards and financial statements
+
+Describe what you need; the AI drafts it from the Analysis Pack, Studio and your chart of accounts; the server checks every detail; you review before anything is saved. Opened from **✨ Design with AI** in Performance → Designer.
+
+### Dashboards
+- **Example request:** "a CFO dashboard with margins, cash cycle and top customers".
+- **What the AI proposes:** visuals with a type, a data source (any of the 9 analyses or any saved Studio report) and a size.
+- **Server checks:** every source must exist and the type must be known; anything else is left out with a note. The visuals are packed into the 12-column grid (KPIs first, then charts, then tables).
+- **Review:** the draft opens unsaved in the editor, to adjust and **Save**.
+- **AI off:** you get a built-in **CFO starter** (ROE, margin, cash cycle and concentration KPIs, profit bridge, working-capital trend, what moved profit, top customers, journals worth a second look).
+
+### Financial statements
+- **Example request:** "a management P&L with gross profit, EBITDA, below-the-line items and allocations at the bottom", or a balance sheet.
+- **What the AI receives and proposes:** it sees your company's postable accounts with 12-month activity and your allocation rules. It proposes sections, account rows (with the accounts behind each), formula rows and allocation rows.
+- **Server checks:**
+  - **Rows:** keys must be unique and well-formed.
+  - **Formulas:** must parse and may only refer to rows **above** them, using the same validator as the report engine.
+  - **Accounts:** must be this company's accounts (matched by ID or by plain name); unknown accounts are left out with a warning. An account is mapped to one row only.
+  - **Allocations:** rules must exist.
+  - **Schema:** the whole definition must pass the report schema.
+  - **Retry:** a refused draft gets one corrected retry with the reasons.
+- **Coverage:** the review lists active accounts the statement leaves out, with their share of activity.
+- **Saving:** **Create draft report** re-checks the draft on the server, so a draft altered after review is refused. It is saved as an **inactive** report with its account mapping (marked auto-suggested), to refine in Reports → Rows and then activate. Only report managers can design or save statements.
+
+AI work runs as background jobs (no gateway timeouts). Endpoints: `ai_design.start_design`, `ai_design.save_statement`.
+
+### Tests
+10 new; 605 total. They cover:
+- the statement checker on good and bad drafts: duplicate and malformed keys, forward references in formulas, unknown rules, row kinds and accounts, double-mapped accounts, coverage;
+- the corrected retry;
+- saving re-checked, inactive and mapped, with tampering refused and non-managers refused;
+- the dashboard source and type checks, the grid flow, the CFO starter with AI off, and an AI-drafted board.
+
+## v2.99.1 — 2026-10-20 — Copilot answers grouped questions from any module
+
+### Fixed: "employee by designation" came back empty
+The Copilot picked the right source (a record search on Employee, grouped by designation), but read the answer from the wrong place:
+- **The cause:** Studio returns a grouped search under `groups`, not `rows`. The Copilot read only `rows`, so **every grouped question in every module** came back empty: employees by designation or department, items by group, invoices by customer, and so on. The model then made up a reason ("the source file…").
+- **The fix:** a new `studio.flat_result` turns a grouped result into one summary row per group (the group value, its **count**, and the subtotal of each numeric column), largest group first. The Copilot and the Designer both use it, and the Designer's grouped Studio visuals had the same flaw.
+
+### Improved
+- **Charts:** a grouped answer now gets a bar chart as well as the table.
+- **Honest empty answers:** when nothing matches, the Copilot says so plainly (no matching records for the period, or not covered by your permissions) instead of asking the model to explain an empty table.
+- **Any subject area:** the explanation prompt no longer assumes finance. It explains HR, sales, operations or finance data in that data's own terms.
+
+### Tests
+4 new, reproducing the reported question; 595 total.
+
+## v2.99.0 — 2026-10-20 — Dashboard designer
+
+### Added: Performance → Designer
+Build your own dashboards on a 12-column grid.
+- **Visuals:** KPI, bar, line, area, pie, waterfall, table and pivot. Each draws from an **Analysis Pack** analysis or a saved **Studio report**, and its type can be changed at any time.
+- **Edit mode:** drag a visual by its header to move it, or by its corner to resize it. Overlapping visuals are pushed down, never stacked.
+- **Page filters:** company, from/to dates and cost centre, applied to every visual with **Apply**.
+  - Analyses take company and period.
+  - A Studio report gets company, dates (on its posting/transaction date) and cost centre only where its document has that field. The filters a report defines as "ask on run" are left out.
+- **Click-to-filter:** clicking a bar, slice, table row label or pivot row filters every *other* visual that has the same column. A chip shows the active filter and clears it.
+- **Pivot:** choose rows, optional columns and the value field, with row, column and grand totals.
+- **Save and share:** boards are stored as **Insight Board** records.
+  - The owner (or a System Manager) edits and deletes.
+  - Roles listed under **Share** can open the board read-only.
+  - Each visual runs with the viewer's own permissions, so sharing a board never shares data a viewer could not otherwise see.
+
+Endpoints: `boards.list_boards`, `get_board`, `save_board` (POST), `delete_board` (POST), `sources`, `run_visual`. Saved layouts are cleaned on the server: known visual types and sources only, positions clamped to the grid, at most 30 visuals. Boards are in backups.
+
+### Tests
+6 new Python tests and a Node test of the screen logic (`npm run test:board`, also run in every build). 591 total. They cover:
+- the sharing rules (owner, shared role, anyone else, People-only);
+- layout cleaning;
+- page filters reaching analyses, and reaching Studio reports only through fields that exist;
+- the grid (clamping, push-down that leaves no overlap, the next free row);
+- pivot totals, KPI selection, click-to-filter (never filtering the visual clicked), and chart shaping including the waterfall.
+
 ## v2.98.0 — 2026-10-20 — Studio across several documents
 
 ### Added: links two levels deep

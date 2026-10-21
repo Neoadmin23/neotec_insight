@@ -12,6 +12,7 @@ import { CopilotPanel } from './features/copilot/CopilotPanel';
 const StudioApp = lazy(() => import('./features/studio/StudioApp'));
 const FinancialHealth = lazy(() => import('./features/health/FinancialHealth'));
 const AnalysisPack = lazy(() => import('./features/analysis/AnalysisPack'));
+const BoardsApp = lazy(() => import('./features/designer/BoardsApp'));
 const ClassificationTab = lazy(() => import('./features/health/ClassificationTab'));
 const VatSettings = lazy(() => import('./features/vat/VatSettings'));
 const VatReturn = lazy(() => import('./features/vat/VatReturn'));
@@ -60,6 +61,7 @@ const DEFAULT_SECTIONS: NavSection[] = [
       { ws: 'briefing', label: 'CFO Briefing', title: "The financial situation on one screen — CFO's primary view" },
       { ws: 'dashboard', label: 'Dashboard' },
       { ws: 'health', label: 'Financial Health' },
+      { ws: 'designer', label: 'Designer', title: 'Build your own dashboards: drag and resize visuals over analyses and Studio reports, with page filters and click-to-filter' },
       { ws: 'insights', label: 'Analysis', title: 'Profit bridge, what moved profit, common-size statements, working-capital cycle, DuPont, concentration and journal checks' },
       { ws: 'classification', label: 'Classification',
         title: 'Tag an account once — COGS, Cash, Investing, Financing, Provisions and your own labels. Financial Health, Cash Flow and Zakat all obey it' },
@@ -431,6 +433,11 @@ export default function App() {
         {workspace === 'studio' && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading Studio…')}</div>}>
             <StudioApp />
+          </Suspense>
+        )}
+        {workspace === 'designer' && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
+            <BoardsApp />
           </Suspense>
         )}
         {workspace === 'insights' && (

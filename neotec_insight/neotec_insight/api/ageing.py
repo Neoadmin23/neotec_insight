@@ -384,3 +384,38 @@ def party_tree(party_type="Customer"):
         groups.setdefault(r.get("grp") or _("Others"), []).append(
             {"name": r["name"], "label": r.get("label") or r["name"]})
     return [{"group": g, "parties": p} for g, p in groups.items()]
+
+
+
+# ── v3.0.1 — desk reports linked from the Ageing screen ─────────────────────
+# Reports that live on the site (not shipped with Insight) and complete the
+# ageing picture — e.g. payables including open purchase orders. A link shows
+# only when the report exists, is enabled and the user's roles allow it.
+LINKED_REPORTS = [
+    {"report": "Accounts Payable with PO", "side": "Supplier", "label": "Payables incl. open POs — detail"},
+    {"report": "Accounts Payable Summary with PO", "side": "Supplier", "label": "Payables incl. open POs — summary"},
+]
+
+
+@frappe.whitelist()
+def linked_reports(side=None):
+    from neotec_insight.neotec_insight.utils.access import require_finance_read
+    from neotec_insight.neotec_insight.utils.compat import desk_url
+    require_finance_read()
+    out = []
+    for x in LINKED_REPORTS:
+        if side and x["side"] != side:
+            continue
+        if not frappe.db.exists("Report", x["report"]):
+            continue
+        doc = frappe.get_doc("Report", x["report"])
+        if getattr(doc, "disabled", 0):
+            continue
+        try:
+            if not doc.is_permitted():
+                continue
+        except Exception:
+            continue
+        out.append({"report": x["report"], "label": _(x["label"]),
+                    "url": desk_url("query-report/" + x["report"])})
+    return out

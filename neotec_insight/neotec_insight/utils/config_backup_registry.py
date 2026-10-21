@@ -102,6 +102,7 @@ CONFIG_REGISTRY.extend(DATA_REGISTRY)
 CONFIG_REGISTRY.extend([
     {"doctype": "Insight Data Source", "area": "Copilot — outside data sources"},
     {"doctype": "Insight Source Report", "area": "Copilot — outside data sources"},
+    {"doctype": "Insight Board", "area": "Designer dashboards"},
 ])
 
 # Anything in the module that is in neither list is NOT a gap any more: the

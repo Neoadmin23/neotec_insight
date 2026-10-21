@@ -1190,3 +1190,29 @@ def export_xlsx(config=None, title=None, letter_head=None):
     frappe.local.response.filename = f"{fname}-{frappe.utils.nowdate()}.xlsx"
     frappe.local.response.filecontent = buf.getvalue()
     frappe.local.response.type = "binary"
+
+
+
+def flat_result(res: dict) -> tuple[list[dict], list[dict]]:
+    """(columns, rows) from a run_query result, grouped or not (v2.99.1).
+
+    A grouped query returns its records under "groups", not "rows". Callers
+    that only read "rows" (the Copilot, Designer visuals) showed grouped
+    questions such as "employees by designation" as empty. A grouped result
+    becomes one summary row per group: the group value, the count, and the
+    subtotal of every numeric column."""
+    cols = [{"key": c["field"], "label": c.get("label") or c["field"],
+             "type": "currency" if c.get("numeric") else "text"} for c in res.get("columns") or []]
+    groups = res.get("groups")
+    if groups is None:
+        return cols, list(res.get("rows") or [])
+    gb = res.get("group_by") or "group"
+    num = [c for c in cols if c["type"] != "text" and c["key"] != gb]
+    out_cols = [{"key": gb, "label": res.get("group_label") or gb, "type": "text"},
+                {"key": "count", "label": _("Count"), "type": "number"}] + num
+    rows = []
+    for g in groups:
+        sub = g.get("net_subtotal") or g.get("subtotal") or {}
+        rows.append({gb: g.get("key"), "count": g.get("count", 0), **{c["key"]: sub.get(c["key"]) for c in num}})
+    rows.sort(key=lambda r: -(r.get("count") or 0))
+    return out_cols, rows

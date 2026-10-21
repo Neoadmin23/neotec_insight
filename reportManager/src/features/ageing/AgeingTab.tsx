@@ -27,6 +27,9 @@ export default function AgeingTab() {
   const [company, setCompany] = useState('');
   const [asOf, setAsOf] = useState(todayISO());
   const [side, setSide] = useState<'Customer' | 'Supplier'>('Customer');
+  // v3.0.1 — related desk reports (e.g. payables including open POs)
+  const [linked, setLinked] = useState<{ report: string; label: string; url: string }[]>([]);
+  useEffect(() => { api.ageingLinkedReports(side).then(setLinked).catch(() => setLinked([])); }, [side]);
   const [mode, setMode] = useState<'days' | 'months'>(() => get(LS.mode, 'days') as any);
   const [basedOn, setBasedOn] = useState<'due' | 'posting'>(() => get(LS.basedOn, 'due') as any);
   const [alloc, setAlloc] = useState<'actual' | 'fifo'>(() => get(LS.alloc, 'actual') as any);
@@ -130,6 +133,15 @@ export default function AgeingTab() {
           <button className={side === 'Customer' ? 'on' : ''} onClick={() => { const e = loadExcl('Customer'); setSide('Customer'); setTreeSel(null); run(company, 'Customer', undefined, undefined, undefined, undefined, e, undefined, null); }}>{t('Receivables (AR)')}</button>
           <button className={side === 'Supplier' ? 'on' : ''} onClick={() => { const e = loadExcl('Supplier'); setSide('Supplier'); setTreeSel(null); run(company, 'Supplier', undefined, undefined, undefined, undefined, e, undefined, null); }}>{t('Payables (AP)')}</button>
         </div>
+        {!!linked.length && (
+          <div className="ag-linked">
+            {linked.map((r) => (
+              <a key={r.report} className="bk-btn" target="_blank" rel="noopener noreferrer"
+                href={`${r.url}?${new URLSearchParams({ company: company || '', document_type: 'Both' }).toString()}`}
+                title={r.report}>↗ {r.label}</a>
+            ))}
+          </div>
+        )}
         <label><span className="flbl">{t('Company')}</span>
           <select value={company} onChange={(e) => setCompany(e.target.value)}>
             {companies.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}

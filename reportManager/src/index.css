@@ -4716,3 +4716,46 @@ tr:hover .row-livegroup { opacity: 1; }
 .studio-rel-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .studio-rel-item { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 12.5px;
   border-top: 1px solid var(--border, #eee); }
+
+/* ── v2.99.0 — dashboard designer ────────────────────────────────────── */
+.bd { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.bd-bar, .bd-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.bd-bar h3 { margin: 0 8px; font-size: var(--text-lg, 17px); }
+.bd-title { font-size: 15px; font-weight: 600; padding: 4px 8px; min-width: 220px; }
+.bd-chip { background: var(--info, #2563eb); color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.bd-chip button { border: 0; background: transparent; color: #fff; cursor: pointer; margin-inline-start: 4px; }
+.bd-grid { position: relative; width: 100%; touch-action: none; }
+.bd-grid.editing { background-image: linear-gradient(to right, var(--border, #eee) 1px, transparent 1px);
+  background-size: calc(100% / 12) 80px; }
+.bd-visual { position: absolute; display: flex; flex-direction: column; background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb); border-radius: 12px; overflow: hidden; transition: left .12s, top .12s, width .12s, height .12s; }
+.bd-visual.dragging { opacity: .85; box-shadow: 0 10px 28px rgba(0,0,0,.18); z-index: 5; transition: none; }
+.bd-vh { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 6px 10px; font-weight: 600;
+  font-size: 13px; border-bottom: 1px solid var(--border, #eee); }
+.bd-grid.editing .bd-vh { cursor: move; background: var(--surface-2, #fafafa); }
+.bd-vtools { display: flex; gap: 4px; }
+.bd-vtools select { font-size: 11.5px; }
+.bd-vtools button { border: 0; background: transparent; cursor: pointer; font-size: 16px; color: inherit; }
+.bd-vb { flex: 1; min-height: 0; padding: 6px; }
+.bd-chart { position: relative; height: 100%; }
+.bd-scroll { height: 100%; overflow: auto; }
+.bd-kpi { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; }
+.bd-kpi span { font-size: 12.5px; color: var(--muted, #6b7280); }
+.bd-kpi b { font-size: 28px; font-variant-numeric: tabular-nums; }
+.bd-empty { color: var(--muted, #6b7280); font-size: 12.5px; padding: 10px; }
+.bd-err { color: #b3261e; }
+.bd-start { position: absolute; inset: 40px 0 0 0; text-align: center; }
+.bd-resize { position: absolute; inset-inline-end: 2px; bottom: 2px; width: 14px; height: 14px; cursor: nwse-resize;
+  border-inline-end: 3px solid var(--info, #2563eb); border-bottom: 3px solid var(--info, #2563eb); border-radius: 2px; }
+.bd-pivot-opts { display: flex; gap: 4px; margin-bottom: 6px; }
+
+/* ── v3.0.0 — AI design review ───────────────────────────────────────── */
+.ad-review { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.ad-review h4 { margin: 0; }
+.ad-warn { font-size: 12.5px; color: var(--muted, #6b7280); margin: 0; padding-inline-start: 18px; }
+.ad-rows { max-height: 360px; }
+.ad-section td { font-weight: 700; background: var(--surface-2, #fafafa); }
+.ad-formula td:first-child { font-weight: 600; }
+/* v3.0.1 — linked desk reports on the Ageing screen */
+.ag-linked { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ag-linked a { text-decoration: none; font-size: 12.5px; }

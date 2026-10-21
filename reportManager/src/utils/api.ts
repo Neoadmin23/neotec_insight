@@ -273,6 +273,24 @@ export const api = {
     call<any>('report.import_configuration',
       { payload: JSON.stringify(payload), mode, allow_partial: allowPartial ? 1 : 0 }, 'POST'),
   configBackupCoverage: () => call<any>('report.check_config_backup_coverage'),
+  // v3.0.1 — desk reports linked from the Ageing screen
+  ageingLinkedReports: (side: string) =>
+    call<{ report: string; label: string; url: string }[]>('ageing.linked_reports', { side }),
+  // v3.0.0 — AI design of dashboards and statements
+  aiDesignStart: (kind: 'board' | 'statement', prompt: string, statementType = 'pnl') =>
+    call<{ job_id: string }>('ai_design.start_design', { kind, prompt, statement_type: statementType }, 'POST'),
+  aiDesignSaveStatement: (draft: any) =>
+    call<{ name: string; rows: number; mappings: number }>('ai_design.save_statement', { draft: JSON.stringify(draft) }, 'POST'),
+  // v2.99.0 — dashboard designer
+  boardsList: () => call<any[]>('boards.list_boards'),
+  boardGet: (name: string) => call<any>('boards.get_board', { name }),
+  boardSave: (b: { name?: string; title: string; layout: any[]; filters: any; shared_roles: string }) =>
+    call<{ name: string }>('boards.save_board', { name: b.name || '', title: b.title, layout: JSON.stringify(b.layout),
+      filters: JSON.stringify(b.filters), shared_roles: b.shared_roles }, 'POST'),
+  boardDelete: (name: string) => call<any>('boards.delete_board', { name }, 'POST'),
+  boardSources: () => call<{ analyses: { key: string; title: string }[]; studio: { name: string; title: string }[] }>('boards.sources'),
+  boardRunVisual: (source: any, filters: any) =>
+    call<any>('boards.run_visual', { source: JSON.stringify(source), filters: JSON.stringify(filters) }),
   // v2.97.0 — Analysis Pack
   analysisList: () => call<{ key: string; title: string; description: string }[]>('analysis_pack.list_analyses'),
   analysisRun: (key: string, opts: { company?: string; from_date?: string; to_date?: string; compare?: string } = {}) =>
