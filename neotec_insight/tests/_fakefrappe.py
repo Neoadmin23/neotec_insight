@@ -450,6 +450,7 @@ def install():
         return rows
     m.get_list = get_list
     m.get_single = lambda dt: get_doc(dt)
+    m.scrub = lambda txt: str(txt or '').strip().lower().replace(' ', '_').replace('-', '_')
 
     class _Session:
         @property

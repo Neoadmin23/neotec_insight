@@ -1,3 +1,91 @@
+## v3.3.1 — 2026-10-27 — Top customers by the amount actually due
+
+### Changed: Top 5 ranks by overdue, not total balance
+The Top 5 ranked by total outstanding, which includes invoices not yet due, so a customer whose whole balance was current could top the list.
+- **Ranking:** it now ranks by **Due (overdue) = outstanding − not yet due** and shows that amount in bold, with Outstanding alongside for context. Customers with nothing overdue are left out.
+- **Heading:** "Top 5 AR Customers by Overdue Balance".
+- **Option:** "Rank top tables by" on the Dashboard sheet switches back to total outstanding.
+
+### Changed: AR sheet has a "Not Yet Due" column (as AP)
+The column is needed to show what is actually due. It is on by default and can be switched off per sheet. The sheet still reconciles: Total Due includes Not Yet Due, so Outstanding − Total Due = 0.
+
+### Fixed: blank amounts in previews
+Top-table amounts were formulas linking to formulas, which email, WhatsApp and Drive previews show as blank.
+- **Top tables:** the amounts are now written as values, since the ranking is fixed at download time anyway.
+- **Rest of the workbook:** it is flagged to recalculate fully when opened in Excel. The dashboard note says which figures are live.
+
+### Tests
+2 new; 646 total. They include a customer with the largest balance, all of it not yet due: it is excluded from the overdue ranking and first when ranking by outstanding. Recalculated in LibreOffice: no errors, check rows 0.
+
+## v3.3.0 — 2026-10-27 — Ageing pack: Top 5 receivables, header and colours
+
+### Added: Top 5 AR customers table on the Dashboard (always printed)
+"Top 5 AR Customers by Outstanding Balance" (#, Customer Name, Outstanding) is printed under the two ageing summaries, as in the client's template.
+- **Ranked over all customers:** it is ranked over **all** customers on the AR sheet, whatever is selected on the Ageing screen (the screen's Top N, party filters and exclusions do not apply), and customers with no balance are skipped.
+- **Live links:** each amount is a link to that customer's Outstanding cell (`='AR Ageing'!F{row}`). The template's `LARGE()` approach can pair the wrong name with an amount when two balances are equal; this cannot.
+- **Options on the Dashboard sheet:** the number of rows (default 5; 0 hides the table) and an optional Top N **suppliers** table (default off).
+
+### Added: header and colour settings (Dashboard sheet options)
+- **Header text:** a header title (blank = "AR & AP Ageing Report — Executive Dashboard") and a header subtitle (blank = the company name), also used on the AR and AP sheets.
+- **Colours, as hex:**
+
+  | Setting | Default | Used for |
+  |---|---|---|
+  | Heading | `57257D` | sheet titles, table header rows, Top N bar |
+  | Summary bars | `262626` | dashboard section and total bars |
+  | Text | `1A1A2E` | body text |
+  | Totals | `7030A0` | total rows, Top N amounts |
+  | Banding | `F7F5FA` | alternate rows |
+
+  The defaults are the client's template colours. An invalid colour falls back to the default.
+- **Template styling:** Arial; 16 pt titles; 9 pt tables; 8 pt grey row numbers and report details; white bold header text; total rows with a thin top and double bottom border.
+
+Existing packs need no change: an empty Dashboard configuration gives the template look with the Top 5 table.
+
+### Tests
+4 new; 644 total. Recalculated in LibreOffice: 59 formulas, no errors; the Top 5 evaluates in the right order, with zero balances skipped.
+
+## v3.2.1 — 2026-10-27 — Ageing pack: server error fixed, download from the Ageing tab
+
+### Fixed: "Cannot convert {'key': 'b30', 'en': '0–30 Days', …} to Excel"
+The ageing engine returns each bucket label as a bilingual object (`key`, `en`, `ar`), and the pack wrote those objects into the header row, which Excel refused. Labels are now written as text in the pack's language (English, Arabic, or both).
+- **Why the tests missed it:** v3.2.0's tests used a fake engine that returned plain strings. They now use the real label builder, and they reproduce the reported error when the old line is put back.
+
+### Changed: download from the Ageing tab
+The pack lived only under Compliance → Export Packs. The **Ageing (AR/AP)** tab now has **⬇ Download pack**, which builds the AR & AP Ageing workbook (dashboard, AR, AP) for the company and **As of** date on screen, using the screen's slabs, days or months, and due/posting basis.
+- **Server side:** `generate_pack` accepts `overrides` for these options only (slabs, `based_on`, mode); unknown keys and invalid values are ignored.
+- **Pack created if missing:** the pack is created on the fly if the site has not migrated since v3.2.0 or the pack was deleted.
+
+### Tests
+11 new; 640 total. Recalculated in LibreOffice: 44 formulas, no errors, both check rows 0.
+
+## v3.2.0 — 2026-10-21 — "AR & AP Ageing" download pack
+
+### Added: a month-end ageing pack, built like the VAT pack
+Reports → Packs now includes **AR & AP Ageing**, laid out like the client's month-end workbook. Pick the period; the **To** date is the report date.
+- **Dashboard:** AR and AP ageing summaries, each bucket and Total Outstanding, plus "Over 90 days, % of total". These are **live formulas linked to the two detail sheets**, moved to the front.
+- **AR Ageing:** one row per customer. Columns: #, Party Name, Invoiced Amount, Paid Amount, Credit Note, Outstanding, the ageing buckets (0–30 … 121+ Days) and Total Due.
+- **AP Ageing:** the same per supplier, with Debit Note and a separate **Not Yet Due** column.
+
+### How the figures are built
+- **Same engine as the Ageing screen:** GL-based, with payments matched to the invoices they settle.
+- **Notes shown apart from payments:** credit and debit notes (return invoices posted to the party account) are shown on their own, so Paid + Note = the engine's settled amount and Outstanding is unchanged.
+- **Formulas, not pasted values:** Outstanding (= Invoiced − Paid − Note), Total Due (sum of buckets), the total row and the dashboard are all formulas.
+- **Check row:** every sheet has "Outstanding − Total Due (should be 0)", plus a source note and the generation time.
+- **Layout:** Arial; header, banding and total row in the template's style; panes frozen at C10.
+
+### Options and pack setup
+- **Options per sheet:** the ageing range (default 30, 60, 90, 120), age from due or posting date, and (AP) whether to show Not Yet Due separately.
+- **Pack setup:** the pack is seeded on migrate and never overwritten once edited; it can be copied or rearranged in the pack designer like any pack.
+- **Engine flag:** the ageing engine gained an optional `split_not_due` flag. It is off by default, so the Ageing screen is unchanged.
+
+### Tests
+4 new; 629 total.
+- **Layout:** the sheets, headers, report date and frozen panes match the template.
+- **Notes and formulas:** notes are split from payments, and the formulas and dashboard links are right.
+- **Seeding:** the pack is seeded once.
+- **Recalculation:** recalculated in LibreOffice, all 44 formulas evaluate with no errors; Outstanding equals Total Due on both sheets and both check rows read 0.
+
 ## v3.1.1 — 2026-10-21 — headcount cross-tabs (Saudi / non-Saudi per department)
 
 ### Fixed: "Department wise saudi and non-saudi employee head count" gave departments only

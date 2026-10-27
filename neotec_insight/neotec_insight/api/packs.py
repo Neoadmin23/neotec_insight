@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import io
 import json
+import re
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import getdate, flt
 
 from .health import _default_company
 from .vat import (STANDARD_RATE, _apply_adjustments, _non_invoice_vouchers,
@@ -129,6 +130,31 @@ SHEET_TYPES = [
         ],
     },
 ]
+# v3.2.0 — ageing pack (mirrors the client's "AR & AP Ageing" workbook)
+_AGEING_OPTS = [
+    {"key": "slabs", "label": "Ageing range (days)", "kind": "text", "default": "30,60,90,120"},
+    {"key": "based_on", "label": "Age from", "kind": "select", "default": "due",
+     "choices": [["due", "Due date"], ["posting", "Posting date"]]},
+]
+SHEET_TYPES += [
+    {"type": "ageing_dashboard", "label": "Ageing Dashboard (AR & AP summary)", "options": _AGEING_OPTS + [
+        {"key": "top_ar", "label": "Top customers table (rows; 0 = hide)", "kind": "text", "default": "5"},
+        {"key": "top_ap", "label": "Top suppliers table (rows; 0 = hide)", "kind": "text", "default": "0"},
+        {"key": "top_by", "label": "Rank top tables by", "kind": "select", "default": "overdue",
+         "choices": [["overdue", "Amount due (overdue)"], ["outstanding", "Total outstanding"]]},
+        {"key": "header_title", "label": "Header title (blank = standard)", "kind": "text", "default": ""},
+        {"key": "header_subtitle", "label": "Header subtitle (blank = company name)", "kind": "text", "default": ""},
+        {"key": "color_accent", "label": "Heading colour (hex)", "kind": "text", "default": "57257D"},
+        {"key": "color_dark", "label": "Summary bars colour (hex)", "kind": "text", "default": "262626"},
+        {"key": "color_text", "label": "Text colour (hex)", "kind": "text", "default": "1A1A2E"},
+        {"key": "color_total", "label": "Totals colour (hex)", "kind": "text", "default": "7030A0"},
+        {"key": "color_band", "label": "Row banding colour (hex)", "kind": "text", "default": "F7F5FA"},
+    ]},
+    {"type": "ar_ageing", "label": "Accounts Receivable Ageing", "options": _AGEING_OPTS + [
+        {"key": "split_not_due", "label": "Show “Not Yet Due” separately", "kind": "check", "default": 1}]},
+    {"type": "ap_ageing", "label": "Accounts Payable Ageing", "options": _AGEING_OPTS + [
+        {"key": "split_not_due", "label": "Show “Not Yet Due” separately", "kind": "check", "default": 1}]},
+]
 _TYPES = {t["type"]: t for t in SHEET_TYPES}
 
 
@@ -205,6 +231,7 @@ def seed_default_export_packs() -> None:
     (Quarterly)' pack mirroring the live client's manual workbook — return
     summary, item-level sales & purchase registers, and both VAT-account GL
     ledgers. Never overwrites a pack the user has edited."""
+    _seed_ageing_pack()
     if frappe.db.exists("Insight Export Pack", "vat_breakdown_quarterly"):
         return
     cfg = {"language": "both", "sheets": [
@@ -220,6 +247,73 @@ def seed_default_export_packs() -> None:
         "description": "Audit pack: 16-box return + item-level sales/purchase VAT registers with party VAT numbers + Output/Input VAT GL ledgers.",
         "config_json": json.dumps(cfg),
     }).insert(ignore_permissions=True)
+
+
+AGEING_STYLE_DEFAULTS = {"accent": "57257D", "dark": "262626", "text": "1A1A2E", "total": "7030A0",
+                         "band": "F7F5FA", "title": "", "subtitle": ""}
+_HEX = re.compile(r"^#?[0-9A-Fa-f]{6}$")
+
+
+def ageing_style(opts: dict) -> dict:
+    """Header text and colours for the ageing sheets (v3.3.0). Colours must be
+    6-digit hex; anything else falls back to the template's colour."""
+    out = dict(AGEING_STYLE_DEFAULTS)
+    for k in ("accent", "dark", "text", "total", "band"):
+        v = str((opts or {}).get(f"color_{k}") or "").strip()
+        if _HEX.match(v):
+            out[k] = v.lstrip("#").upper()
+    out["title"] = str((opts or {}).get("header_title") or "").strip()[:120]
+    out["subtitle"] = str((opts or {}).get("header_subtitle") or "").strip()[:120]
+    return out
+
+
+def _seed_ageing_pack() -> None:
+    """v3.2.0 — 'AR & AP Ageing' pack: dashboard + AR + AP sheets, as in the
+    client's month-end ageing workbook. Never overwrites an edited pack."""
+    if frappe.db.exists("Insight Export Pack", "ar_ap_ageing"):
+        return
+    cfg = {"language": "en", "sheets": [
+        {"type": "ageing_dashboard", "title": "Dashboard", "options": {}},
+        {"type": "ar_ageing", "title": "AR Ageing", "options": {}},
+        {"type": "ap_ageing", "title": "AP Ageing", "options": {"split_not_due": 1}},
+    ]}
+    frappe.get_doc({"doctype": "Insight Export Pack", "slug": "ar_ap_ageing", "title": "AR & AP Ageing",
+                    "description": "Month-end ageing: executive dashboard + customer and supplier ageing with "
+                                   "invoiced, paid, credit/debit notes, outstanding and ageing buckets.",
+                    "config_json": json.dumps(cfg)}).insert(ignore_permissions=True)
+
+
+def _notes_by_party(company, as_of, party_type):
+    """Credit notes (customers) / debit notes (suppliers) per party, from the
+    GL like the ageing engine — so they can be shown apart from payments."""
+    dt, side = ("Sales Invoice", "credit") if party_type == "Customer" else ("Purchase Invoice", "debit")
+    rows = frappe.db.sql(
+        f"""select gle.party as party, sum(gle.{side}) as amount
+            from `tabGL Entry` gle join `tab{dt}` inv on inv.name = gle.voucher_no
+            where gle.company = %s and gle.party_type = %s and gle.is_cancelled = 0 and gle.posting_date <= %s
+              and gle.voucher_type = %s and inv.is_return = 1
+            group by gle.party""", (company, party_type, as_of, dt), as_dict=True)
+    return {r["party"]: flt(r["amount"]) for r in rows}
+
+
+def ageing_rows(company, as_of, party_type, opts):
+    """Ageing pack rows: the same engine as the Ageing screen, with notes split
+    out of 'paid' and (AP) not-yet-due items kept out of the first bucket."""
+    from neotec_insight.neotec_insight.api.ageing import ar_ap_ageing
+    # v3.3.1 — both sides split "not yet due" (default on), so overdue can be shown
+    split = int(opts.get("split_not_due", 1) if opts.get("split_not_due") not in (None, "") else 1)
+    data = ar_ap_ageing(company=company, as_of=as_of, party_type=party_type,
+                        based_on=opts.get("based_on") or "due", slabs=opts.get("slabs") or "30,60,90,120",
+                        mode=opts.get("mode") or "days",
+                        split_not_due=split)
+    notes = _notes_by_party(company, as_of, party_type)
+    rows = []
+    for r in data["rows"]:
+        note = notes.get(r["party"], 0.0)
+        rows.append({"label": r["label"], "invoiced": r["invoiced"], "paid": flt(r["paid"] - note, 2),
+                     "note": flt(note, 2), "outstanding": r["outstanding"], "not_due": r.get("not_due", 0.0),
+                     "buckets": r["buckets"]})
+    return data, rows
 
 
 # ── Data builders ────────────────────────────────────────────────────────────
@@ -430,7 +524,7 @@ def _gst_register_rows(company, from_date, to_date, doctype):
 # ── Workbook generator ───────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_head=None):
+def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_head=None, overrides=None):
     from datetime import datetime
 
     from openpyxl import Workbook
@@ -442,8 +536,24 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
         frappe.throw(_("from_date and to_date are required."))
     if not frappe.has_permission("GL Entry", "read"):
         frappe.throw(_("Not permitted."))
+    # v3.2.1 — the Ageing screen downloads this pack directly; create it if the
+    # site has not migrated since it was introduced (or it was deleted).
+    if slug == "ar_ap_ageing" and not frappe.db.exists("Insight Export Pack", "ar_ap_ageing"):
+        _seed_ageing_pack()
     pack = load_pack(slug)
     cfg = pack["config"]
+    # v3.2.1 — options chosen on the calling screen (ageing slabs / basis)
+    # override the pack's sheet options for this download only.
+    if overrides:
+        ov = json.loads(overrides) if isinstance(overrides, str) else overrides
+        allowed = {k: v for k, v in (ov or {}).items() if k in ("slabs", "based_on", "mode")}
+        if allowed.get("based_on") not in (None, "due", "posting"):
+            allowed.pop("based_on")
+        if allowed.get("mode") not in (None, "days", "months"):
+            allowed.pop("mode")
+        for sh in cfg.get("sheets") or []:
+            if sh.get("type") in ("ar_ageing", "ap_ageing", "ageing_dashboard"):
+                sh["options"] = {**(sh.get("options") or {}), **allowed}
     lang = cfg.get("language") or "both"
 
     def H(en, ar):
@@ -737,6 +847,208 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
             ws[f"A{ws.max_row}"].font = Font(size=9, color="B3261E")
         autow(ws)
 
+    # ── v3.2.0 — ageing sheets (formulas, so the workbook stays live) ─────────
+    # v3.3.0 — header text and colours come from the Dashboard sheet's options
+    # (defaults = the client's template); every ageing sheet uses the same style.
+    as_of = to_date
+    ageing_refs = {}            # sheet type -> dict(name, total_row, first_bucket, labels, has_nd, parties)
+    dashboards = []
+    F_NUM = "#,##0.00;[Red](#,##0.00);\"-\""
+    COMPANY_LABEL = frappe.db.get_value("Company", company, "company_name") or company
+    CURRENCY = frappe.db.get_value("Company", company, "default_currency") or "SAR"
+    dash_opts = next((sh.get("options") or {} for sh in cfg.get("sheets") or []
+                      if sh.get("type") == "ageing_dashboard"), {})
+    ST = ageing_style(dash_opts)
+
+    def font(color=None, bold=False, size=9):
+        return Font(name="Arial", bold=bold, size=size, color=color or ST["text"])
+
+    def fill(color):
+        return PatternFill("solid", fgColor=color)
+
+    def label_text(x):
+        if not isinstance(x, dict):
+            return str(x)
+        en, ar = x.get("en") or x.get("key") or "", x.get("ar") or ""
+        return ar if lang == "ar" and ar else f"{en} / {ar}" if lang == "both" and ar else en
+
+    def ageing_sheet(sheet_cfg, stype, opts):
+        party_type = "Customer" if stype == "ar_ageing" else "Supplier"
+        data, rows = ageing_rows(company, as_of, party_type, opts)
+        title = sheet_cfg.get("title") or ("AR Ageing" if stype == "ar_ageing" else "AP Ageing")
+        ws = new_sheet(title)
+        heading = ("Accounts Receivable — Ageing Report" if stype == "ar_ageing"
+                   else "Accounts Payable — Ageing Report")
+        has_nd = int(opts.get("split_not_due", 1) if opts.get("split_not_due") not in (None, "") else 1)
+        # v3.2.1 — the engine's slab labels are {"key", "en", "ar"}; write text.
+        labels = [label_text(x) for x in data["labels"]]
+        cols = ["#", "Party Name", "Invoiced Amount", "Paid Amount",
+                "Credit Note" if stype == "ar_ageing" else "Debit Note", "Outstanding"]
+        cols += (["Not Yet Due"] if has_nd else []) + list(labels) + ["Total Due"]
+        last = get_column_letter(len(cols))
+        ws["B2"] = heading
+        ws["B2"].font = font(ST["accent"], True, 16)
+        meta = [ST["subtitle"] or COMPANY_LABEL, f"Report Date: {getdate(as_of).strftime('%d %B %Y')}",
+                f"Ageing Range: {opts.get('slabs') or '30,60,90,120'} "
+                f"({'from due date' if (opts.get('based_on') or 'due') == 'due' else 'from posting date'})",
+                f"Currency: {data['currency']}"]
+        for k, txt in enumerate(meta):
+            r = 4 + k
+            ws[f"B{r}"] = txt
+            ws[f"B{r}"].font = font(size=8)
+            ws.merge_cells(f"B{r}:{last}{r}")
+        ws.merge_cells(f"B2:{last}2")
+        for j, h in enumerate(cols, 1):
+            c = ws.cell(row=9, column=j, value=h)
+            c.font = font("FFFFFF", True, 9)
+            c.fill = fill(ST["accent"])
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.row_dimensions[9].height = 30
+        first = r0 = 10
+        fb = 7 + (1 if has_nd else 0)                   # first ageing bucket column (1-based)
+        parties = []
+        for i, row in enumerate(rows, 1):
+            rr = r0 + i - 1
+            vals = [i, row["label"], row["invoiced"], row["paid"], row["note"], None]
+            vals += ([row["not_due"]] if has_nd else []) + list(row["buckets"]) + [None]
+            for j, v in enumerate(vals, 1):
+                c = ws.cell(row=rr, column=j, value=v)
+                c.font = font("999999", size=8) if j == 1 else font()
+                if j >= 3:
+                    c.number_format = F_NUM
+            ws.cell(row=rr, column=6, value=f"=C{rr}-D{rr}-E{rr}")          # outstanding
+            lb = get_column_letter(len(cols) - 1)
+            ws.cell(row=rr, column=len(cols), value=f"=SUM(G{rr}:{lb}{rr})")  # total due
+            if i % 2 == 0:
+                for j in range(1, len(cols) + 1):
+                    ws.cell(row=rr, column=j).fill = fill(ST["band"])
+            parties.append((row["label"], flt(row["outstanding"]), rr, flt(row.get("not_due"))))
+        tr = r0 + len(rows)
+        ws.cell(row=tr, column=1, value="Total")
+        ws.merge_cells(f"A{tr}:B{tr}")
+        for j in range(1, len(cols) + 1):
+            c = ws.cell(row=tr, column=j)
+            if j >= 3:
+                L = get_column_letter(j)
+                c.value = f"=SUM({L}{first}:{L}{tr - 1})" if rows else 0
+                c.number_format = F_NUM
+            c.font = font(ST["total"], True, 9)
+            c.border = Border(top=Side(style="thin", color=ST["accent"]), bottom=Side(style="double", color=ST["accent"]))
+        chk = tr + 2
+        ws.cell(row=chk, column=2, value="Check: Outstanding − Total Due (should be 0)").font = font("777777", size=8)
+        ws.cell(row=chk, column=len(cols), value=f"=F{tr}-{last}{tr}").number_format = F_NUM
+        note = (f"Source: Neotec Insight ageing engine (GL-based, payments matched to the invoices they settle); "
+                f"{'credit' if stype == 'ar_ageing' else 'debit'} notes shown separately from payments. "
+                f"Generated {datetime.now():%d %b %Y %H:%M}.")
+        ws.cell(row=chk + 1, column=2, value=note).font = font("777777", size=8)
+        ws.merge_cells(start_row=chk + 1, start_column=2, end_row=chk + 1, end_column=len(cols))
+        ws.freeze_panes = "C10"
+        ws.column_dimensions["A"].width = 5
+        ws.column_dimensions["B"].width = 42
+        for j in range(3, len(cols) + 1):
+            ws.column_dimensions[get_column_letter(j)].width = 15
+        ageing_refs[stype] = {"name": ws.title, "tr": tr, "fb": fb, "labels": labels, "has_nd": has_nd,
+                              "parties": parties}
+
+    def ageing_dashboard(sheet_cfg, opts):
+        ws = new_sheet(sheet_cfg.get("title") or "Dashboard")
+        wb.move_sheet(ws, offset=-(len(wb.sheetnames) - 1))
+        ws["B2"] = ST["title"] or "AR & AP Ageing Report — Executive Dashboard"
+        ws["B2"].font = font(ST["dark"], True, 16)
+        ws["B3"] = f"  {ST['subtitle'] or COMPANY_LABEL}   |   As of {getdate(as_of).strftime('%d %B %Y')}   |   Currency: {CURRENCY}"
+        ws["B3"].font = font("555555", size=10)
+        ws.merge_cells("B3:I3")
+        r = 5
+        bottom = r
+        for (stype, col0, head) in (("ar_ageing", 2, "  Accounts Receivable — Ageing Summary"),
+                                    ("ap_ageing", 7, "  Accounts Payable — Ageing Summary")):
+            ref_ = ageing_refs.get(stype)
+            if not ref_:
+                continue
+            ref = "'" + ref_["name"].replace("'", "''") + "'"
+            span = range(col0, col0 + (4 if col0 == 2 else 3))
+            ws.cell(row=r, column=col0, value=head)
+            for j in span:
+                ws.cell(row=r, column=j).fill = fill(ST["dark"])
+                ws.cell(row=r, column=j).font = font("FFFFFF", True, 10)
+            lines = ([("Not Yet Due", ref_["fb"] - 1)] if ref_["has_nd"] else []) + \
+                [(lab, ref_["fb"] + i) for i, lab in enumerate(ref_["labels"])]
+            vcol = col0 + (3 if col0 == 2 else 2)
+            for k, (lab, colno) in enumerate(lines):
+                rr = r + 1 + k
+                ws.cell(row=rr, column=col0, value=lab).font = font(bold=True)
+                cc = ws.cell(row=rr, column=vcol, value=f"={ref}!{get_column_letter(colno)}{ref_['tr']}")
+                cc.number_format = F_NUM
+                cc.font = font(bold=True)
+            tot = r + 1 + len(lines)
+            ws.cell(row=tot, column=col0, value="Total AR Outstanding" if stype == "ar_ageing" else "Total AP Outstanding")
+            ws.cell(row=tot, column=vcol, value=f"={ref}!F{ref_['tr']}").number_format = F_NUM
+            for j in span:
+                ws.cell(row=tot, column=j).fill = fill(ST["dark"])
+                ws.cell(row=tot, column=j).font = font("FFFFFF", True, 10)
+            share = tot + 1
+            ws.cell(row=share, column=col0, value="Over 90 days, % of total").font = font("777777", size=8)
+            over = [get_column_letter(ref_["fb"] + i) for i, lab in enumerate(ref_["labels"])
+                    if any(x in lab for x in ("91", "121", "+", "Above", ">"))]
+            if over:
+                expr = "+".join(f"{ref}!{L}{ref_['tr']}" for L in over)
+                sc = ws.cell(row=share, column=vcol, value=f"=IFERROR(({expr})/{ref}!F{ref_['tr']},0)")
+                sc.number_format = "0.0%"
+                sc.font = font("777777", size=8)
+            bottom = max(bottom, share)
+
+        # v3.3.0 — Top N tables: always ranked over ALL parties in the sheet
+        # (not the screen's selection); each amount links to that party's
+        # Outstanding cell, so names and amounts can never be mismatched.
+        r = bottom + 2
+        for stype, n_key, head, who in (("ar_ageing", "top_ar", "Top {n} AR Customers by Outstanding Balance", "Customer Name"),
+                                        ("ap_ageing", "top_ap", "Top {n} AP Suppliers by Outstanding Balance", "Supplier Name")):
+            ref_ = ageing_refs.get(stype)
+            n = int(opts.get(n_key) if opts.get(n_key) not in (None, "") else (5 if stype == "ar_ageing" else 0))
+            if not ref_ or n <= 0:
+                continue
+            # v3.3.1 — rank by the amount actually DUE (outstanding − not yet due)
+            # by default; values are written (not formulas) so they show in any
+            # viewer — the ranking itself is fixed at download time anyway.
+            by_due = (opts.get("top_by") or "overdue") != "outstanding"
+            items = [(p[0], p[1], p[2], round(p[1] - (p[3] if len(p) > 3 else 0.0), 2)) for p in ref_["parties"]]
+            key = 3 if by_due else 1
+            ranked = sorted((p for p in items if p[key] > 0.005), key=lambda p: -p[key])[:n]
+            head = head.replace("by Outstanding Balance", "by Overdue Balance" if by_due else "by Outstanding Balance")
+            ws.cell(row=r, column=2, value="  " + head.format(n=n))
+            for j in range(2, 10):
+                ws.cell(row=r, column=j).fill = fill(ST["accent"])
+                ws.cell(row=r, column=j).font = font("FFFFFF", True, 10)
+            hr = r + 1
+            heads = ((2, "#"), (3, who), (7, f"Outstanding ({CURRENCY})"),
+                     (9, f"Due — overdue ({CURRENCY})")) if by_due else ((2, "#"), (3, who), (9, f"Outstanding ({CURRENCY})"))
+            for col, txt in heads:
+                ws.cell(row=hr, column=col, value=txt).font = font(ST["accent"], True)
+                if col in (7, 9):
+                    ws.cell(row=hr, column=col).alignment = Alignment(horizontal="right", wrap_text=True)
+            for j in range(2, 10):
+                ws.cell(row=hr, column=j).border = Border(bottom=Side(style="thin", color=ST["accent"]))
+            for k, (name, outstanding, _prow, due) in enumerate(ranked, 1):
+                rr = hr + k
+                ws.cell(row=rr, column=2, value=k).font = font("999999", size=8)
+                ws.cell(row=rr, column=3, value=name).font = font()
+                ws.merge_cells(start_row=rr, start_column=3, end_row=rr, end_column=6 if by_due else 8)
+                if by_due:
+                    o = ws.cell(row=rr, column=7, value=outstanding)
+                    o.number_format = F_NUM
+                    o.font = font("777777")
+                c = ws.cell(row=rr, column=9, value=due if by_due else outstanding)
+                c.number_format = F_NUM
+                c.font = font(ST["total"], True)
+            if not ranked:
+                ws.cell(row=hr + 1, column=3, value="No overdue balances." if by_due else
+                        "No outstanding balances.").font = font("777777", size=8)
+            r = hr + max(len(ranked), 1) + 2
+        ws.cell(row=r, column=2, value="Summary figures are live formulas linked to the AR and AP sheets; the Top tables "
+                                         "are values as at the report date. Due = outstanding − not yet due.").font = font("777777", size=8)
+        for L, w in (("A", 2), ("B", 22), ("C", 4), ("D", 4), ("E", 18), ("F", 4), ("G", 22), ("H", 4), ("I", 18)):
+            ws.column_dimensions[L].width = w
+
     for sheet_cfg in cfg.get("sheets") or []:
         stype = sheet_cfg.get("type")
         spec = _TYPES.get(stype)
@@ -782,8 +1094,24 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
             wb[wb.sheetnames[-1]]["A3"] = _("Accounts: ") + ", ".join(accounts[:6]) + ("…" if len(accounts) > 6 else "")
             wb[wb.sheetnames[-1]]["A3"].font = Font(size=9, color="777777")
 
+        elif stype in ("ar_ageing", "ap_ageing"):
+            ageing_sheet(sheet_cfg, stype, opts)
+        elif stype == "ageing_dashboard":
+            dashboards.append((sheet_cfg, opts))
+
+    # v3.2.0 — dashboards are written last (they point at the AR/AP sheets) and
+    # then moved to the front, as in the client's workbook.
+    for sheet_cfg, opts in dashboards:
+        ageing_dashboard(sheet_cfg, opts)
+
     if not wb.sheetnames:
         frappe.throw(_("The pack produced no sheets — check its configuration."))
+    # v3.3.1 — make Excel recalculate every formula when the file opens
+    try:
+        from openpyxl.workbook.properties import CalcProperties
+        wb.calculation = CalcProperties(fullCalcOnLoad=True)
+    except Exception:
+        pass
 
     buf = io.BytesIO()
     wb.save(buf)

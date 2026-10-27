@@ -216,6 +216,15 @@ export default function AgeingTab() {
         )}
         <button className="vat-run" onClick={() => run()} disabled={loading}>{loading ? t('Calculating…') : t('Generate')}</button>
         {data && <button className="vat-ghost" onClick={exportCsv}>{t('Export CSV')}</button>}
+        {/* v3.2.1 — the AR & AP Ageing workbook (dashboard + AR + AP) for this date */}
+        <button className="vat-ghost" title={t('Excel workbook: dashboard, AR ageing and AP ageing as at this date')}
+          onClick={() => {
+            const q = encodeURIComponent;
+            const ov = JSON.stringify({ slabs, based_on: basedOn, mode });   // slabs already hold the current mode's values
+            window.open('/api/method/neotec_insight.neotec_insight.api.packs.generate_pack'
+              + `?slug=ar_ap_ageing&company=${q(company || '')}&from_date=${q(asOf)}&to_date=${q(asOf)}`
+              + `&overrides=${q(ov)}`, '_blank');
+          }}>⬇ {t('Download pack')}</button>
       </div>
 
       {err && <div className="studio-err">{err}</div>}

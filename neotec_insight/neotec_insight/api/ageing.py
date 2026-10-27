@@ -57,7 +57,7 @@ def _slab_index(age, bounds):
 @frappe.whitelist()
 def ar_ap_ageing(company=None, as_of=None, party_type="Customer", based_on="due",
                  mode="days", slabs="30,60,90,120", top_n=0, exclude_parties=None,
-                 allocation="actual", include_parties=None):
+                 allocation="actual", include_parties=None, split_not_due=0):
     company = company or _default_company()
     if not frappe.has_permission("GL Entry", "read"):
         frappe.throw(_("Not permitted."))
@@ -152,16 +152,22 @@ def ar_ap_ageing(company=None, as_of=None, party_type="Customer", based_on="due"
         if party in excl or (incl and party not in incl):
             continue
         buckets = [0.0] * n_slabs
+        not_due = 0.0
         for item in p["open"]:
             if abs(item["remaining"]) < 0.005:
                 continue
-            buckets[_slab_index(_age(as_of, item["date"], mode), bounds)] += item["remaining"]
+            age = _age(as_of, item["date"], mode)
+            # v3.2.0 — optionally keep items not yet due out of the first slab
+            if int(split_not_due or 0) and age < 0:
+                not_due += item["remaining"]
+                continue
+            buckets[_slab_index(age, bounds)] += item["remaining"]
         outstanding = flt(p["invoiced"] - p["paid"], 2)
         if abs(outstanding) < 0.01 and all(abs(b) < 0.01 for b in buckets):
             continue
         out_rows.append({"party": party, "label": party_names.get(party, party),
                          "invoiced": flt(p["invoiced"], 2), "paid": flt(p["paid"], 2),
-                         "outstanding": outstanding,
+                         "outstanding": outstanding, "not_due": flt(not_due, 2),
                          "buckets": [flt(b, 2) for b in buckets]})
     out_rows.sort(key=lambda r: -r["outstanding"])
 
