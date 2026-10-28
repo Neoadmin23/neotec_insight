@@ -17,6 +17,7 @@ import {
   loadBrand, buildFrame, borderTokens, tableCss, docTitle, bdi, identityLines,
   type Brand,
 } from './branddoc';
+import { mergeBrand, type LetterheadLike } from './printSettings';
 
 /* ── the model ──────────────────────────────────────────────────────────── */
 
@@ -79,6 +80,10 @@ export interface ReportDoc {
   paper?: string;
   /** extra note printed under the table (currency conversion, caveats) */
   note?: string;
+  /** v3.4.0 — this report's print layout; overrides the Brand Kit */
+  layout?: Partial<Brand>;
+  /** v3.4.0 — the ERPNext Letter Head chosen for this report */
+  letterhead?: LetterheadLike | null;
 }
 
 const esc = (s: any) => String(s ?? '')
@@ -103,12 +108,11 @@ function fileName(doc: ReportDoc, ext: string): string {
 }
 
 function resolveBrand(doc: ReportDoc): Brand {
-  const b = loadBrand(doc.company || null);
-  return {
-    ...b,
-    orientation: doc.orientation || b.orientation,
-    paper: doc.paper || b.paper,
-  };
+  const base = loadBrand(doc.company || null);
+  const b = { ...base, orientation: doc.orientation || base.orientation, paper: doc.paper || base.paper };
+  // v3.4.0 — the report's own layout and letterhead win over the Brand Kit,
+  // in Print, PDF, Image and Excel alike (they all resolve through here).
+  return mergeBrand(b, doc.layout, doc.letterhead);
 }
 
 /* ── HTML (drives Print, PDF and PNG) ───────────────────────────────────── */

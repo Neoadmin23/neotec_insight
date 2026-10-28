@@ -4759,3 +4759,19 @@ tr:hover .row-livegroup { opacity: 1; }
 /* v3.0.1 — linked desk reports on the Ageing screen */
 .ag-linked { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ag-linked a { text-decoration: none; font-size: 12.5px; }
+
+/* ── v3.4.0 — report layout dialog ─────────────────────────────────────── */
+.pl-panel { width: min(760px, 100%); }
+.pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 14px; }
+.pl-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted, #6b7280); }
+.pl-grid select, .pl-grid input { font-size: 13px; padding: 5px 6px; }
+.pl-h { margin: 16px 0 8px; font-size: 14px; }
+.pl-actions { display: flex; justify-content: space-between; margin-top: 16px; }
+/* v3.4.0 — Statement of Account */
+.st-party { min-width: 260px; }
+.st-party input { margin-bottom: 4px; }
+.st-picker { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 0; font-size: 13px; }
+.st-table { padding: 14px; margin-top: 12px; }
+.st-table h3 { margin: 0 0 10px; }
+.st-sub td, .st-tot td { font-weight: 600; background: var(--surface-2, #fafafa); }
+.st-grand td { font-weight: 700; border-top: 2px solid var(--border-strong, #999); }

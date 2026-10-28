@@ -488,7 +488,7 @@ export function AllocationApp() {
           <button onClick={run} disabled={!rule || loading}>{loading ? t('Running…') : t('Run')}</button>
           <button onClick={() => setDiagOpen(true)} disabled={!rule} title={t('Check every step from stored figures to the allocated result')}>{t('Diagnose')}</button>
           {view === 'report' && (
-            <ExportBar company={company} companyLabel={company} disabled={!result} getDoc={buildDoc} />
+            <ExportBar reportKey="allocation" reportLabel={t('Allocation')} company={company} companyLabel={company} disabled={!result} getDoc={buildDoc} />
           )}
           {view === 'data' && (
             <>

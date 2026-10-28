@@ -656,7 +656,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
             <i className="ti ti-refresh" aria-hidden /> {loading ? 'Running…' : 'Run'}
           </button>
           {viewMode === 'period' ? (
-            <ExportBar
+            <ExportBar reportKey="trial_balance" reportLabel={t('Trial Balance')}
               company={company}
               companyLabel={company}
               disabled={!result}

@@ -564,7 +564,7 @@ export function BalanceSheetView({ reports, selectedReport, setSelectedReport, c
             <i className="ti ti-refresh" aria-hidden /> {loading ? 'Running…' : 'Run'}
           </button>
           {viewMode === 'period' ? (
-            <ExportBar
+            <ExportBar reportKey="balance_sheet" reportLabel={t('Balance Sheet')}
               company={company}
               companyLabel={company}
               disabled={!result}

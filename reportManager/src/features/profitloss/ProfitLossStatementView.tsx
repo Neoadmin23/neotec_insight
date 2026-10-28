@@ -510,7 +510,7 @@ export function ProfitLossStatementView({
               Dimension and Combo views keep their own pivot exporters, which
               understand the crosstab shape the flat document model does not. */}
           {viewMode === 'period' ? (
-            <ExportBar
+            <ExportBar reportKey="profit_loss" reportLabel={t('Profit & Loss')}
               company={company}
               companyLabel={company}
               disabled={!result && !periods}

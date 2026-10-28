@@ -712,7 +712,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
               </select>
             </span>
           )}
-          <ExportBar
+          <ExportBar reportKey="general_ledger" reportLabel={t('General Ledger')}
             company={company}
             companyLabel={companyLabel}
             disabled={!data}

@@ -21,6 +21,7 @@ const CashFlowForecastTab = lazy(() => import('./features/cashflowforecast/CashF
 const ZakatTab = lazy(() => import('./features/zakat/ZakatTab'));
 const ExportPacks = lazy(() => import('./features/packs/ExportPacks'));
 const AgeingTab = lazy(() => import('./features/ageing/AgeingTab'));
+const StatementApp = lazy(() => import('./features/statement/StatementApp'));
 const GstTab = lazy(() => import('./features/gst/GstTab'));
 const BankApp = lazy(() => import('./features/bank/BankApp'));
 const HrApp = lazy(() => import('./features/hr/HrApp'));
@@ -72,6 +73,7 @@ const DEFAULT_SECTIONS: NavSection[] = [
       { ws: 'reports', label: 'Financial Reports' },
       { ws: 'general_ledger', label: 'General Ledger' },
       { ws: 'cashflow', label: 'Cash Flow', title: 'Statement of cash flows — operating, investing, financing' },
+      { ws: 'statement', label: 'Statement', title: 'Statement of Account for a customer or supplier — from the General Ledger or from Ageing (open items)' },
       { ws: 'ageing', label: 'Ageing (AR/AP)', title: 'Receivables & payables ageing — custom slabs, days or months, Top-N parties' },
       { ws: 'allocation', label: 'Allocation', title: 'Spread a shared cost pool across cost centres by head count, leads or any other driver' },
       { ws: 'visuals', label: 'Visuals' },
@@ -463,6 +465,11 @@ export default function App() {
         {workspace === 'vat' && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
             <VatReturn />
+          </Suspense>
+        )}
+        {workspace === 'statement' && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
+            <StatementApp />
           </Suspense>
         )}
         {workspace === 'ageing' && (

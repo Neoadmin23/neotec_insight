@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from '../utils/i18n';
 import BrandKitModal from './shell/BrandKitModal';
 import { csvDoc, imageDoc, pdfDoc, printDoc, xlsxDoc, type ReportDoc } from '../utils/reportdoc';
+import { loadPrint, savePrint, toLayout, type ReportPrintSettings } from '../utils/printSettings';
+import { fetchLetterhead, type LetterheadPayload } from '../utils/letterhead';
+import { PrintLayoutModal } from './PrintLayoutModal';
 
 /* v2.55.0 — the same output row on every report menu.
  *
@@ -20,6 +23,9 @@ import { csvDoc, imageDoc, pdfDoc, printDoc, xlsxDoc, type ReportDoc } from '../
 interface Props {
   /** Build the document to export. Return null when there's nothing to send. */
   getDoc: () => ReportDoc | null;
+  /** v3.4.0 — key for this report's own layout + letterhead (e.g. 'general_ledger') */
+  reportKey?: string;
+  reportLabel?: string;
   /** Company docname — selects which Brand Kit the gear edits. */
   company?: string;
   companyLabel?: string;
@@ -33,7 +39,19 @@ interface Props {
 
 type Job = '' | 'pdf' | 'image' | 'xlsx';
 
-export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], children }: Props) {
+export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], children, reportKey, reportLabel }: Props) {
+  // v3.4.0 — per-report layout and letterhead
+  const key = reportKey || 'report';
+  const [layoutOpen, setLayoutOpen] = useState(false);
+  const [ps, setPs] = useState<ReportPrintSettings>(() => loadPrint(key, company));
+  const [lh, setLh] = useState<LetterheadPayload | null>(null);
+  useEffect(() => { setPs(loadPrint(key, company)); }, [key, company]);
+  useEffect(() => {
+    let live = true;
+    if (!ps.letterhead) { setLh(null); return; }
+    fetchLetterhead(ps.letterhead, company || undefined).then((p) => { if (live) setLh(p); }).catch(() => { if (live) setLh(null); });
+    return () => { live = false; };
+  }, [ps.letterhead, company]);
   const [busy, setBusy] = useState<Job>('');
   const [setupOpen, setSetupOpen] = useState(false);
   const [err, setErr] = useState('');
@@ -48,6 +66,7 @@ export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], 
     let doc: ReportDoc | null = null;
     try { doc = getDoc(); } catch (e: any) { setErr(e?.message || t('Could not build the export.')); return; }
     if (!doc) { setErr(t('Run the report first.')); return; }
+    doc = { ...doc, layout: { ...(doc.layout || {}), ...toLayout(ps) }, letterhead: lh || doc.letterhead || null };
     if (job) setBusy(job);
     try {
       await fn(doc);
@@ -80,6 +99,15 @@ export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], 
       {show('image') && (
         <button type="button" disabled={disabled || busy === 'image'} title={t('Download as a PNG image')}
           onClick={() => run('image', imageDoc)}>{busy === 'image' ? t('Capturing…') : t('Image')}</button>
+      )}
+      <button type="button" className="ni-exp-gear" title={t('This report: letterhead, field positions, paper, sizes')}
+        onClick={() => setLayoutOpen(true)}>
+        <span aria-hidden>▤</span>
+        <span className="ni-exp-gear-lbl">{t('Layout')}{ps.letterhead ? ` · ${ps.letterhead}` : ''}</span>
+      </button>
+      {layoutOpen && (
+        <PrintLayoutModal reportLabel={reportLabel || key} value={ps}
+          onSave={(v) => { setPs(v); savePrint(key, company, v); }} onClose={() => setLayoutOpen(false)} />
       )}
       <button type="button" className="ni-exp-gear" title={t('Print setup — letterhead, logo, borders, paper')}
         onClick={() => setSetupOpen(true)}>

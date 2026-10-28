@@ -1,3 +1,27 @@
+## v3.4.0 — 2026-10-28 — Report layout and letterhead per report; Statement of Account
+
+### Added: "▤ Layout" on every exporting report
+General Ledger, Balance Sheet, Profit & Loss, Trial Balance, Allocation and the new Statement each have a **Layout** button next to the company-wide **⚙ Setup** (Brand Kit). It holds settings for **that report only**:
+- **Letterhead:** any ERPNext Letter Head (or the Brand Kit's own identity). It supplies the logo, company name, VAT number, address and contact lines, and footer text.
+- **Positions:** logo, title, company, header text/address, period, footer text and "printed on" can each be left, centre, right or hidden, plus page numbers.
+- **Page and text:** orientation, paper size (A4, A3, Letter, Legal), title size, table text size and table lines (grid, rows, none).
+
+Every setting has a "Default" that keeps the Brand Kit's value. Settings are saved per report and company, in the browser.
+- **All outputs:** Print, PDF, Image and Excel all resolve the brand through one function, so the layout and letterhead apply to every output.
+- **Letterhead indicator:** the chosen letterhead's name shows on the Layout button.
+
+### Added: Reports → Statement (Statement of Account)
+A statement for one customer or supplier, with a choice of source:
+- **General Ledger:** the opening balance, every transaction with running balance (date, voucher, remarks, description, against, cost centre, project, debit, credit, balance), totals and the closing balance. Uses the GL engine with a party filter.
+- **Ageing (open items):** each open invoice with date, age, bucket, invoice amount, paid/adjusted and outstanding; unallocated payments; the bucket summary; and the balance due as at the chosen date. Uses the bill-wise engine.
+
+A **Fields** picker per source (remembered) chooses the columns. Exports go through the same bar, with the same Layout and letterhead. Orientation switches to landscape when more than seven columns are shown, unless the layout says otherwise.
+
+### Tests
+4 Node groups (`npm run test:print`, also run in every build) and 4 Python checks; 650 total.
+- **Print logic:** "Default" never overrides the Brand Kit; report settings win element by element without changing the Brand Kit itself; the letterhead mapping turns its footer into plain text with scripts dropped.
+- **Wiring:** every exporting report has its own layout key, exports apply layout and letterhead, and the Statement uses both sources.
+
 ## v3.3.1 — 2026-10-27 — Top customers by the amount actually due
 
 ### Changed: Top 5 ranks by overdue, not total balance
