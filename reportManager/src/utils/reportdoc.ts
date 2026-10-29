@@ -64,6 +64,9 @@ export interface ReportDoc {
   /** heading printed in the letterhead band (Brand Kit title overrides it) */
   title: string;
   subtitle?: string;
+  /** v3.4.3 — the party block (e.g. "Customer: …") printed directly above the
+   *  table's column headings, on every page — not inside the letterhead band */
+  party?: { label: string; lines?: string[] };
   /** company docname — selects the Brand Kit and the letterhead identity */
   company?: string;
   /** company display label, Arabic-resolved by the caller */
@@ -177,6 +180,10 @@ export function buildDocHtml(doc: ReportDoc, opts: { forScreen?: boolean } = {})
     tr.gap td{border:0;background:none;height:6px;padding:0;}
     .rpt-note{margin-top:6px;font-size:10px;color:#666;}
     thead tr.pr-lh th{border:0 !important;background:none !important;}
+    thead tr.pr-party th{border:0 !important;background:none !important;text-align:left;font-weight:400;
+      padding:10px 2px 8px;}
+    .pp-name{font-weight:700;font-size:1.08em;}
+    .pp-line{font-size:.92em;color:#555;}
     tfoot td{border:0 !important;background:none !important;}
     @media screen{body{padding:18px;}}
     ${opts.forScreen ? 'body{padding:0;background:#fff;}' : ''}
@@ -184,6 +191,9 @@ export function buildDocHtml(doc: ReportDoc, opts: { forScreen?: boolean } = {})
     <table class="rpt">
       <thead>
         <tr class="pr-lh"><th colspan="${nCols}">${fr.headerHtml}</th></tr>
+        ${doc.party ? `<tr class="pr-party"><th colspan="${nCols}"><div class="pp-name">${bdi(doc.party.label)}</div>`
+          + (doc.party.lines || []).filter(Boolean).map((l) => `<div class="pp-line">${bdi(l)}</div>`).join('')
+          + `</th></tr>` : ''}
         <tr>${th}</tr>
       </thead>
       ${fr.footerHtml ? `<tfoot><tr><td colspan="${nCols}">${fr.footerHtml}</td></tr></tfoot>` : ''}
@@ -230,6 +240,7 @@ export function csvDoc(doc: ReportDoc) {
   const lines: string[] = [];
   lines.push(csvEsc(doc.title));
   if (doc.subtitle) lines.push(csvEsc(doc.subtitle));
+  if (doc.party) lines.push(csvEsc(doc.party.label), ...(doc.party.lines || []).filter(Boolean).map(csvEsc));
   if (id.name) lines.push(csvEsc(id.name));
   if (id.nameAr) lines.push(csvEsc(id.nameAr));
   if (id.idLine) lines.push(csvEsc(id.idLine));
@@ -485,6 +496,11 @@ export async function xlsxDoc(doc: ReportDoc) {
   }
   if (b.showPeriod !== false && doc.period) bandRow(doc.period, S.meta);
   rn += 1; lines.push(`<row r="${rn}"/>`);          // spacer
+  // v3.4.3 — the party block sits directly above the column headings
+  if (doc.party) {
+    bandRow(doc.party.label, S.title, 18);
+    for (const l of doc.party.lines || []) if (l) bandRow(l, S.meta);
+  }
 
   rn += 1;
   lines.push(`<row r="${rn}" ht="18" customHeight="1">`

@@ -4775,3 +4775,18 @@ tr:hover .row-livegroup { opacity: 1; }
 .st-table h3 { margin: 0 0 10px; }
 .st-sub td, .st-tot td { font-weight: 600; background: var(--surface-2, #fafafa); }
 .st-grand td { font-weight: 700; border-top: 2px solid var(--border-strong, #999); }
+/* v3.4.1 — statement accounts and ordered field picker */
+.st-acct { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.st-acct-pop { position: absolute; top: 100%; z-index: 30; width: 360px; max-height: 360px; display: flex; flex-direction: column;
+  gap: 6px; padding: 8px; background: var(--surface, #fff); border: 1px solid var(--border-strong, #ccc); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.st-acct-list { overflow: auto; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.st-picker { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 16px; }
+.st-sub { font-weight: 600; font-size: 12px; margin-bottom: 6px; color: var(--muted, #6b7280); }
+.st-ord-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--border, #eee); }
+.st-ord-n { width: 18px; color: var(--muted, #999); font-size: 11px; }
+.st-ord-l { flex: 1; }
+.st-ord-row button { border: 1px solid var(--border, #ddd); background: var(--surface, #fff); border-radius: 4px; cursor: pointer; padding: 0 6px; }
+.st-avail { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.st-add { border: 1px dashed var(--border-strong, #bbb); background: transparent; border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12.5px; }
+.st-oneline { display: flex; align-items: center; gap: 4px; font-size: 13px; white-space: nowrap; align-self: flex-end; padding-bottom: 6px; }

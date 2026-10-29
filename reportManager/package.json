@@ -1,21 +1,22 @@
 {
   "name": "neotec-insight-frontend",
   "private": true,
-  "version": "3.4.0",
+  "version": "3.4.4",
   "type": "module",
   "engines": {
     "node": ">=18.16.0"
   },
   "scripts": {
     "dev": "vite",
-    "build": "bash scripts/typecheck.sh && eslint src scripts --max-warnings=0 && npm run test:menu && npm run test:board && npm run test:print && vite build --base=/assets/neotec_insight/insight/ && node scripts/copy-html-entry.js",
+    "build": "bash scripts/typecheck.sh && eslint src scripts --max-warnings=0 && npm run test:menu && npm run test:board && npm run test:print && npm run test:statement && vite build --base=/assets/neotec_insight/insight/ && node scripts/copy-html-entry.js",
     "preview": "vite preview",
     "lint": "eslint src scripts --max-warnings=0",
     "typecheck": "bash scripts/typecheck.sh",
-    "check": "npm run typecheck && npm run lint && npm run test:menu && npm run test:board && npm run test:print",
+    "check": "npm run typecheck && npm run lint && npm run test:menu && npm run test:board && npm run test:print && npm run test:statement",
     "test:menu": "node --experimental-strip-types --no-warnings scripts/test-menu-fold.mjs",
     "test:board": "node --experimental-strip-types --no-warnings scripts/test-board.mjs",
-    "test:print": "node --experimental-strip-types --no-warnings scripts/test-print.mjs"
+    "test:print": "node --experimental-strip-types --no-warnings scripts/test-print.mjs",
+    "test:statement": "node --experimental-strip-types --no-warnings scripts/test-statement.mjs"
   },
   "dependencies": {
     "chart.js": "^4.4.1",

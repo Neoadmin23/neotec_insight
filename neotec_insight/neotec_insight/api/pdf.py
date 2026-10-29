@@ -41,7 +41,10 @@ def _sanitise(html: str) -> str:
 	# Event handlers and javascript: URLs.
 	html = re.sub(r"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", "", html, flags=re.I)
 	html = re.sub(r"(href|src)\s*=\s*([\"']?)\s*javascript:[^\"'>]*\2", r"\1=\2#\2", html, flags=re.I)
-	return _restrict_resources(html)
+	# v3.4.2 — wkhtmltopdf (QtWebKit) does not understand CSS custom
+	# properties: every border/background written as var(--x) was dropped,
+	# so PDFs had no table rules or header shading. Resolve them first.
+	return inline_css_vars(_restrict_resources(html))
 
 
 # v2.90.0 — resource allowlist. Local-file access and JavaScript were already
@@ -52,6 +55,45 @@ def _sanitise(html: str) -> str:
 # site's own host (how the letterhead logo is referenced). Everything else is
 # blanked before rendering.
 _URL_ATTRS = ("src", "href", "srcset", "background", "poster", "xlink:href", "data", "action")
+
+
+_VAR_DECL = re.compile(r"(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+?)\s*(?=;|})")
+
+
+def _resolve_var(m: "re.Match", defs: dict, depth: int = 0) -> str:
+	inner = m.group(1)
+	name, _sep, fallback = inner.partition(",")
+	val = defs.get(name.strip())
+	if val is None:
+		val = fallback.strip()
+	if depth < 8 and "var(" in val:
+		val = _subst_vars(val, defs, depth + 1)
+	return val
+
+
+def _subst_vars(text: str, defs: dict, depth: int = 0) -> str:
+	# innermost var(...) first, so nested fallbacks resolve correctly
+	pat = re.compile(r"var\(\s*((?:[^()]|\([^()]*\))*?)\)")
+	for _round in range(10):
+		new = pat.sub(lambda m: _resolve_var(m, defs, depth), text)
+		if new == text:
+			break
+		text = new
+	return text
+
+
+def inline_css_vars(html: str) -> str:
+	"""Replace var(--name[, fallback]) with its value throughout the document.
+	Later declarations win (as the cascade does for :root overrides). Pure."""
+	if "var(" not in (html or ""):
+		return html
+	defs: dict[str, str] = {}
+	for style in re.findall(r"<style[^>]*>(.*?)</style>", html, flags=re.S | re.I):
+		for name, val in _VAR_DECL.findall(style):
+			defs[name] = val.strip()
+	for name, val in list(defs.items()):
+		defs[name] = _subst_vars(val, defs)
+	return _subst_vars(html, defs)
 
 
 def _site_hosts() -> set[str]:

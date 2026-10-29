@@ -3,6 +3,7 @@ import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 import { ExportBar } from '../ExportBar';
 import type { DocRow, ReportDoc } from '../../utils/reportdoc';
+import { mergeByVoucher } from '../../utils/statementCore';
 
 /* v3.4.0 — Statement of Account for one customer or supplier, from either
  *   • General Ledger — opening balance, every transaction, running balance, closing;
@@ -13,12 +14,20 @@ import type { DocRow, ReportDoc } from '../../utils/reportdoc';
 type Source = 'gl' | 'ageing';
 type Col = { key: string; label: string; num?: boolean };
 
+// v3.4.1 — every field the GL engine returns per entry
 const GL_COLS: Col[] = [
   { key: 'posting_date', label: 'Date' }, { key: 'voucher_type', label: 'Voucher type' },
-  { key: 'voucher_no', label: 'Voucher no.' }, { key: 'remarks', label: 'Remarks' },
-  { key: 'description', label: 'Description' }, { key: 'against', label: 'Against' },
-  { key: 'cost_center', label: 'Cost centre' }, { key: 'project', label: 'Project' },
+  { key: 'voucher_no', label: 'Voucher no.' }, { key: 'account_label', label: 'Account' },
+  { key: 'party_type', label: 'Party type' }, { key: 'party', label: 'Party' },
+  { key: 'against', label: 'Against account' }, { key: 'against_voucher_type', label: 'Against voucher type' },
+  { key: 'against_voucher', label: 'Against voucher' }, { key: 'cost_center', label: 'Cost centre' },
+  { key: 'project', label: 'Project' }, { key: 'department', label: 'Department' },
+  { key: 'finance_book', label: 'Finance book' }, { key: 'is_opening', label: 'Is opening' },
+  { key: 'remarks', label: 'Remarks' }, { key: 'description', label: 'Description' },
+  { key: 'account_currency', label: 'Account currency' },
   { key: 'debit', label: 'Debit', num: true }, { key: 'credit', label: 'Credit', num: true },
+  { key: 'debit_in_account_currency', label: 'Debit (account currency)', num: true },
+  { key: 'credit_in_account_currency', label: 'Credit (account currency)', num: true },
   { key: 'balance', label: 'Balance', num: true },
 ];
 const AG_COLS: Col[] = [
@@ -27,7 +36,7 @@ const AG_COLS: Col[] = [
   { key: 'paid', label: 'Paid / adjusted', num: true }, { key: 'remaining', label: 'Outstanding', num: true },
 ];
 const DEFAULTS: Record<Source, string[]> = {
-  gl: ['posting_date', 'voucher_type', 'voucher_no', 'remarks', 'debit', 'credit', 'balance'],
+  gl: ['posting_date', 'voucher_no', 'against_voucher', 'remarks', 'debit', 'credit', 'balance'],
   ageing: ['date', 'bill', 'age', 'slab', 'amount', 'paid', 'remaining'],
 };
 const LS = (s: Source) => `ni-statement-cols:${s}`;
@@ -48,6 +57,12 @@ export default function StatementApp() {
   const [slabs, setSlabs] = useState('30,60,90,120');
   const [cols, setCols] = useState<string[]>(() => JSON.parse(localStorage.getItem(LS('gl')) || 'null') || DEFAULTS.gl);
   const [picker, setPicker] = useState(false);
+  const [oneLine, setOneLine] = useState(() => localStorage.getItem('ni-statement-oneline') !== '0');
+  // v3.4.1 — account choice (blank = all receivable / payable accounts)
+  const [accts, setAccts] = useState<{ name: string; label: string; type: string }[]>([]);
+  const [acctSel, setAcctSel] = useState<string[]>([]);
+  const [acctQ, setAcctQ] = useState('');
+  const [acctOpen, setAcctOpen] = useState(false);
   const [data, setData] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -65,16 +80,38 @@ export default function StatementApp() {
     setCols(JSON.parse(localStorage.getItem(LS(source)) || 'null') || DEFAULTS[source]);
     setData(null);
   }, [source]);
+  useEffect(() => {
+    if (!company) return;
+    setAcctSel([]);
+    api.accountTree(company).then((rows: any[]) => {
+      const leaf = (rows || []).filter((r) => !r.is_group).map((r) => ({
+        name: r.name, type: r.account_type || '',
+        label: (r.account_number ? `${r.account_number} - ` : '') + (r.account_name || r.name),
+      }));
+      const rank = (a: { type: string }) => (a.type === 'Receivable' || a.type === 'Payable' ? 0 : 1);
+      setAccts(leaf.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label)));
+    }).catch(() => setAccts([]));
+  }, [company]);
 
   const all = source === 'gl' ? GL_COLS : AG_COLS;
-  const shown = all.filter((c) => cols.includes(c.key));
+  // v3.4.1 — the picker's order is the print order
+  const shown = cols.map((k) => all.find((c) => c.key === k)).filter(Boolean) as Col[];
   const partyLabel = parties.find((p) => p.name === party)?.label || party;
   const companyLabel = companies.find((c) => c.name === company)?.label || company;
 
-  function toggle(k: string) {
-    const next = cols.includes(k) ? cols.filter((x) => x !== k) : all.map((c) => c.key).filter((x) => x === k || cols.includes(x));
+  function saveCols(next: string[]) {
     setCols(next);
     localStorage.setItem(LS(source), JSON.stringify(next));
+  }
+  function toggle(k: string) {
+    saveCols(cols.includes(k) ? cols.filter((x) => x !== k) : [...cols, k]);
+  }
+  function move(k: string, d: -1 | 1) {
+    const i = cols.indexOf(k), j = i + d;
+    if (i < 0 || j < 0 || j >= cols.length) return;
+    const next = [...cols];
+    [next[i], next[j]] = [next[j], next[i]];
+    saveCols(next);
   }
 
   async function run() {
@@ -83,7 +120,7 @@ export default function StatementApp() {
     try {
       if (source === 'gl') {
         const r = await api.generalLedger({
-          company, accounts: [], from_date: fromDate, to_date: toDate, with_description: 1,
+          company, accounts: acctSel, from_date: fromDate, to_date: toDate, with_description: 1,
           customer: partyType === 'Customer' ? [party] : null, supplier: partyType === 'Supplier' ? [party] : null,
         } as any);
         setData({ kind: 'gl', ...r });
@@ -107,7 +144,7 @@ export default function StatementApp() {
       }
       out.push({ kind: 'sub', cells: { remarks: t('Opening balance'), voucher_type: t('Opening balance'), balance: open } });
       for (const b of data.accounts || []) {
-        for (const r of b.transactions || []) {
+        for (const r of (oneLine ? mergeByVoucher(b.transactions || []) : (b.transactions || []))) {
           deb += Number(r.debit) || 0; cre += Number(r.credit) || 0;
           out.push({ kind: 'normal', cells: { ...r, balance: r.balance_raw } });
         }
@@ -133,7 +170,7 @@ export default function StatementApp() {
       }
     }
     return out;
-  }, [data]);
+  }, [data, oneLine]);
 
   function getDoc(): ReportDoc | null {
     if (!data) return null;
@@ -148,7 +185,8 @@ export default function StatementApp() {
     }));
     return {
       title: t('Statement of Account'),
-      subtitle: `${t(partyType)}: ${partyLabel}`,
+      // v3.4.3 — the party goes directly above the table, not into the letterhead band
+      party: { label: `${t(partyType)}: ${partyLabel}` },
       company, companyLabel,
       period: source === 'gl' ? `${fromDate} → ${toDate}` : `${t('As of')} ${toDate}`,
       columns: shown.map((c) => ({ label: t(c.label), num: c.num, width: c.key === 'remarks' || c.key === 'description' ? 34 : undefined })),
@@ -183,6 +221,30 @@ export default function StatementApp() {
               <option value="ageing">{t('Ageing (open items)')}</option>
             </select></label>
           {source === 'gl' && (
+            <div className="st-acct">
+              <span className="flbl">{t('Accounts')}</span>
+              <button type="button" className="bk-btn" onClick={() => setAcctOpen((v) => !v)}>
+                {acctSel.length ? `${acctSel.length} ${t('selected')}`
+                  : (partyType === 'Customer' ? t('All receivable accounts') : t('All payable accounts'))} ▾
+              </button>
+              {acctOpen && (
+                <div className="st-acct-pop">
+                  <input placeholder={t('Search accounts…')} value={acctQ} onChange={(e) => setAcctQ(e.target.value)} />
+                  <button type="button" className="cp-link" onClick={() => setAcctSel([])}>{t('Clear — use all receivable / payable')}</button>
+                  <div className="st-acct-list">
+                    {accts.filter((a) => !acctQ || a.label.toLowerCase().includes(acctQ.toLowerCase())).slice(0, 200).map((a) => (
+                      <label key={a.name}>
+                        <input type="checkbox" checked={acctSel.includes(a.name)}
+                          onChange={() => setAcctSel((s) => (s.includes(a.name) ? s.filter((x) => x !== a.name) : [...s, a.name]))} />
+                        {a.label}{a.type ? <small> · {t(a.type)}</small> : null}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {source === 'gl' && (
             <label><span className="flbl">{t('From date')}</span>
               <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></label>
           )}
@@ -192,6 +254,13 @@ export default function StatementApp() {
             <label><span className="flbl">{t('Slabs (days)')}</span>
               <input value={slabs} onChange={(e) => setSlabs(e.target.value)} /></label>
           )}
+          {source === 'gl' && (
+            <label className="st-oneline" title={t('Merge an invoice posted as several lines (e.g. revenue and VAT) into one line at the invoice total')}>
+              <input type="checkbox" checked={oneLine}
+                onChange={(e) => { setOneLine(e.target.checked); localStorage.setItem('ni-statement-oneline', e.target.checked ? '1' : '0'); }} />
+              {' '}{t('One line per voucher')}
+            </label>
+          )}
           <button type="button" className="bk-btn bk-primary" disabled={busy} onClick={run}>{busy ? t('Loading…') : t('Generate')}</button>
         </div>
         <ExportBar reportKey="statement" reportLabel={t('Statement of Account')} company={company}
@@ -200,9 +269,24 @@ export default function StatementApp() {
         </ExportBar>
         {picker && (
           <div className="st-picker">
-            {all.map((c) => (
-              <label key={c.key}><input type="checkbox" checked={cols.includes(c.key)} onChange={() => toggle(c.key)} /> {t(c.label)}</label>
-            ))}
+            <div className="st-order">
+              <div className="st-sub">{t('Print order')}</div>
+              {shown.map((c, i) => (
+                <div key={c.key} className="st-ord-row">
+                  <span className="st-ord-n">{i + 1}</span>
+                  <span className="st-ord-l">{t(c.label)}</span>
+                  <button type="button" disabled={i === 0} onClick={() => move(c.key, -1)} title={t('Move left')}>↑</button>
+                  <button type="button" disabled={i === shown.length - 1} onClick={() => move(c.key, 1)} title={t('Move right')}>↓</button>
+                  <button type="button" onClick={() => toggle(c.key)} title={t('Remove')}>×</button>
+                </div>
+              ))}
+            </div>
+            <div className="st-avail">
+              <div className="st-sub">{t('Add a field')}</div>
+              {all.filter((c) => !cols.includes(c.key)).map((c) => (
+                <button type="button" key={c.key} className="st-add" onClick={() => toggle(c.key)}>＋ {t(c.label)}</button>
+              ))}
+            </div>
           </div>
         )}
         {err && <div className="alloc-warn">{err}</div>}

@@ -2507,6 +2507,22 @@ def general_ledger(
         except Exception:
             accounts = [accounts] if accounts else []
     accounts = [a for a in (accounts or []) if a]
+    def _named(v):
+        if isinstance(v, str):
+            try:
+                v = json.loads(v) if v.strip().startswith("[") else [v]
+            except Exception:
+                v = [v]
+        return [x for x in (v or []) if x]
+    if not accounts and (_named(customer) or _named(supplier)):
+        # v3.4.1 — a party statement needs no account choice: use the company's
+        # receivable (customers) / payable (suppliers) ledger accounts.
+        atypes = (["Receivable"] if _named(customer) else []) + (["Payable"] if _named(supplier) else [])
+        flt_ = {"account_type": ["in", atypes], "is_group": 0}
+        if company:
+            flt_["company"] = company
+        accounts = frappe.get_all("Account", filters=flt_, pluck="name", order_by="lft asc",
+                                  limit_page_length=0)
     if not accounts:
         frappe.throw("Select at least one account.")
     if not from_date or not to_date:
@@ -2652,7 +2668,12 @@ def general_ledger(
                    g.voucher_type AS voucher_type, g.voucher_no AS voucher_no,
                    g.against AS against, g.party_type AS party_type, g.party AS party,
                    g.cost_center AS cost_center, g.project AS project,
-                   g.debit AS debit, g.credit AS credit, g.remarks AS remarks{dept_sel}
+                   g.debit AS debit, g.credit AS credit, g.remarks AS remarks{dept_sel},
+                   g.against_voucher_type AS against_voucher_type, g.against_voucher AS against_voucher,
+                   g.finance_book AS finance_book, g.is_opening AS is_opening,
+                   g.account_currency AS account_currency,
+                   g.debit_in_account_currency AS debit_in_account_currency,
+                   g.credit_in_account_currency AS credit_in_account_currency
             FROM `tabGL Entry` g
             WHERE {base_where} AND g.posting_date BETWEEN %(fd)s AND %(td)s
             ORDER BY g.account ASC, g.posting_date ASC, g.creation ASC""",
@@ -2738,6 +2759,15 @@ def general_ledger(
                 "department": tr.get("department") or "",
                 "remarks": tr.get("remarks") or "",
                 "description": "",
+                # v3.4.1 — the rest of the GL Entry fields, for statements and pickers
+                "against": tr.get("against") or "",
+                "against_voucher_type": tr.get("against_voucher_type") or "",
+                "against_voucher": tr.get("against_voucher") or "",
+                "finance_book": tr.get("finance_book") or "",
+                "is_opening": tr.get("is_opening") or "",
+                "account_currency": tr.get("account_currency") or "",
+                "debit_in_account_currency": flt(tr.get("debit_in_account_currency")),
+                "credit_in_account_currency": flt(tr.get("credit_in_account_currency")),
             }
             legs = contra_map.get((vt, vno), []) if int(split_by_against or 0) else []
             if legs:

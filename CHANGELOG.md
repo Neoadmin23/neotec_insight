@@ -1,3 +1,60 @@
+## v3.4.4 — 2026-10-29 — Statement: one line per invoice
+
+### Changed: invoices print at their total on one line
+In this ledger a Sales Invoice posts its receivable as two lines (e.g. 10,000 revenue and 1,500 VAT), so the statement showed every invoice twice. **One line per voucher** (Statement, General Ledger source; on by default) merges consecutive lines of the same voucher — same voucher, date and against-voucher — into one line at the voucher total (11,500), with the running balance taken from the voucher's last line.
+- **Unchanged:** totals and the closing balance stay the same, and separate payments stay on separate lines.
+- **Raw lines:** untick the option to see the raw ledger lines. The choice is remembered.
+
+### Tests
+A Node test using the lines from the customer's statement, run in every build, and 2 Python checks; 664 total.
+
+## v3.4.3 — 2026-10-29 — Statement: customer above the table
+
+### Fixed: the customer line printed inside the letterhead band
+On Statement of Account the "Customer: …" line sat between the title and the company's address, name, VAT number and period. Documents now have a **party block**, printed directly **above the table's column headings**:
+- **Print and PDF:** it is a row in the table header, so it repeats at the top of every page of a long statement. It is left-aligned, with the name in bold.
+- **Excel:** it sits directly above the column headings.
+- **CSV:** it is listed after the title lines.
+
+The header band keeps the company's identity and the period; the Statement no longer puts the party in the subtitle. Other reports are unchanged.
+
+### Tests
+3 new; 662 total. They check the order (letterhead band, then the party, then the column headings), the party repeating in the table header, and the Excel placement.
+
+## v3.4.2 — 2026-10-29 — PDFs: table lines and header shading restored
+
+### Fixed: no row borders in PDFs (statements, GL and every other report)
+The shared print styles colour table rules and shading with CSS variables (`var(--th-rule)`, `var(--th-strong)`, `var(--th-head-bg)`). Server-side PDFs are rendered by wkhtmltopdf, whose QtWebKit engine does not support CSS variables, so every border and background written that way was silently dropped. The PDFs lost their row lines, header shading and the rules above totals, while browser Print looked right.
+
+The PDF pipeline (`api/pdf.py`) now resolves every `var(--name[, fallback])` to its value before rendering:
+- **Nested variables:** a variable defined through another variable is resolved.
+- **Overrides:** later `:root` declarations win, as in the browser cascade.
+- **Fallbacks:** a fallback is used when a variable is undefined.
+- **Inline styles:** they are resolved too.
+
+Because the fix sits in the PDF pipeline, it applies to every PDF Insight produces: Statement, General Ledger, financial statements, VAT and packs. The **Table lines** setting in ▤ Layout (grid / rows / none) now takes effect in PDFs as well.
+
+### Tests
+4 new; 659 total.
+
+## v3.4.1 — 2026-10-29 — Statement accounts, all GL fields, column print order
+
+### Fixed: Statement from General Ledger failed with "Select at least one account"
+- **Server default:** a statement for a customer or supplier no longer needs an account. With none chosen, the company's **receivable** (customers) or **payable** (suppliers) ledger accounts are used. A plain General Ledger with no account still asks for one, and an empty party list (`"[]"`) does not count as a party.
+- **Account selector:** the Statement has an optional **Accounts** selector (searchable; receivable and payable accounts listed first) to narrow it to specific accounts.
+
+### Added: all GL Entry fields, including Against Voucher
+The GL engine now also returns **Against Voucher Type**, **Against Voucher**, **Against**, **Finance Book**, **Is Opening**, **Account Currency**, and debit/credit in account currency. The General Ledger and the Statement offer all of them in the field picker, along with Party Type and Party.
+
+### Added: column print order ("print placement")
+The field pickers in the General Ledger and the Statement show the chosen columns as a **Print order** list:
+- **Arrange:** ↑ / ↓ move a column and × removes it; clicking "＋ field" adds it at the end.
+- **Applies everywhere:** the order is used on screen and in Print, PDF, Image and Excel (e.g. Voucher No, Against Voucher, Remarks, Debit, Credit, Balance).
+- **Default:** the Statement's GL view starts as Date, Voucher no., Against voucher, Remarks, Debit, Credit, Balance.
+
+### Tests
+5 new; 655 total. They cover receivable/payable defaults for customer and supplier statements, a plain ledger still requiring an account, against-voucher fields selected and returned, and both screens following the picker order.
+
 ## v3.4.0 — 2026-10-28 — Report layout and letterhead per report; Statement of Account
 
 ### Added: "▤ Layout" on every exporting report

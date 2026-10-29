@@ -25,6 +25,15 @@ const ALL_COLUMNS: { key: string; label: string; num?: boolean }[] = [
   { key: 'cost_center', label: 'Cost Center' },
   { key: 'project', label: 'Project' },
   { key: 'department', label: 'Department' },
+  // v3.4.1 — the remaining GL Entry fields
+  { key: 'party_type', label: 'Party Type' },
+  { key: 'against_voucher_type', label: 'Against Voucher Type' },
+  { key: 'against_voucher', label: 'Against Voucher' },
+  { key: 'finance_book', label: 'Finance Book' },
+  { key: 'is_opening', label: 'Is Opening' },
+  { key: 'account_currency', label: 'Account Currency' },
+  { key: 'debit_in_account_currency', label: 'Debit (Account Currency)', num: true },
+  { key: 'credit_in_account_currency', label: 'Credit (Account Currency)', num: true },
   { key: 'debit', label: 'Debit', num: true },
   { key: 'credit', label: 'Credit', num: true },
   { key: 'balance', label: 'Balance', num: true },
@@ -348,7 +357,8 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
   }, [docFields, fieldOpts, combine, combineLabel]);
 
   const colDefs = useMemo(() => {
-    const base = ALL_COLUMNS.filter((c) => cols.includes(c.key));
+    // v3.4.1 — columns print in the order chosen in the field picker
+    const base = cols.map((k) => ALL_COLUMNS.find((c) => c.key === k)).filter(Boolean) as typeof ALL_COLUMNS;
     return [...base, ...dynCols.filter((d) => d.key === '__combined__' || cols.includes(d.key))];
   }, [cols, dynCols]);
 
@@ -729,14 +739,36 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
         {showColPicker && (
           <div className="gl-colpick">
             <span className="flbl">{t('Pick fields')}</span>
-            <div className="gl-col-grid">
-              {ALL_COLUMNS.map((c) => (
-                <label key={c.key} className="gl-cbx">
-                  <input type="checkbox" checked={cols.includes(c.key)}
-                    onChange={(e) => setCols((cur) => e.target.checked ? [...cur.filter((k) => k !== c.key), c.key].sort((a, b) => ALL_COLUMNS.findIndex(x => x.key === a) - ALL_COLUMNS.findIndex(x => x.key === b)) : cur.filter((k) => k !== c.key))} />
-                  {t(c.label)}
-                </label>
-              ))}
+            {/* v3.4.1 — print order: the list order is the column order on
+                screen and in Print, PDF and Excel */}
+            <div className="st-picker">
+              <div className="st-order">
+                <div className="st-sub">{t('Print order')}</div>
+                {cols.filter((k) => ALL_COLUMNS.some((c) => c.key === k)).map((k, i, arr) => {
+                  const c = ALL_COLUMNS.find((x) => x.key === k)!;
+                  const mv = (d: -1 | 1) => setCols((cur) => {
+                    const a = [...cur]; const x = a.indexOf(k), y = x + d;
+                    if (x < 0 || y < 0 || y >= a.length) return cur;
+                    [a[x], a[y]] = [a[y], a[x]]; return a;
+                  });
+                  return (
+                    <div key={k} className="st-ord-row">
+                      <span className="st-ord-n">{i + 1}</span>
+                      <span className="st-ord-l">{t(c.label)}</span>
+                      <button type="button" disabled={i === 0} onClick={() => mv(-1)}>↑</button>
+                      <button type="button" disabled={i === arr.length - 1} onClick={() => mv(1)}>↓</button>
+                      <button type="button" onClick={() => setCols((cur) => cur.filter((x) => x !== k))}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="st-avail">
+                <div className="st-sub">{t('Add a field')}</div>
+                {ALL_COLUMNS.filter((c) => !cols.includes(c.key)).map((c) => (
+                  <button type="button" key={c.key} className="st-add"
+                    onClick={() => setCols((cur) => [...cur, c.key])}>＋ {t(c.label)}</button>
+                ))}
+              </div>
             </div>
           </div>
         )}
