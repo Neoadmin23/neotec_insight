@@ -23,3 +23,18 @@ export function mergeByVoucher(rows: any[]): any[] {
   return out;
 }
 
+
+/** v3.4.5 — desk link for a document: `${prefix}/sales-invoice/ACC-SINV-…`
+ *  (prefix is /app on v15, /desk on v16). Blank when type or name is missing. */
+export function docLink(prefix: string, doctype?: string, name?: string): string {
+  if (!doctype || !name) return '';
+  return `${prefix}/${doctype.toLowerCase().replace(/\s+/g, '-')}/${encodeURIComponent(name)}`;
+}
+
+/** Which document a statement cell points at, by column. */
+export function linkTarget(cells: Record<string, any>, key: string): [string?, string?] {
+  if (key === 'voucher_no') return [cells.voucher_type, cells.voucher_no];
+  if (key === 'against_voucher') return [cells.against_voucher_type, cells.against_voucher];
+  if (key === 'bill') return [cells._bill_type, cells._bill_no];
+  return [undefined, undefined];
+}

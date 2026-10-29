@@ -3,7 +3,8 @@ import { api } from '../../utils/api';
 import { t } from '../../utils/i18n';
 import { ExportBar } from '../ExportBar';
 import type { DocRow, ReportDoc } from '../../utils/reportdoc';
-import { mergeByVoucher } from '../../utils/statementCore';
+import { docLink, linkTarget, mergeByVoucher } from '../../utils/statementCore';
+import { deskPrefix } from '../../utils/desk';
 
 /* v3.4.0 — Statement of Account for one customer or supplier, from either
  *   • General Ledger — opening balance, every transaction, running balance, closing;
@@ -157,11 +158,13 @@ export default function StatementApp() {
         let amt = 0, rem = 0;
         for (const b of blk.open_bills || []) {
           amt += Number(b.amount) || 0; rem += Number(b.remaining) || 0;
-          out.push({ kind: 'normal', cells: { ...b, paid: (Number(b.amount) || 0) - (Number(b.remaining) || 0) } });
+          out.push({ kind: 'normal', cells: { ...b, paid: (Number(b.amount) || 0) - (Number(b.remaining) || 0),
+            _bill_type: partyType === 'Customer' ? 'Sales Invoice' : 'Purchase Invoice', _bill_no: b.bill } });
         }
         out.push({ kind: 'tot', cells: { bill: t('Open invoices'), date: t('Open invoices'), amount: amt, remaining: rem } });
         for (const u of blk.unallocated || []) {
-          out.push({ kind: 'normal', cells: { date: u.date || u.posting_date, bill: `${u.voucher_no || ''} — ${t('unallocated payment')}`, remaining: -(Number(u.amount) || 0) } });
+          out.push({ kind: 'normal', cells: { date: u.date || u.posting_date, bill: `${u.voucher_no || ''} — ${t('unallocated payment')}`,
+            remaining: -(Number(u.amount) || 0), _bill_type: u.voucher_type || 'Payment Entry', _bill_no: u.voucher_no } });
         }
         (data.labels || []).forEach((lab: any, i: number) => {
           out.push({ kind: 'sub', cells: { bill: typeof lab === 'string' ? lab : lab.en, date: typeof lab === 'string' ? lab : lab.en, remaining: blk.buckets?.[i] ?? 0 } });
@@ -170,7 +173,7 @@ export default function StatementApp() {
       }
     }
     return out;
-  }, [data, oneLine]);
+  }, [data, oneLine, partyType]);
 
   function getDoc(): ReportDoc | null {
     if (!data) return null;
@@ -179,8 +182,10 @@ export default function StatementApp() {
       kind: r.kind as any,
       cells: shown.map((c) => {
         const v = r.cells[c.key] ?? (c.key === first && r.kind !== 'normal' ? (r.cells.remarks ?? r.cells.bill ?? r.cells.date) : undefined);
-        return c.num ? { v: v === undefined || v === '' ? '' : Number(v) || 0, text: fmt(v), num: true, bold: r.kind !== 'normal' }
-          : { v: v ?? '', bold: r.kind !== 'normal' };
+        if (c.num) return { v: v === undefined || v === '' ? '' : Number(v) || 0, text: fmt(v), num: true, bold: r.kind !== 'normal' };
+        const [dt, dn] = r.kind === 'normal' ? linkTarget(r.cells, c.key) : [undefined, undefined];
+        const href = docLink(deskPrefix(), dt, dn);
+        return { v: v ?? '', bold: r.kind !== 'normal', ...(href ? { link: window.location.origin + href } : {}) };
       }),
     }));
     return {
@@ -302,7 +307,11 @@ export default function StatementApp() {
                   <tr key={i} className={'st-' + r.kind}>
                     {shown.map((c, j) => {
                       const v = r.cells[c.key] ?? (j === shown.findIndex((x) => !x.num) && r.kind !== 'normal' ? (r.cells.remarks ?? r.cells.bill ?? r.cells.date) : '');
-                      return <td key={c.key} className={c.num ? 'num' : ''}>{c.num ? fmt(v) : String(v ?? '')}</td>;
+                      const [dt, dn] = r.kind === 'normal' ? linkTarget(r.cells, c.key) : [undefined, undefined];
+                      const href = docLink(deskPrefix(), dt, dn);
+                      return <td key={c.key} className={c.num ? 'num' : ''}>{c.num ? fmt(v)
+                        : href ? <a className="gl-doclink" href={href} target="_blank" rel="noopener noreferrer">{String(v ?? '')}</a>
+                          : String(v ?? '')}</td>;
                     })}
                   </tr>
                 ))}

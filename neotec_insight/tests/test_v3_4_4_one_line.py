@@ -14,6 +14,12 @@ class OneLine(unittest.TestCase):
                            cwd=RM, capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr or r.stdout)
 
+    def test_document_links_on_screen_and_in_exports(self):
+        st = (RM / "src/features/statement/StatementApp.tsx").read_text()
+        self.assertIn("link: window.location.origin + href", st)        # absolute: PDF / Excel work off this machine
+        self.assertIn('className="gl-doclink" href={href}', st)          # screen
+        self.assertIn("_bill_type: partyType === 'Customer' ? 'Sales Invoice' : 'Purchase Invoice'", st)
+
     def test_statement_uses_it_by_default(self):
         st = (RM / "src/features/statement/StatementApp.tsx").read_text()
         self.assertIn("oneLine ? mergeByVoucher(b.transactions || [])", st)

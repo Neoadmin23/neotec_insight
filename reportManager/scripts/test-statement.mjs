@@ -26,3 +26,16 @@ assert.equal(raw[0].debit, 1500);                                               
 // the same voucher on a different date is not merged
 assert.equal(mergeByVoucher([L('2026-01-01', 'JV-1', 'Journal Entry', '', 5, 0, 5), L('2026-01-02', 'JV-1', 'Journal Entry', '', 5, 0, 10)]).length, 2);
 console.log('statement: 1 group passed');
+
+// v3.4.5 — document links
+import { docLink, linkTarget } from '../src/utils/statementCore.ts';
+assert.equal(docLink('/desk', 'Sales Invoice', 'ACC-SINV-2026-00076'), '/desk/sales-invoice/ACC-SINV-2026-00076');
+assert.equal(docLink('/app', 'Payment Entry', 'ACC PAY/1'), '/app/payment-entry/ACC%20PAY%2F1');
+assert.equal(docLink('/app', '', 'X'), '');
+const cells = { voucher_type: 'Payment Entry', voucher_no: 'ACC-PAY-2026-00495', against_voucher_type: 'Sales Invoice',
+  against_voucher: 'ACC-SINV-2026-00076', _bill_type: 'Sales Invoice', _bill_no: 'ACC-SINV-2026-00618' };
+assert.deepEqual(linkTarget(cells, 'voucher_no'), ['Payment Entry', 'ACC-PAY-2026-00495']);
+assert.deepEqual(linkTarget(cells, 'against_voucher'), ['Sales Invoice', 'ACC-SINV-2026-00076']);
+assert.deepEqual(linkTarget(cells, 'bill'), ['Sales Invoice', 'ACC-SINV-2026-00618']);
+assert.deepEqual(linkTarget(cells, 'remarks'), [undefined, undefined]);
+console.log('statement links: passed');

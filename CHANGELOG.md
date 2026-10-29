@@ -1,3 +1,15 @@
+## v3.4.5 — 2026-10-29 — Statement: click a document number to open it
+
+### Added: document links
+- **General Ledger source:** **Voucher no.** opens its own document (Sales Invoice, Payment Entry, Journal Entry…) and **Against voucher** opens the invoice it settles.
+- **Ageing source:** each open **invoice** and each **unallocated payment** opens its document.
+- **Everywhere:** links work on screen (new tab), in the **PDF** (clickable) and in **Excel** (HYPERLINK cells).
+- **Version-aware:** links use the desk path for the running version (`/app` on v15, `/desk` on v16).
+- **Off the machine too:** exported links are absolute, so they work when the file is opened elsewhere. Opening one still needs an ERPNext login with access to that document.
+
+### Tests
+Link building, encoding and per-column targets in the Node test; 1 Python check; 665 total.
+
 ## v3.4.4 — 2026-10-29 — Statement: one line per invoice
 
 ### Changed: invoices print at their total on one line
