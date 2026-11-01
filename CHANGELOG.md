@@ -1,3 +1,37 @@
+## v3.4.7 — 2026-11-01 — Letterhead images span the page width
+
+### Changed: a single-image letterhead fits the printable width
+A letterhead whose header (or footer) is one image printed at the image's own size, centred, so its logos sat inside the page instead of at the margins.
+- **Fit page width:** such an image is now drawn at **100% of the printable width**, with its height in proportion, so its left and right parts reach the margins.
+- **Follows the page:** this follows the chosen **orientation** (portrait or landscape) and **paper size** (A4, A3, Letter, Legal) automatically.
+- **Other letterheads:** letterheads made of several images or HTML are printed as designed.
+- **Setting:** *▤ Layout → Letterhead image size*: **Fit page width** (default) or **As designed**.
+- **Image-based letterheads:** headers and footers built from the letterhead's images use the full width too.
+
+### Tests
+Fitting a single image (fixed size removed, either quote style), several images and text-only HTML left unchanged, the "As designed" option, and the server-built image letterheads; 667 total.
+
+## v3.4.6 — 2026-11-01 — Letterhead printed as designed; custom header & footer images
+
+### Fixed: the ERPNext letterhead's header looked different and its footer was missing
+Insight used only the letterhead's logo and text fields to rebuild its own header band; the letterhead's own header and footer (images or HTML) were not printed.
+- **As designed:** with a Letter Head chosen in ▤ Layout, Print and PDF now print its **header and footer as designed in ERPNext**. The header sits above the report title and period; the footer is in the repeating footer on every page.
+- **No duplication:** Insight's band hides its own logo, company, address and VAT number, since the letterhead carries them.
+- **Image-based letterheads (Source = Image):** the header and footer are built from their images when the HTML is empty.
+- **Previous behaviour available:** *Letterhead style → Insight band* uses only the letterhead's logo and details, as before.
+
+### Added: header & footer images in ▤ Layout
+- **Images:** **up to 3 images** for the header and 3 for the footer, uploaded from the dialog as public files. One image prints on the left; two on the left and right; three on the left, centre and right. The images can be used with or without a letterhead.
+- **Size and rules:** image height (mm), a line under the header and a line above the footer.
+- **Footer text:** extra lines, escaped as plain text.
+- **Layout method:** images are placed with a plain table so the PDF engine lays them out reliably.
+
+### Note
+Excel keeps the letterhead's logo and details in its header rows; header and footer images apply to Print and PDF.
+
+### Tests
+A Node group for the header/footer frame (letterhead as designed, band style, image placement, escaping, empty) and 2 Python tests for image-based letterheads; 667 total.
+
 ## v3.4.5 — 2026-10-29 — Statement: click a document number to open it
 
 ### Added: document links

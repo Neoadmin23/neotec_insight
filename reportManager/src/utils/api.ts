@@ -38,7 +38,7 @@ async function refreshCsrfToken(): Promise<string> {
   return csrfFetchInFlight;
 }
 
-async function getCsrfToken(): Promise<string> {
+export async function getCsrfToken(): Promise<string> {
   const t = readCsrfToken();
   if (t) return t;
   // No token from page-load injection — fetch one before the first request.
@@ -1186,6 +1186,20 @@ export const api = {
   listDimensionValues: (fieldname: string, search = '', limit = 100) =>
     call<Array<{ name: string; label: string }>>('report.list_dimension_values', { fieldname, search, limit }),
   // v1.9.53 — Letter Head for print/export.
+  /** v3.4.6 — upload an image for report headers / footers; returns its URL */
+  uploadImage: async (file: File): Promise<string> => {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    fd.append('is_private', '0');
+    fd.append('folder', 'Home');
+    const res = await fetch('/api/method/upload_file', {
+      method: 'POST', body: fd, credentials: 'same-origin',
+      headers: { 'X-Frappe-CSRF-Token': await getCsrfToken() },
+    });
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    const j = await res.json();
+    return j?.message?.file_url || '';
+  },
   listLetterHeads: () =>
     call<Array<{ name: string; label: string; is_default: number }>>('report.list_letter_heads'),
   resolveLetterhead: (report?: string, company?: string) =>

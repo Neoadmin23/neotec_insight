@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { t } from '../utils/i18n';
 import BrandKitModal from './shell/BrandKitModal';
 import { csvDoc, imageDoc, pdfDoc, printDoc, xlsxDoc, type ReportDoc } from '../utils/reportdoc';
-import { loadPrint, savePrint, toLayout, type ReportPrintSettings } from '../utils/printSettings';
+import { frameParts, loadPrint, savePrint, toLayout, type ReportPrintSettings } from '../utils/printSettings';
 import { fetchLetterhead, type LetterheadPayload } from '../utils/letterhead';
 import { PrintLayoutModal } from './PrintLayoutModal';
 
@@ -66,7 +66,8 @@ export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], 
     let doc: ReportDoc | null = null;
     try { doc = getDoc(); } catch (e: any) { setErr(e?.message || t('Could not build the export.')); return; }
     if (!doc) { setErr(t('Run the report first.')); return; }
-    doc = { ...doc, layout: { ...(doc.layout || {}), ...toLayout(ps) }, letterhead: lh || doc.letterhead || null };
+    doc = { ...doc, layout: { ...(doc.layout || {}), ...toLayout(ps) }, letterhead: lh || doc.letterhead || null,
+      frame: frameParts(ps, lh) };
     if (job) setBusy(job);
     try {
       await fn(doc);

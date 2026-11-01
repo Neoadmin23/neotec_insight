@@ -5597,6 +5597,25 @@ def get_letterhead(name: str = "", company: str | None = None) -> dict:
     out["label"] = lh.get("letter_head_name") or name
     out["header_html"] = lh.get("content") or ""
     out["footer_html"] = lh.get("footer") or ""
+    # v3.4.6 — image-based Letter Heads (Source = Image): build the header and
+    # footer from their images when the HTML is empty, so the footer prints too.
+    try:
+        extra = frappe.db.get_value("Letter Head", lh.get("name") or name,
+                                    ["image", "footer_image", "align", "footer_align"], as_dict=True) or {}
+    except Exception:
+        extra = {}
+
+    def _img_block(url, align):
+        if not url:
+            return ""
+        a = (align or "Center").lower()
+        a = a if a in ("left", "center", "right") else "center"
+        return (f'<div style="text-align:{a}"><img src="{frappe.utils.escape_html(url)}" '
+                f'style="width:100%;height:auto"></div>')
+    if not out["header_html"].strip():
+        out["header_html"] = _img_block(extra.get("image"), extra.get("align"))
+    if not out["footer_html"].strip():
+        out["footer_html"] = _img_block(extra.get("footer_image"), extra.get("footer_align"))
 
     # Letter Head's own image takes precedence over the Company's logo for
     # the Excel/CSV path — the admin chose this specific letterhead, so

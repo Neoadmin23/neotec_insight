@@ -17,7 +17,7 @@ import {
   loadBrand, buildFrame, borderTokens, tableCss, docTitle, bdi, identityLines,
   type Brand,
 } from './branddoc';
-import { mergeBrand, type LetterheadLike } from './printSettings';
+import { mergeBrand, type FrameParts, type LetterheadLike } from './printSettings';
 
 /* ── the model ──────────────────────────────────────────────────────────── */
 
@@ -87,6 +87,8 @@ export interface ReportDoc {
   layout?: Partial<Brand>;
   /** v3.4.0 — the ERPNext Letter Head chosen for this report */
   letterhead?: LetterheadLike | null;
+  /** v3.4.6 — header / footer from the letterhead as designed and custom images */
+  frame?: FrameParts;
 }
 
 const esc = (s: any) => String(s ?? '')
@@ -135,7 +137,15 @@ export function buildDocHtml(doc: ReportDoc, opts: { forScreen?: boolean } = {})
     paperOverride: b.paper,
     orientationOverride: b.orientation,
   };
-  const fr = buildFrame(b, ctx, (s) => s, { mode: 'flow' });
+  // v3.4.6 — a letterhead printed as designed already carries the logo, name,
+  // address and VAT number: hide them in Insight's band (title and period stay).
+  const bb = doc.frame?.hideIdentity
+    ? { ...b, logoUrl: '', vatNo: '', crNo: '', headerText: '',
+        align: { ...b.align, logo: 'hide' as const, company: 'hide' as const, headerText: 'hide' as const } }
+    : b;
+  const fr = buildFrame(bb, ctx, (s) => s, { mode: 'flow' });
+  if (doc.frame?.headerHtml) fr.headerHtml = `<div class="pr-custom-head">${doc.frame.headerHtml}</div>` + fr.headerHtml;
+  if (doc.frame?.footerHtml) fr.footerHtml = `<div class="pr-custom-foot">${doc.frame.footerHtml}</div>` + (fr.footerHtml || '');
 
   const th = doc.columns
     .map((c) => `<th class="${c.num ? 'num' : ''}">${esc(c.label)}</th>`)
