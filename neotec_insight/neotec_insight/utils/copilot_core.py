@@ -66,6 +66,10 @@ TOOLS: dict[str, dict] = {
                             "paid), split by department, designation or branch.",
                     "args": {"group_by": ("enum", False, ("department", "designation", "branch"))},
                     "view": "bar"},
+    # v3.5.0 — Insight Controls
+    "control_findings": {"desc": "Open control findings (possible duplicate invoices, negative stock, large round "
+                                 "cash journals, unusual stock rates, duplicate stock entries, unallocated payments), "
+                                 "grouped by rule and severity.", "args": {}, "view": "table"},
     # v3.1.0 — compliance
     "saudization": {"desc": "Nitaqat-style Saudization estimate: weighted Saudi count (part-time, wage, disability, "
                             "nationalities counted as Saudi), percentage, band and Saudis needed for the next band.",
@@ -207,6 +211,9 @@ def rule_plan(question: str) -> dict | None:
         ("status", ("status", "active and left", "الحالة"))) if _has(q, *words)), None)
     if group is None:
         group = people_group_phrase(q)
+    if _has(q, "finding", "control check", "controls", "watchdog", "duplicate invoice", "duplicate bill",
+            "negative stock", "unallocated payment", "تنبيهات الرقابة", "فواتير مكررة"):
+        return {"tool": "control_findings", "args": {}}
     if _has(q, "compliance", "compliant", "regulatory", "iqama", "wps", "gosi", "zatca", "امتثال", "الالتزام"):
         return {"tool": "compliance_overview", "args": {}}
     if _has(q, "saudization", "saudisation", "saudiazation", "saudiz", "nitaqat", "saudi ratio",
@@ -341,6 +348,7 @@ def plain_summary(tool: str, title: str, columns: list[dict], rows: list[dict]) 
 
 
 FOLLOW_UPS = {
+    "control_findings": ["Any suspicious journal entries?", "Compliance overview", "Who owes us the most?"],
     "saudization": ["Headcount by nationality", "Compliance overview", "Payroll cost by department"],
     "compliance_overview": ["Saudization estimate", "Show the KPIs", "Any suspicious journal entries?"],
     "headcount": ["Headcount by department", "Payroll cost by department", "Headcount by branch"],

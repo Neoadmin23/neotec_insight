@@ -47,10 +47,10 @@ export default function StatementImport() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div className="text-muted" style={{ fontSize: 13 }}>
-          {t('Upload a bank/merchant statement (CSV or Excel). Lines are grouped into settlement batches and imported as Bank Transactions.')}
+          {t('Upload a bank/merchant statement (PDF, CSV or Excel). PDFs are read with your bank formats and every running balance is checked. Lines are imported as Bank Transactions.')}
         </div>
         <div>
-          <input ref={fileRef} type="file" accept=".csv,.tsv,.xlsx,.xls" style={{ display: 'none' }} onChange={(e) => onUpload(e.target.files)} />
+          <input ref={fileRef} type="file" accept=".pdf,.csv,.tsv,.xlsx,.xls" style={{ display: 'none' }} onChange={(e) => onUpload(e.target.files)} />
           <button className="btn btn-primary" disabled={!!busy} onClick={() => fileRef.current?.click()}>
             {busy ? busy : '⬆ ' + t('Upload Statement')}
           </button>

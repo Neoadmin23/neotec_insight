@@ -28,6 +28,8 @@ before_migrate = ["neotec_insight.neotec_insight.utils.snapshots.before_migrate"
 after_migrate = [
     "neotec_insight.install.after_migrate",
     "neotec_insight.neotec_insight.utils.snapshots.after_migrate",
+    "neotec_insight.neotec_insight.api.controls.seed_rules",       # v3.5.0
+    "neotec_insight.neotec_insight.api.bankrec.seed_formats",      # v3.6.0
 ]
 
 # v1.9.59 — when an admin changes a Company's year_start_date in ERPNext,
@@ -63,7 +65,9 @@ scheduler_events = {
     "daily": ["neotec_insight.tasks.run_daily_report_schedules"],
     # v2.89.0 — daily automatic backup snapshot (skipped when unchanged).
     # v2.89.1 — on the long queue, so it never competes with short jobs.
-    "daily_long": ["neotec_insight.neotec_insight.utils.snapshots.daily"],
+    "daily_long": ["neotec_insight.neotec_insight.utils.snapshots.daily",
+                   # v3.5.0 — Insight Controls: continuous finance checks
+                   "neotec_insight.neotec_insight.api.controls.daily"],
 }
 
 website_route_rules = [

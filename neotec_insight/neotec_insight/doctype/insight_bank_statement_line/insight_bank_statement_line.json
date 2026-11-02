@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "creation": "2026-11-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "line_key",
+  "posting_date",
+  "reference",
+  "txn_type",
+  "details",
+  "credit",
+  "debit",
+  "balance",
+  "balance_ok",
+  "bank_transaction",
+  "match_json",
+  "confidence",
+  "match_source",
+  "match_status",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "line_key",
+   "fieldtype": "Data",
+   "label": "Key",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Date",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "label": "Reference",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "txn_type",
+   "fieldtype": "Data",
+   "label": "Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Small Text",
+   "label": "Details",
+   "read_only": 1
+  },
+  {
+   "fieldname": "credit",
+   "fieldtype": "Currency",
+   "label": "Credit",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "debit",
+   "fieldtype": "Currency",
+   "label": "Debit",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance",
+   "fieldtype": "Currency",
+   "label": "Balance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance_ok",
+   "fieldtype": "Check",
+   "label": "Balance proven",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_transaction",
+   "fieldtype": "Link",
+   "label": "Bank Transaction",
+   "options": "Bank Transaction",
+   "read_only": 1
+  },
+  {
+   "fieldname": "match_json",
+   "fieldtype": "Small Text",
+   "label": "Matched entries",
+   "read_only": 1
+  },
+  {
+   "fieldname": "confidence",
+   "fieldtype": "Percent",
+   "label": "Confidence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "match_source",
+   "fieldtype": "Data",
+   "label": "Matched by",
+   "read_only": 1
+  },
+  {
+   "fieldname": "match_status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Unmatched\nSuggested\nAccepted\nSkipped\nReconciled",
+   "default": "Unmatched",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Data",
+   "label": "Note"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-01 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Neotec Insight",
+ "name": "Insight Bank Statement Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1
+}

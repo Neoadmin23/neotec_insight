@@ -276,6 +276,18 @@ export const api = {
   // v3.0.1 — desk reports linked from the Ageing screen
   ageingLinkedReports: (side: string) =>
     call<{ report: string; label: string; url: string }[]>('ageing.linked_reports', { side }),
+  // v3.6.0 — bank reconciliation
+  bankrec: (method: string, args: Record<string, any> = {}, post = false) =>
+    call<any>(`bankrec.${method}`, args, post ? 'POST' : 'GET'),
+  // v3.5.0 — Insight Controls
+  controlsFindings: (o: { company?: string; status?: string; severity?: string; rule?: string }) =>
+    call<{ findings: any[]; counts: Record<string, number>; rules: any[] }>('controls.findings',
+      { company: o.company || '', status: o.status || 'Active', severity: o.severity || '', rule: o.rule || '' }),
+  controlsRun: (company?: string) => call<{ new: number; errors: string[] }>('controls.run_now', { company: company || '' }, 'POST'),
+  controlsSetStatus: (names: string[], status: string, note?: string) =>
+    call<{ updated: number }>('controls.set_status', { names: JSON.stringify(names), status, note: note || '' }, 'POST'),
+  controlsSaveRule: (r: { name: string; enabled?: number; severity?: string; threshold?: number; lookback_days?: number }) =>
+    call<any>('controls.save_rule', r as any, 'POST'),
   // v3.0.0 — AI design of dashboards and statements
   aiDesignStart: (kind: 'board' | 'statement', prompt: string, statementType = 'pnl') =>
     call<{ job_id: string }>('ai_design.start_design', { kind, prompt, statement_type: statementType }, 'POST'),

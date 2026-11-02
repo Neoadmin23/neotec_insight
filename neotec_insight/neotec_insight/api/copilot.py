@@ -549,6 +549,27 @@ def t_compliance_overview(company, f, t, **_kw):
     return cols, out, _("Compliance overview: {0} area(s) need attention").format(attention)
 
 
+def t_control_findings(company, f, t, **_kw):
+    """Open Insight Controls findings, grouped by rule and severity (v3.5.0)."""
+    rows = frappe.get_list("Insight Control Finding", filters={"company": company, "status": ["in", ["Open", "Acknowledged"]]},
+                           fields=["rule", "severity", "amount"], limit_page_length=0, order_by="creation asc")
+    agg: dict[tuple, dict] = {}
+    for r in rows:
+        a = agg.setdefault((r["rule"], r["severity"]), {"rule": r["rule"], "severity": r["severity"], "findings": 0, "amount": 0.0})
+        a["findings"] += 1
+        a["amount"] += abs(flt(r.get("amount")))
+    order = {"High": 0, "Medium": 1, "Low": 2}
+    out = sorted(agg.values(), key=lambda x: (order.get(x["severity"], 3), -x["findings"]))
+    titles = {r["name"]: r["rule_title"] for r in frappe.get_all("Insight Control Rule", fields=["name", "rule_title"],
+                                                                  limit_page_length=0, order_by="name asc")}
+    for x in out:
+        x["rule"] = titles.get(x["rule"], x["rule"])
+    cols = [{"key": "rule", "label": _("Control"), "type": "text"}, {"key": "severity", "label": _("Severity"), "type": "text"},
+            {"key": "findings", "label": _("Open findings"), "type": "number"},
+            {"key": "amount", "label": _("Amount involved"), "type": "currency"}]
+    return cols, out, _("Open control findings: {0}").format(sum(x["findings"] for x in out))
+
+
 def _analysis(key):
     """Copilot runner over an Analysis Pack analysis (v2.97.0)."""
     def run(company, f, t, **_kw):
@@ -567,6 +588,7 @@ RUNNERS = {
     "cash_position": t_cash_position, "find_records": t_find_records,
     "headcount": t_headcount, "people_cost": t_people_cost,
     "saudization": t_saudization, "compliance_overview": t_compliance_overview,
+    "control_findings": t_control_findings,
     "profit_bridge": _analysis("profit_bridge"), "variance_drivers": _analysis("variance_drivers"),
     "working_capital_cycle": _analysis("working_capital_cycle"), "gl_anomalies": _analysis("gl_anomalies"),
 }

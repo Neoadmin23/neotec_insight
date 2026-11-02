@@ -22,6 +22,8 @@ const ZakatTab = lazy(() => import('./features/zakat/ZakatTab'));
 const ExportPacks = lazy(() => import('./features/packs/ExportPacks'));
 const AgeingTab = lazy(() => import('./features/ageing/AgeingTab'));
 const StatementApp = lazy(() => import('./features/statement/StatementApp'));
+const ControlsApp = lazy(() => import('./features/controls/ControlsApp'));
+const BankRecApp = lazy(() => import('./features/bankrec/BankRecApp'));
 const GstTab = lazy(() => import('./features/gst/GstTab'));
 const BankApp = lazy(() => import('./features/bank/BankApp'));
 const HrApp = lazy(() => import('./features/hr/HrApp'));
@@ -86,12 +88,14 @@ const DEFAULT_SECTIONS: NavSection[] = [
       { ws: 'vat_settings', label: 'VAT Settings',
         title: 'VAT control accounts, government deferral rules and period adjustments — everything governing how the return is produced' },
       { ws: 'zakat', label: 'Zakat', title: 'Zakat base estimate — equity method' },
+      { ws: 'controls', label: 'Controls', title: 'Continuous checks: duplicate invoices, negative stock, unusual journals and rates, unallocated payments' },
       { ws: 'packs', label: 'Export Packs', title: 'Configurable audit workbooks — VAT registers, GL ledgers, the 16-box return' },
       { ws: 'gst', label: 'GST (India)', title: 'GSTR-3B style summary — output tax vs ITC per head, from the GL tax accounts' },
     ] },
   { key: 'operations', label: 'Operations',
     tabs: [
       { ws: 'bank', label: 'Bank', title: 'Bank slip reader & reconciliation' },
+      { ws: 'bankrec', label: 'Reconcile', title: 'Read a bank statement PDF, prove every balance, match and reconcile' },
       { ws: 'hr', label: 'People', title: 'People, payroll, accruals & end-of-service' },
     ] },
   // v2.86.0 — own top-level section, deliberately, not a tab under Reports
@@ -487,6 +491,11 @@ export default function App() {
             <ExportPacks />
           </Suspense>
         )}
+        {workspace === 'controls' && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
+            <ControlsApp />
+          </Suspense>
+        )}
         {workspace === 'zakat' && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
             <ZakatTab />
@@ -504,6 +513,11 @@ export default function App() {
         )}
         {workspace === 'visuals' && (
           <VisualsApp snapshots={snapshots} setSnapshots={setSnapshots} reportName={currentReportName} />
+        )}
+        {workspace === 'bankrec' && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
+            <BankRecApp />
+          </Suspense>
         )}
         {workspace === 'bank' && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>

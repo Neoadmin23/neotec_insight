@@ -184,10 +184,7 @@ def _rows_from_path(path: str) -> list[list]:
             for row in ws.iter_rows(values_only=True):
                 rows.append(list(row))
         return rows
-    if lower.endswith(".pdf"):
-        frappe.throw("Please export the statement as CSV or Excel — PDF statement "
-                     "parsing isn't reliable across bank layouts.")
-    frappe.throw("Unsupported statement file type. Use CSV or Excel.")
+    frappe.throw("Unsupported statement file type. Use PDF, CSV or Excel.")
 
 
 def _locate_table(rows: list[list]) -> tuple[str | None, int]:
@@ -215,8 +212,43 @@ def _account_no_from_preamble(rows: list[list], header_idx: int) -> str | None:
     return None
 
 
+def read_pdf_lines(content: bytes) -> tuple[list[dict], str]:
+    """v3.6.1 — a statement PDF through the bank-format reader. Every format is
+    tried; the one that reads lines AND proves every running balance wins.
+    Returns (account lines as for CSV/Excel, format name)."""
+    from neotec_insight.neotec_insight.api import bankrec
+    from neotec_insight.neotec_insight.utils import bankrec_core as core
+    bankrec.seed_formats()
+    words = core.pdf_words(content)
+    tried, partial = [], None
+    for name in frappe.get_all("Insight Bank Format", pluck="name", order_by="name asc"):
+        fmt = bankrec._fmt(name)
+        lines = core.parse_pages(words, fmt)
+        tried.append(name)
+        if not lines:
+            continue
+        proof = core.prove(core.posting_order(lines, fmt))
+        if proof["ok"]:
+            return [_normalize_account_line({
+                "value_date": ln["date"].isoformat(), "details": ln["details"], "reference": ln["reference"],
+                "cheque_no": ln["cheque"], "txn_type": ln["type"], "credit": ln["credit"], "debit": ln["debit"],
+                "balance": ln["balance"]}) for ln in lines], name
+        partial = partial or (name, len(proof["bad"]), len(lines))
+    if partial:
+        frappe.throw(f"The PDF was read with “{partial[0]}”, but {partial[1]} of {partial[2]} lines do not "
+                     "prove against the running balance, so it was not used. Check the bank format, or export "
+                     "the statement as CSV or Excel.")
+    frappe.throw("This PDF's layout matches none of the bank formats ({0}). Add one under Insight Bank Format "
+                 "(the column header labels, date format and line order), or export as CSV or Excel. "
+                 "Scanned (image) PDFs cannot be read this way.".format(", ".join(tried) or "none"))
+
+
 def _read_statement_any(path: str) -> tuple[str, list[dict], str | None]:
     """Return (format, normalized_lines, account_number)."""
+    if (path or "").lower().endswith(".pdf"):
+        with open(path, "rb") as f:
+            lines, _fmt = read_pdf_lines(f.read())
+        return "account", lines, None
     raw = _rows_from_path(path)
     fmt, hidx = _locate_table(raw)
     if not fmt:
@@ -428,7 +460,9 @@ _COLMAP_ACCOUNT = {
     "balance": ["balance", "running balance"],
 }
 
-_FEE_RE = re.compile(r"FEE\s*[:]?\s*([\d,]+\.\d+)\s*SAR.{0,40}?VAT\s*AMOUNT\s*([\d,]+\.\d+)", re.I | re.S)
+# v3.6.1 — PDFs interleave Arabic between "FEE" and the amount
+# ("FEE تحويل , 0000000000000.50 SAR"): allow a few non-digit characters.
+_FEE_RE = re.compile(r"FEE[^\d]{0,30}?([\d,]+\.\d+)\s*SAR.{0,40}?VAT\s*AMOUNT\s*([\d,]+\.\d+)", re.I | re.S)
 _INV_RE = re.compile(r"\bS?INV[\s/_-]*\d{4}[\s/_-]*\d{3,6}\b", re.I)
 _IBAN_RE = re.compile(r"\bSA\d{22}\b")
 

@@ -104,6 +104,11 @@ CONFIG_REGISTRY.extend([
     {"doctype": "Insight Source Report", "area": "Copilot — outside data sources"},
     {"doctype": "Insight Board", "area": "Designer dashboards"},
     {"doctype": "Insight Saudization Rules", "area": "Compliance settings"},
+    {"doctype": "Insight Control Rule", "area": "Compliance settings"},
+    # findings carry people's decisions (acknowledged, dismissed + note): an audit trail
+    {"doctype": "Insight Control Finding", "area": "Compliance findings"},
+    {"doctype": "Insight Bank Format", "area": "Bank reconciliation"},
+    {"doctype": "Insight Bank Statement", "area": "Bank reconciliation"},
 ])
 
 # Anything in the module that is in neither list is NOT a gap any more: the

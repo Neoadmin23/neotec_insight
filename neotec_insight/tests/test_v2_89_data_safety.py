@@ -349,7 +349,9 @@ class TestModalClassesExist(unittest.TestCase):
     FILES = ["features/allocation/DiagnoseModal.tsx", "features/allocation/ImportHeadCountsModal.tsx",
              "features/allocation/EntriesRecoveryModal.tsx", "features/shell/ConfigBackupModal.tsx",
              "features/shell/RecoverPanel.tsx", "features/copilot/CopilotPanel.tsx",
-             "features/designer/BoardsApp.tsx", "features/analysis/AnalysisPack.tsx"]
+             "features/designer/BoardsApp.tsx", "features/analysis/AnalysisPack.tsx",
+             "features/controls/ControlsApp.tsx", "features/bankrec/BankRecApp.tsx",
+             "features/bankrec/FormatMapper.tsx"]
 
     def test_classes_defined(self):
         src = REPO / "reportManager" / "src"

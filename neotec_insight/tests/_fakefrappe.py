@@ -9,6 +9,7 @@ import datetime
 import json
 import sys
 import types
+import uuid as _uuid
 import uuid
 from pathlib import Path
 
@@ -179,6 +180,20 @@ class Document:
     def get(self, k, default=None):
         return self._data.get(k, default)
 
+    def set(self, k, v):
+        """Frappe's Document.set — for a child table, a list of rows."""
+        if isinstance(v, list):
+            v = [r if isinstance(r, Document) else Document(k, {**r, "name": r.get("name") or _uuid.uuid4().hex[:10]})
+                 for r in v]
+        setattr(self, k, v)
+
+    def append(self, k, row):
+        rows = list(self.get(k) or [])
+        child = row if isinstance(row, Document) else Document(k, {**(row or {}), "name": (row or {}).get("name") or _uuid.uuid4().hex[:10]})
+        rows.append(child)
+        setattr(self, k, rows)
+        return child
+
     def update(self, d):
         for k, v in d.items():
             if k == "doctype":
@@ -196,7 +211,8 @@ class Document:
         out.setdefault("modified", "2026-10-13 00:00:00")
         for k, v in list(out.items()):
             if isinstance(v, list):
-                out[k] = [dict(x, parent=self.name, parenttype=self.doctype, parentfield=k, idx=i + 1)
+                out[k] = [dict(x.as_dict() if isinstance(x, Document) else x, parent=self.name,
+                               parenttype=self.doctype, parentfield=k, idx=i + 1)
                           for i, x in enumerate(v)]
         return out
 
@@ -268,7 +284,10 @@ def get_doc(arg, name=None):
     if name is None and meta.get("issingle"):
         rec = SITE.table(arg).get(arg) or {"name": arg}
         return _rec_to_doc(arg, rec)
-    rec = SITE.table(arg).get(name)
+    if isinstance(name, dict):              # get_doc(doctype, {filters}) — first match, as Frappe
+        rec = next((r for r in SITE.table(arg).values() if all(r.get(k) == v for k, v in name.items())), None)
+    else:
+        rec = SITE.table(arg).get(name)
     if rec is None:
         raise ValidationError(f"{arg} {name} not found")
     return _rec_to_doc(arg, rec)

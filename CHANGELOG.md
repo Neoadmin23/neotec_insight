@@ -1,3 +1,110 @@
+## v3.6.2 — 2026-11-01 — Bank Format Mapper: define new banks without code
+
+### Added: Reconcile → Bank formats…
+Teach Insight a bank's statement layout from one sample PDF:
+1. **Upload a sample statement.** The mapper lists the lines that look like a column header (several words, at least three known column words) as word chips.
+2. **Pick the header line.** Each column (Date, Details, Reference, Cheque no., Transaction type, Credit/deposit, Debit/withdrawal, Balance) is **suggested automatically** from English and Arabic keywords (e.g. Credit / Deposit / دائن / إيداع, Balance / الرصيد). Every suggestion can be changed from a dropdown.
+3. **Date format and line order** are suggested from the file: the date format that parses the most dates, and the order (newest or oldest first) in which the balances prove.
+4. **Test on the sample** runs the real reader and the running-balance proof: *✓ N lines read, every balance proven*, with opening, credits, debits, closing and a preview. Failing lines are shown first, in red.
+5. **Save** creates or updates an **Insight Bank Format**. Saving is refused unless the sample proves, so a half-mapped format can never be saved.
+
+Saved formats are used at once by Reconcile (format selector) and by the Bank tab's statement import (all formats are tried). Existing formats can be opened and edited in the mapper. Only Accounts or System Managers can define formats.
+
+### Improved reader
+- **Phrase-aware headers:** words with a small gap between them form one phrase ("Transaction Date"), mapped by its meaning and labelled by its first word.
+- **Repeated first words:** labels may name an occurrence (`Transaction#2`), so "Transaction Date" and "Transaction Type" on one line are told apart.
+- **Riyad Bank check:** mapped blind from the sample, the Riyad Bank layout comes out identical to the built-in format: 124 lines, every balance proven.
+
+### Tests
+5 new; 694 total. They cover:
+- a synthetic second bank (oldest first, repeated "Transaction" headers, Deposit/Withdrawal, dd-Mon-yyyy) taken from inspection to test, save and the Bank tab's import;
+- Arabic headers;
+- a mapping that does not prove being refused on save;
+- required columns, and managers only.
+
+## v3.6.1 — 2026-11-01 — Bank tab: statement import reads PDFs
+
+### Fixed: "Please export the statement as CSV or Excel — PDF statement parsing isn't reliable…"
+The Bank tab's statement import (`statement_reader`) refused PDFs. It now reads them with the bank-format reader introduced in v3.6.0:
+- **Format selection:** every **Insight Bank Format** is tried, and only one that reads the lines **and proves every running balance** is used.
+- **Refused clearly:** a PDF that reads but does not prove is refused, with the number of failing lines. A layout matching no format names the formats tried and explains how to add one; scanned (image) PDFs are noted as unreadable this way.
+- **Same downstream handling:** PDF lines go through the importer's own normaliser, so they get the same direction, fee/VAT split, invoice reference and counterparty IBAN as CSV/Excel lines. CSV and Excel are unchanged.
+- **Upload:** the file picker now accepts PDF.
+
+### Fixed: fee and VAT split on PDF text
+Extracted PDF text can place an Arabic word between "FEE" and its amount ("FEE تحويل , 0000000000000.50 SAR"). The fee pattern now allows that.
+- **On a 124-line Riyad Bank statement:** 28 fee lines were split, none were missed, and fee + VAT equals the line's debit on every one.
+
+### Tests
+5 new; 689 total. They cover PDF lines in the importer's shape, an unproven PDF refused with its reason, an unknown layout naming the formats tried, the upload accepting PDF, and the fee split with interleaved Arabic.
+
+## v3.6.0 — 2026-11-01 — Bank reconciliation from statement PDFs
+
+### Added: Operations → Reconcile
+1. **Read:** upload a bank statement PDF for a company Bank Account. Lines are read from each word's position on the page, so multi-line Arabic/English descriptions and empty debit or credit cells come out right. A row is anchored on its date; other words belong to the nearest row.
+2. **Prove:** every running balance is checked in posting order (previous + credit − debit = balance). The screen shows the period, opening, closing, credits, debits and *✓ N lines proven*. A line that breaks the chain is highlighted, and **nothing can be posted until the statement proves**.
+3. **Bank Transactions:** one submitted ERPNext Bank Transaction per line. A stable line key prevents duplicates, including identical fee lines on the same day.
+4. **Match:** three rule passes against unreconciled Payment Entries and Journal Entries on the bank's GL account:
+   - a reference appearing in the bank text (amount and direction agree);
+   - amount and date, preferring the party named in the text;
+   - 2–3 entries of one party adding up to the line.
+5. **AI suggestions:** for the rest, through Insight's own AI client. Every suggestion is re-checked by the same rules (exact amount, direction, date within 7 days, each entry used once) and capped at 90% confidence, so a person accepts it.
+6. **Review:** accept, skip or reset lines, or **Accept all ≥ 90%**. **Draft entries** for unmatched lines such as bank fees (charges account vs bank).
+7. **Reconcile:** accepted lines go through ERPNext's own `reconcile_vouchers`, so the standard Bank Reconciliation Statement agrees.
+
+### Bank formats are settings
+**Insight Bank Format** holds the column header labels, the date format, whether lines are newest or oldest first, and the footer words to ignore. **Riyad Bank — Account Statement** is included (newest first, dd/mm/yyyy).
+- **Header detection:** the column header is found on the line of the date label, so identical words elsewhere on the page (a "Transaction Type" field in a details box) are ignored.
+- **Verified on a real statement:** a 13-page, 124-line Riyad Bank statement for May 2026 read completely, with every balance proven (opening 421,771.61 + credits 1,083,389.05 − debits 1,322,738.90 = closing 182,421.76).
+
+### Technical
+- **PDF reading:** uses PyMuPDF, already an Insight dependency, so no new package is needed on client sites.
+- **Backups:** bank formats and statements are included.
+
+### Tests
+7 new, on a synthetic statement in the Riyad layout (real statements hold bank data and are not shipped); 684 total.
+- **Reading:** the decoy header, the balance proof including a misread line, and distinct keys.
+- **Matching:** all three passes with no entry used twice, and the AI validator.
+- **End to end:** read → transactions (never twice) → match → accept → reconcile; a balance error blocks posting.
+
+## v3.5.0 — 2026-11-01 — Insight Controls: continuous finance checks
+
+### Added: Compliance → Controls
+Checks run every day in the background, and on demand with **Run now**:
+
+| Control | Default severity | Setting |
+|---|---|---|
+| Possible duplicate purchase invoice (same supplier bill number, or same amount within N days) | High | days apart |
+| Possible duplicate sales invoice (same customer and amount within N days) | Medium | days apart |
+| Negative stock (item below zero in a warehouse) | High | — |
+| Large round cash/bank journal without a cheque/reference number | Medium | smallest amount |
+| Stock received at an unusual rate (vs the item's 90-day average in that warehouse) | Medium | % away |
+| Possible duplicate stock entry (same type, date, warehouses and value) | Medium | — |
+| Payment not allocated to any invoice after N days | Low | days |
+
+Each control can be switched on or off, with its severity, threshold and look-back adjusted (**Rules**).
+
+### Findings that live across runs
+Every issue is one **Insight Control Finding**, with first seen / last seen; re-runs never raise it twice.
+- **Statuses:** Open → Acknowledged → Fixed or Dismissed (with a note).
+- **Self-closing controls** (negative stock, unallocated payments) close the finding when the cause disappears and reopen it if it returns.
+- **Other controls** close a finding when its document is cancelled or deleted.
+- **A person's dismissal is never undone** by a later run.
+
+### Notifications, screen and Copilot
+- **Notifications:** new High findings notify Accounts Managers.
+- **Screen:** clickable document links, severity counts, filters, and bulk Acknowledge / Mark fixed / Dismiss / Reopen.
+- **Copilot:** "show open findings", "any duplicate invoices?" and "فواتير مكررة" summarise open findings by control and severity.
+
+### Safety
+- **Permissions:** only Accounts or System Managers change statuses or rules; reading needs finance access and respects company scope.
+- **Isolation:** each control runs on its own per company, so one failing check is logged and the others still run.
+- **Plain SQL:** the checks use plain SQL, so they behave the same on Frappe v15 and v16.
+- **Backups:** rules and findings are included; findings hold the audit trail of decisions.
+
+### Tests
+10 new; 677 total. They cover every lifecycle path, the detection logic, the runner end to end (seeded rules, no duplicates on re-run, close and reopen, failure isolation), manager-only status changes, and Copilot routing.
+
 ## v3.4.7 — 2026-11-01 — Letterhead images span the page width
 
 ### Changed: a single-image letterhead fits the printable width
