@@ -1,3 +1,21 @@
+## v3.6.3 — 2026-11-03 — One place for bank reconciliation
+
+### Changed: Operations → Reconcile is the single reconciliation place
+There were two paths: the Bank tab's older *Statement Import / Reconcile / Report* buttons, and the newer Reconcile tab. They are consolidated into **Reconcile**, keeping the best of each.
+- **Statements (main flow, steps 1–4):**
+  - **Upload:** accepts **PDF, CSV or Excel**. PDFs are read with the bank formats; CSV and Excel with the existing reader. Every file goes through the same **running-balance proof**, with the line order detected from the balances.
+  - **Then:** Bank Transactions → matching → review → ERPNext reconciliation.
+- **Matching:** the reference, amount + party and combination passes, plus **invoice numbers** from the old path. An invoice number in the bank text, in any spacing (`INVOICE ACC SINV 2026 00244`), matches the Payment Entry that settles that invoice. Validated AI suggestions cover the rest.
+- **Bank fees** (from the old path): *Draft entries* splits **fee and input VAT** automatically when the line states them and they add up (Dr Bank charges 5.00 + Dr Input VAT 0.75 / Cr Bank 5.75), using the saved charges and VAT accounts.
+- **Merchant settlements:** the card-settlement import, a different kind of file, is kept as its own view.
+- **Report:** the printable Reconciliation Report.
+
+### Changed: Bank tab = payment/transfer slips
+The Bank tab is the slip reader again, with a pointer to Reconcile for statements. The old duplicate matching screen is removed; its server endpoints remain for compatibility.
+
+### Tests
+3 new; 697 total. They cover the invoice-number pass winning over an equal-amount look-alike, an Excel statement proven with the fee split into charges and VAT, and the single-place screens.
+
 ## v3.6.2 — 2026-11-01 — Bank Format Mapper: define new banks without code
 
 ### Added: Reconcile → Bank formats…

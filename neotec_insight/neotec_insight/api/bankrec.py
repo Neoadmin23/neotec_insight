@@ -72,14 +72,17 @@ def create_statement(bank_account=None, file_url=None, bank_format=None):
 def read_statement(name=None):
     """Parse the PDF and prove every running balance. Nothing is posted."""
     doc = _doc(name)
-    content = frappe.get_doc("File", {"file_url": doc.statement_file}).get_content()
-    if isinstance(content, str):
-        content = content.encode("latin-1")
-    fmt = _fmt(doc.bank_format)
-    lines = core.parse_pages(core.pdf_words(content), fmt)
-    if not lines:
-        frappe.throw(_("No statement lines found. Is the PDF text-based, and is the bank format right?"))
-    proof = core.prove(core.posting_order(lines, fmt))
+    if (doc.statement_file or "").lower().endswith((".csv", ".tsv", ".xlsx", ".xls", ".xlsm")):
+        proof = _read_tabular(doc.statement_file)      # v3.6.3 — CSV / Excel, same proof
+    else:
+        content = frappe.get_doc("File", {"file_url": doc.statement_file}).get_content()
+        if isinstance(content, str):
+            content = content.encode("latin-1")
+        fmt = _fmt(doc.bank_format)
+        lines = core.parse_pages(core.pdf_words(content), fmt)
+        if not lines:
+            frappe.throw(_("No statement lines found. Is the PDF text-based, and is the bank format right?"))
+        proof = core.prove(core.posting_order(lines, fmt))
     doc.set("lines", [])
     for ln in proof["lines"]:
         doc.append("lines", {"line_key": core.line_key(doc.bank_account, ln), "posting_date": ln["date"],
@@ -92,6 +95,26 @@ def read_statement(name=None):
                 "status": "Read" if proof["ok"] else "Balance error"})
     doc.save()
     return summary(doc.name)
+
+
+def _read_tabular(file_url) -> dict:
+    """CSV / Excel bank statement → proven lines (order detected from the balances)."""
+    from neotec_insight.neotec_insight.api import statement_reader as sr
+    kind, rows, _acct = sr._read_statement_any(sr._file_path(file_url))
+    if kind != "account":
+        frappe.throw(_("This file is a merchant (card) settlement, not a bank statement: use Merchant settlements."))
+    lines = [{"date": getdate(r["value_date"]), "details": r.get("details") or "", "reference": r.get("reference") or "",
+              "cheque": r.get("cheque_no") or "", "type": r.get("txn_type") or "", "credit": flt(r.get("credit")),
+              "debit": flt(r.get("debit")), "balance": r.get("balance") if r.get("balance") not in (None, "") else None}
+             for r in rows if r.get("value_date")]
+    if not lines:
+        frappe.throw(_("No statement lines found in the file."))
+    best = None
+    for ordered in (list(reversed(lines)), lines):
+        p = core.prove(ordered)
+        if best is None or (p["ok"], -len(p["bad"])) > (best["ok"], -len(best["bad"])):
+            best = p
+    return best
 
 
 @frappe.whitelist()
@@ -147,7 +170,14 @@ def _candidates(doc) -> list[dict]:
         inflow = r["paid_to"] == acc
         out.append({"doctype": "Payment Entry", "name": r["name"], "date": getdate(r["posting_date"]),
                     "amount": flt(r["received_amount"] if inflow else r["paid_amount"], 2),
-                    "direction": "in" if inflow else "out", "party": r["party"] or "", "reference": r["reference_no"] or ""})
+                    "direction": "in" if inflow else "out", "party": r["party"] or "", "reference": r["reference_no"] or "",
+                    "invoices": []})
+    # v3.6.3 — the invoices each payment settles (for invoice numbers in bank text)
+    pes = {c["name"]: c for c in out}
+    if pes:
+        for ref in frappe.get_all("Payment Entry Reference", filters={"parent": ["in", list(pes)]},
+                                  fields=["parent", "reference_name"], limit_page_length=0, order_by="idx asc"):
+            pes[ref["parent"]]["invoices"].append(ref["reference_name"])
     for r in frappe.db.sql(
             """select je.name, je.posting_date, je.cheque_no, jea.debit_in_account_currency as dr,
                       jea.credit_in_account_currency as cr, ifnull(jea.party, '') as party
@@ -244,11 +274,24 @@ def set_lines(name=None, lines=None, status=None, threshold=None):
     return {"updated": n, **summary(doc.name)}
 
 
+@frappe.whitelist()
+def charge_accounts():
+    s = frappe.get_single("Insight AI Settings")
+    return {"bank_charges_account": getattr(s, "bank_charges_account", None),
+            "input_vat_account": getattr(s, "input_vat_account", None)}
+
+
 @frappe.whitelist(methods=["POST"])
-def draft_charges(name=None, lines=None, account=None):
-    """Draft Journal Entries for unmatched lines such as bank fees."""
+def draft_charges(name=None, lines=None, account=None, vat_account=None):
+    """Draft Journal Entries for unmatched lines such as bank fees. When the
+    line's text states the fee and VAT (and they add up to the line), the VAT
+    goes to the input VAT account (v3.6.3)."""
+    from neotec_insight.neotec_insight.api.statement_reader import _FEE_RE, _num
+    import unicodedata
     doc = _doc(name)
-    account = account or doc.charges_account
+    saved = charge_accounts()
+    account = account or doc.charges_account or saved["bank_charges_account"]
+    vat_account = vat_account or saved["input_vat_account"]
     if not account:
         frappe.throw(_("Choose the bank charges account."))
     keys = set(json.loads(lines) if isinstance(lines, str) else (lines or []))
@@ -258,13 +301,18 @@ def draft_charges(name=None, lines=None, account=None):
             continue
         amt = flt(ln.debit or ln.credit, 2)
         out = bool(ln.debit)
+        fee, vat = amt, 0.0
+        m = _FEE_RE.search(unicodedata.normalize("NFKC", ln.details or ""))
+        if m and out and vat_account and abs(_num(m.group(1)) + _num(m.group(2)) - amt) < 0.005:
+            fee, vat = flt(_num(m.group(1)), 2), flt(_num(m.group(2)), 2)
+        rows = [{"account": account, "debit_in_account_currency": fee if out else 0, "credit_in_account_currency": 0 if out else fee}]
+        if vat:
+            rows.append({"account": vat_account, "debit_in_account_currency": vat, "credit_in_account_currency": 0})
+        rows.append({"account": doc.gl_account, "debit_in_account_currency": 0 if out else amt,
+                     "credit_in_account_currency": amt if out else 0})
         je = frappe.get_doc({"doctype": "Journal Entry", "company": doc.company, "posting_date": ln.posting_date,
                              "cheque_no": (ln.reference or "")[:140], "cheque_date": ln.posting_date,
-                             "user_remark": (ln.details or "")[:500], "accounts": [
-                                 {"account": account, "debit_in_account_currency": amt if out else 0,
-                                  "credit_in_account_currency": 0 if out else amt},
-                                 {"account": doc.gl_account, "debit_in_account_currency": 0 if out else amt,
-                                  "credit_in_account_currency": amt if out else 0}]}).insert()
+                             "user_remark": (ln.details or "")[:500], "accounts": rows}).insert()
         ln.update({"match_json": json.dumps([["Journal Entry", je.name, amt]]), "confidence": 100,
                    "match_source": "Draft entry (submit it, then reconcile)", "match_status": "Suggested"})
         made.append(je.name)

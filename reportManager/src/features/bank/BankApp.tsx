@@ -2,9 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { deskPrefix } from '../../utils/desk';
 import { api, uploadFile } from '../../utils/api';
 import { t } from '../../utils/i18n';
-import StatementImport from './StatementImport';
-import Reconcile from './Reconcile';
-import ReconcileReport from './ReconcileReport';
 
 type Slip = {
   name: string; company?: string; bank?: string; direction?: string; amount?: number;
@@ -96,18 +93,10 @@ export default function BankApp() {
         <button className={'btn btn-sm ' + (mode === 'slips' ? 'btn-primary' : 'btn-default')} onClick={() => setMode('slips')}>
           {t('Slip Reader')}
         </button>
-        <button className={'btn btn-sm ' + (mode === 'statement' ? 'btn-primary' : 'btn-default')} onClick={() => setMode('statement')}>
-          {t('Statement Import')}
-        </button>
-        <button className={'btn btn-sm ' + (mode === 'reconcile' ? 'btn-primary' : 'btn-default')} onClick={() => setMode('reconcile')}>
-          {t('Reconcile')}
-        </button>
-        <button className={'btn btn-sm ' + (mode === 'report' ? 'btn-primary' : 'btn-default')} onClick={() => setMode('report')}>
-          {t('Report')}
-        </button>
+
       </div>
 
-      {mode === 'report' ? <ReconcileReport /> : mode === 'reconcile' ? <Reconcile /> : mode === 'statement' ? <StatementImport /> : (
+      {(
       <>
       {err && <div style={{ background: '#fdecea', color: '#b91c1c', padding: '8px 12px', borderRadius: 6, marginBottom: 10 }}>{err}</div>}
       {note && <div style={{ background: '#fff7e6', color: '#8a6d1b', padding: '8px 12px', borderRadius: 6, marginBottom: 10 }}>{note}</div>}
@@ -151,7 +140,7 @@ export default function BankApp() {
       </div>
 
       <div className="text-muted" style={{ marginTop: 14, fontSize: 12 }}>
-        {t('Reconciliation (auto-match against bank statements) is the next milestone and will live here.')}
+        {t('Bank statements (PDF, CSV or Excel), matching and reconciliation: Operations → Reconcile.')}
       </div>
       </>
       )}

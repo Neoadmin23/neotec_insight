@@ -4838,3 +4838,7 @@ tr:hover .row-livegroup { opacity: 1; }
 .fm-chip { background: var(--surface-2, #f3f4f6); border-radius: 6px; padding: 1px 7px; font-size: 12px; }
 .fm-ok { color: #15803d; font-weight: 600; } .fm-bad { color: #b91c1c; font-weight: 600; }
 .fm-prev { max-height: 300px; margin-top: 8px; }
+/* v3.6.3 — one reconciliation place */
+.br-nav { display: flex; gap: 6px; border-bottom: 1px solid var(--border, #e5e7eb); padding-bottom: 8px; }
+.br-navbtn { border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13.5px; color: inherit; }
+.br-navbtn.on { background: var(--surface-2, #f1efe9); font-weight: 600; }

@@ -4,6 +4,8 @@ import { t } from '../../utils/i18n';
 import { deskPrefix } from '../../utils/desk';
 import { docLink } from '../../utils/statementCore';
 import { FormatMapper } from './FormatMapper';
+import StatementImport from '../bank/StatementImport';
+import ReconcileReport from '../bank/ReconcileReport';
 
 /* Bank reconciliation (v3.6.0): read a statement PDF, prove every balance,
  * create Bank Transactions, match (rules, then validated AI suggestions),
@@ -25,6 +27,8 @@ export default function BankRecApp() {
   const [formats, setFormats] = useState<any[]>([]);
   const [format, setFormat] = useState('');
   const [mapper, setMapper] = useState(false);
+  // v3.6.3 — one place for reconciliation: statements, merchant settlements, report
+  const [view, setView] = useState<'statements' | 'merchant' | 'report'>('statements');
   const loadFormats = (pick?: string) => api.bankrec('list_formats').then((f) => { setFormats(f || []); setFormat((cur) => pick || cur || f?.[0]?.name || ''); }).catch(() => {});
   useEffect(() => { loadFormats(); }, []);
 
@@ -53,8 +57,18 @@ export default function BankRecApp() {
   const lines = (s?.lines || []).filter((l: any) => !filter || l.match_status === filter);
   const act = (status: string) => run('…', () => api.bankrec('set_lines', { name: s.name, lines: JSON.stringify(sel), status }, true));
 
+  const nav = (
+    <div className="br-nav">
+      {([['statements', 'Statements'], ['merchant', 'Merchant settlements'], ['report', 'Report']] as const).map(([k, l]) => (
+        <button type="button" key={k} className={'br-navbtn' + (view === k ? ' on' : '')} onClick={() => setView(k)}>{t(l)}</button>
+      ))}
+    </div>
+  );
+  if (view === 'merchant') return <div className="br">{nav}<StatementImport /></div>;
+  if (view === 'report') return <div className="br">{nav}<ReconcileReport /></div>;
   return (
     <div className="br">
+      {nav}
       <div className="br-bar">
         <select value={account} onChange={(e) => { setAccount(e.target.value); setS(null); }}>
           {accounts.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
@@ -63,8 +77,8 @@ export default function BankRecApp() {
           {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
         </select>
         <button type="button" className="bk-btn" onClick={() => setMapper(true)}>{t('Bank formats…')}</button>
-        <label className="bk-btn bk-primary">{busy === t('Reading…') ? busy : t('Upload statement PDF')}
-          <input type="file" accept="application/pdf" hidden disabled={!account || !!busy}
+        <label className="bk-btn bk-primary">{busy === t('Reading…') ? busy : t('Upload statement (PDF, CSV or Excel)')}
+          <input type="file" accept=".pdf,.csv,.tsv,.xlsx,.xls" hidden disabled={!account || !!busy}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }} /></label>
         <select value={s?.name || ''} onChange={(e) => e.target.value && run('…', () => api.bankrec('summary', { name: e.target.value }))}>
           <option value="">{t('Open a statement…')}</option>
@@ -105,10 +119,13 @@ export default function BankRecApp() {
               <button type="button" className="bk-btn" onClick={() => act('Accepted')}>{t('Accept')}</button>
               <button type="button" className="bk-btn" onClick={() => act('Skipped')}>{t('Skip')}</button>
               <button type="button" className="bk-btn" onClick={() => act('Unmatched')}>{t('Reset')}</button>
-              <button type="button" className="bk-btn" onClick={() => {
-                const acc = prompt(t('Bank charges account (as in the chart of accounts)'), s.charges_account || '');
+              <button type="button" className="bk-btn" onClick={async () => {
+                const saved = await api.bankrec('charge_accounts').catch(() => ({}));
+                const acc = s.charges_account || saved.bank_charges_account
+                  || prompt(t('Bank charges account (as in the chart of accounts)'), '');
                 if (acc) run('…', () => api.bankrec('draft_charges', { name: s.name, lines: JSON.stringify(sel), account: acc }, true));
-              }}>{t('Draft entries (e.g. bank fees)')}</button>
+              }} title={t('Fee and VAT are split automatically when the line states them (saved charges and input VAT accounts)')}>
+                {t('Draft entries (bank fees: fee + VAT)')}</button>
             </div>
           )}
           <div className="cp-table-wrap br-table">

@@ -199,8 +199,24 @@ def match(lines: list[dict], cands: list[dict], days: int = 3, ref_days: int = 3
     def near(ln, c, n):
         return abs((c["date"] - ln["date"]).days) <= n
 
+    def inv_key(name: str) -> str:
+        k = re.sub(r"[^0-9A-Z]", "", str(name).upper())
+        for tag in ("SINV", "PINV"):
+            if tag in k:
+                return k[k.find(tag):]
+        return k
+
     open_lines = []
-    for ln in lines:                                   # pass 1: reference
+    for ln in lines:                                   # pass 1: reference (or an invoice it settles)
+        a, dirn = amt(ln)
+        text_key = re.sub(r"[^0-9A-Z]", "", f"{ln.get('details','')} {ln.get('reference','')}".upper())
+        hit = next((c for c in cands if c["name"] not in used and c["direction"] == dirn
+                    and round(c["amount"], 2) == a and near(ln, c, ref_days)
+                    and any(len(inv_key(i)) >= 8 and inv_key(i) in text_key for i in c.get("invoices") or [])), None)
+        if hit:
+            used.add(hit["name"])
+            out.append({"key": ln["key"], "vouchers": [(hit["doctype"], hit["name"], a)], "confidence": 0.98, "rule": "invoice"})
+            continue
         a, dirn = amt(ln)
         text = f"{ln.get('details','')} {ln.get('reference','')}".lower()
         hit = next((c for c in cands if c["name"] not in used and c["direction"] == dirn
