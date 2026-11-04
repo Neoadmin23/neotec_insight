@@ -63,6 +63,7 @@ export default function HrApp() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [basis, setBasis] = useState<'processed' | 'defined'>('processed');
+  const [check, setCheck] = useState<any>(null);
   const [eosb, setEosb] = useState<any>(null);
   const [showEosb, setShowEosb] = useState(false);
   const [showProvCfg, setShowProvCfg] = useState(false);
@@ -214,7 +215,32 @@ export default function HrApp() {
           )}
 
           {/* defined vs processed (budget vs actual) for the period */}
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>{t('Defined vs processed')} · {d.period_label}</div>
+          <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', gap: 10, alignItems: 'center' }}>
+            {t('Defined vs processed')} · {d.period_label}
+            <button type="button" className="bk-btn" style={{ fontWeight: 400 }}
+              onClick={() => api.hrDefinedDetail(d.company, d.as_of).then(setCheck).catch(() => {})}>{t('Check employees')}</button>
+          </div>
+          {check && (
+            <div className="theme-overlay" onClick={(e) => { if (e.target === e.currentTarget) setCheck(null); }}>
+              <div className="theme-panel" role="dialog" style={{ width: 'min(980px, 100%)', maxHeight: '90vh', overflow: 'auto' }}>
+                <div className="theme-h"><h3>{t('Defined (master) payroll — per employee')} · {check.as_of}</h3>
+                  <button type="button" className="cp-x" onClick={() => setCheck(null)}>×</button></div>
+                <p className="bk-hint">
+                  {t('Counted')}: {check.counted_n} {t('employees')} = <b>{money(check.counted_total)}</b> · {t('Excluded')}: {check.excluded_n} = {money(check.excluded_total)}
+                  {Math.abs(check.previous_total - check.counted_total) > 0.5 && <> · {t('Previously shown')}: {money(check.previous_total)}</>}
+                </p>
+                <p className="bk-hint">{t('Counted: the latest Salary Structure Assignment in effect on the date (its Base), for employees still employed. Excluded: employees who have left, and assignments that start later.')}</p>
+                <div className="cp-table-wrap" style={{ maxHeight: '60vh' }}><table className="cp-table">
+                  <thead><tr><th>{t('Employee')}</th><th>{t('Status')}</th><th>{t('Effective from')}</th><th className="num">{t('Base')}</th><th>{t('Counted?')}</th></tr></thead>
+                  <tbody>{check.rows.map((r: any) => (
+                    <tr key={r.employee} style={r.counted ? undefined : { color: '#9a948a' }}>
+                      <td>{r.employee_name} <small>{r.employee}</small></td><td>{r.status}{r.relieving_date ? ` · ${r.relieving_date}` : ''}</td>
+                      <td>{r.from_date}</td><td className="num">{money(r.base)}</td>
+                      <td>{r.counted ? '✓' : `✗ ${r.reason}`}</td></tr>))}</tbody>
+                </table></div>
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
             <Card label={`${t('Defined (master)')} · ${d.months} ${t('mo')}`} value={money(sal.defined_for_period)} color="#1d4ed8"
                   active={basis === 'defined'} onClick={() => setBasis('defined')} sub={t('committed per contracts')} />

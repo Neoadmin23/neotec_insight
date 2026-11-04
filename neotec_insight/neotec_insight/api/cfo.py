@@ -259,22 +259,79 @@ def _period_range(as_of, period):
     return s, e, months, lbl
 
 
-def _defined_monthly(company):
-    """Committed monthly payroll from the active Salary Structure Assignment
-    (master) — latest assignment per employee."""
-    total = 0.0
-    per_emp: dict[str, float] = {}
-    if _has("Salary Structure Assignment"):
-        seen = set()
-        for r in frappe.get_all("Salary Structure Assignment",
-                                filters={"company": company, "docstatus": 1},
-                                fields=["employee", "base", "from_date"],
-                                order_by="from_date desc", limit_page_length=20000):
-            if r["employee"] in seen:
-                continue
-            seen.add(r["employee"])
-            per_emp[r["employee"]] = flt(r["base"]); total += flt(r["base"])
-    return round(total, 2), per_emp
+def _defined_detail(company, as_of=None) -> list[dict]:
+    """Every employee with a Salary Structure Assignment, and whether their
+    salary counts in the defined (master) payroll as of the date (v3.6.4).
+
+    Counted: the latest assignment that has taken effect (from_date <= as_of),
+    for an employee who is Active or whose relieving date is after as_of.
+    Before v3.6.4 the latest assignment of EVERY employee was summed —
+    including people who had left and assignments dated in the future."""
+    as_of = getdate(as_of or nowdate())
+    if not _has("Salary Structure Assignment"):
+        return []
+    emps = {e["name"]: e for e in frappe.get_all(
+        "Employee", filters={"company": company},
+        fields=["name", "employee_name", "status", "relieving_date"], limit_page_length=0, order_by="name asc")}
+    rows: dict[str, dict] = {}
+    future: dict[str, dict] = {}
+    latest: dict[str, dict] = {}          # what the pre-3.6.4 code used: latest of all, even future
+    for r in frappe.get_all("Salary Structure Assignment", filters={"company": company, "docstatus": 1},
+                            fields=["employee", "base", "from_date"], order_by="from_date desc",
+                            limit_page_length=0):
+        d = getdate(r["from_date"]) if r["from_date"] else getdate("1900-01-01")
+        lp = latest.get(r["employee"])
+        if lp is None or d > lp["_d"]:
+            latest[r["employee"]] = {**r, "_d": d}
+        # compare effective dates explicitly — never rely on the query's order
+        if d > as_of:
+            prev = future.get(r["employee"])
+            if prev is None or d < getdate(prev["from_date"]):      # the next one to take effect
+                future[r["employee"]] = r
+            continue
+        prev = rows.get(r["employee"])
+        if prev is None or d > (getdate(prev["from_date"]) if prev["from_date"] else getdate("1900-01-01")):
+            rows[r["employee"]] = r
+    out = []
+    for emp in sorted(set(rows) | set(future)):
+        e = emps.get(emp, {})
+        cur, fut = rows.get(emp), future.get(emp)
+        status, rel = e.get("status") or "", e.get("relieving_date")
+        employed = status == "Active" or (rel and getdate(rel) > as_of)
+        line = {"employee": emp, "employee_name": e.get("employee_name") or emp, "status": status or "—",
+                "relieving_date": str(rel) if rel else "", "base": flt((cur or fut or {}).get("base")),
+                "from_date": str((cur or fut or {}).get("from_date") or "")}
+        if not cur:
+            line.update(counted=False, reason=f"assignment only from {fut['from_date']}")
+        elif not employed:
+            line.update(counted=False, reason=f"{status or 'not active'}" + (f" — relieved {rel}" if rel else ""))
+        else:
+            line.update(counted=True, reason="counted")
+        line["old_base"] = flt(latest.get(emp, {}).get("base"))     # what the pre-3.6.4 total added
+        out.append(line)
+    return out
+
+
+def _defined_monthly(company, as_of=None):
+    """Committed monthly payroll: the latest assignment in effect as of the
+    date, for employees still employed (see _defined_detail)."""
+    detail = _defined_detail(company, as_of)
+    per_emp = {d["employee"]: d["base"] for d in detail if d["counted"]}
+    return round(sum(per_emp.values()), 2), per_emp
+
+
+@frappe.whitelist()
+def hr_defined_detail(company: str | None = None, as_of: str | None = None) -> dict:
+    """Per-employee check of the defined (master) payroll total."""
+    _require_people()
+    company = _company(company)
+    rows = _defined_detail(company, as_of)
+    counted = [r for r in rows if r["counted"]]
+    return {"as_of": str(getdate(as_of or nowdate())), "rows": rows,
+            "counted_total": round(sum(r["base"] for r in counted), 2), "counted_n": len(counted),
+            "excluded_total": round(sum(r["base"] for r in rows if not r["counted"]), 2),
+            "excluded_n": len(rows) - len(counted),
+            "previous_total": round(sum(r["old_base"] for r in rows), 2)}
 
 
 def _additional_salary(company, d1, d2):
@@ -302,10 +359,11 @@ def _emp_base_wage(company) -> dict:
     else the most recent Salary Slip gross)."""
     wage: dict[str, float] = {}
     if _has("Salary Structure Assignment"):
+        # v3.6.4 — the assignment in effect today, not one dated in the future
         for r in frappe.get_all("Salary Structure Assignment",
-                                filters={"company": company, "docstatus": 1},
+                                filters={"company": company, "docstatus": 1, "from_date": ["<=", nowdate()]},
                                 fields=["employee", "base", "from_date"],
-                                order_by="from_date desc", limit_page_length=5000):
+                                order_by="from_date desc", limit_page_length=0):
             wage.setdefault(r["employee"], flt(r["base"]))
     if _has("Salary Slip"):
         for r in frappe.get_all("Salary Slip",
@@ -369,7 +427,7 @@ def _payroll(company, as_of):
     if not out["monthly_cost"] and wage:
         out["monthly_cost"] = round(sum(wage.values()), 2)
     # next payroll is a forward commitment — prefer the defined (master) total
-    defined_monthly, _ = _defined_monthly(company)
+    defined_monthly, _ = _defined_monthly(company, as_of)
     out["defined_monthly"] = defined_monthly
     out["next_payroll"] = defined_monthly or out["monthly_cost"]
     return out

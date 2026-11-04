@@ -1,3 +1,27 @@
+## v3.6.4 — 2026-11-04 — People & Payroll: defined (master) payroll corrected
+
+### Fixed: "Defined (master)" and "Next payroll" overstated the salary bill
+The total summed **every employee's latest Salary Structure Assignment**:
+- **People who had left:** employees who had left still had their last salary counted.
+- **Future-dated assignments:** an increment dated next month already counted as current.
+
+Now it counts **the assignment in effect on the date** (`from_date` ≤ as of), only for **employees still employed**: status Active, or a relieving date after the as-of date (serving notice).
+- **Selection:** the latest assignment is chosen by comparing effective dates, not by relying on query order.
+- **Knock-on figures:** "Defined (master)", "Next payroll" and the variance against processed payroll all use the corrected figure.
+- **EOSB provision:** the wage behind it also uses the assignment in effect today, not a future-dated one.
+
+### Added: Check employees
+Next to *Defined vs processed*, **Check employees** lists every employee with an assignment: their Base, effective date, status, and whether they are **counted** or **excluded** (and why: *Left — relieved …*, *assignment only from …*). The counted total, the excluded total and the figure previously shown are given, so the change is explained employee by employee.
+
+### Tests
+3 new; 700 total. They cover:
+- an employee with an older and a current assignment;
+- an employee who has left;
+- an employee whose only assignment starts later;
+- a future increment, and its taking effect on its date;
+- an employee serving notice;
+- the previous total reproduced exactly.
+
 ## v3.6.3 — 2026-11-03 — One place for bank reconciliation
 
 ### Changed: Operations → Reconcile is the single reconciliation place

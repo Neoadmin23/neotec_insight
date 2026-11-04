@@ -1304,6 +1304,8 @@ export const api = {
   getPrintHeader: () => call<any>('reconcile.get_print_header', {}),
   morningBrief: (company = '', as_of = '', narrative = 1) =>
     call<any>('cfo.morning_brief', { company, as_of, narrative }),
+  // v3.6.4 — per-employee check of the defined (master) payroll
+  hrDefinedDetail: (company = '', as_of = '') => call<any>('cfo.hr_defined_detail', { company, as_of }),
   hrSummary: (company = '', as_of = '', period = 'this_month') =>
     call<any>('cfo.hr_summary', { company, as_of, period }),
   eosbBreakdown: (company = '', as_of = '') =>
