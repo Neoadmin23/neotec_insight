@@ -1,3 +1,81 @@
+## v3.6.9 — 2026-11-05 — Ageing pack: every party included; mismatches flagged
+
+### Fixed: customers after the 20th showed ageing but no invoices
+The bill-wise engine capped its party list at **20**, a limit meant for the Ageing screen. The pack (since v3.6.6/v3.6.7) passed it every party, so the **21st party onward was dropped silently**. Those parties showed:
+- Invoiced / Paid of 0;
+- empty detail sections;
+- ageing buckets (from the other engine) that did not reconcile. On the reported workbook, the AR check row read −37,491.09.
+
+`billwise` now takes `max_parties`. The screen keeps its 20; the pack asks for all parties, for both the summary amounts and the detail sheets.
+
+### Added: per-party reconciliation flag
+Each party's invoice detail (open invoices − unallocated) is checked against its ageing balance. A party that does not reconcile is **highlighted on its row**, and a red warning line under the table gives the count. A gap can no longer hide in the check total.
+
+### Tests
+4 new; 712 total. They cover the real bill-wise engine with 25 customers (all returned to the pack, including the 25th), the screen still showing 20, the pack asking for all parties, and a mismatching party being highlighted and counted.
+
+## v3.6.8 — 2026-11-05 — Ageing pack: received split into Paid / Note / Adjustment
+
+### Changed
+On open invoices, what has been settled is now shown by **how** it was settled, not as one Received figure:
+
+| Column | Settled by |
+|---|---|
+| **Paid Amount** | Payment Entries |
+| **Credit Note** (AR) / **Debit Note** (AP) | return invoices |
+| **Adjustment** (new) | Journal Entries and any other voucher (write-offs, contra, exchange differences…) |
+
+- **Source:** each settlement is classified from the bill-wise engine's allocation rows, which record the settling document and the invoice it was applied to.
+- **Unallocated items** follow the same rule.
+- **Residual:** anything the rows do not explain (rounding) goes to Adjustment, so **Outstanding = Invoiced − Paid − Note − Adjustment** always holds.
+
+### Layout
+The new **Adjustment** column follows Credit/Debit Note. Outstanding moves to column G, and Not Yet Due, the buckets and Total Due move one column right. Every formula moves with them: Outstanding, Total Due, the check row, the Dashboard links and the detail sheets' "matches summary" checks.
+
+In "All invoices" mode, Adjustment is 0 (that mode separates notes only).
+
+### Tests
+708 total. The reported customer example now asserts the split (Paid 1,700 · Note 100 · Adjustment 100, Balance 4,100). The column-letter expectations of earlier tests were moved to the new layout, and the LibreOffice recalculation check still matches every party total.
+
+## v3.6.7 — 2026-11-05 — Ageing pack: Invoiced / Paid cover open invoices only
+
+### Changed
+A customer's Invoiced and Paid columns added up every invoice, including fully settled ones. With Inv001 (1,000, 400 received), Inv010 (3,000, fully received) and Inv045 (5,000, 1,500 received), the report showed 9,000 / 4,900 / 4,100.
+
+It now shows **6,000 / 1,900 / 4,100**: only invoices still open count.
+- **Invoiced:** the sum of the open invoices.
+- **Paid / Received:** what has been settled on those invoices, including credit/debit notes applied to them, plus payments not yet allocated. So Balance = Invoiced − Paid, and it equals the ageing Outstanding.
+- **Source:** the figures come from the bill-wise engine used by the detail sheets, so each party's summary line and its detail section agree.
+- **Option:** *Invoiced / Paid columns cover → Open invoices only* (default) or *All invoices*, which gives the previous figures with credit/debit notes in their own column.
+- **Footnote:** the sheet's footnote states which basis was used.
+
+### Tests
+2 new, including the reported example; 708 total. The credit-note column test now selects "All invoices", where that column applies.
+
+## v3.6.6 — 2026-11-05 — Ageing pack: the documents behind each balance
+
+### Added: AR / AP detail sheets with drill-down
+Each AR and AP ageing sheet now gets a detail sheet ("AR Ageing Detail", "AP Ageing Detail"), placed after the summaries.
+- **Contents:** for every listed party, the **open invoices** (date, document, type, age, bucket, amount, settled, outstanding) and any **unallocated payments** (shown as negative). The detail comes from the same bill-wise engine as the Ageing screen.
+- **Drill down:** each **party name** on the summary is a link to that party's section, and **↩ summary** links back.
+- **Open in ERPNext:** each **document number** opens the Sales/Purchase Invoice, Journal Entry or Payment Entry (absolute link, version-aware desk path).
+- **Party total check:** each section ends with a party total and a check against the summary's Outstanding ("✓ matches summary").
+- **Option:** *Add a detail sheet* on each AR / AP sheet in the pack designer (on by default). Parties hidden as zero balances get no detail section.
+
+### Tests
+3 new; 706 total. They cover the links in both directions, the document links, the option off, and a LibreOffice recalculation with every party total matching the summary. One existing test now checks the first three sheets, since the detail sheets follow them.
+
+## v3.6.5 — 2026-11-05 — Ageing pack: zero balances hidden by default
+
+### Changed
+AR and AP ageing sheets no longer list parties whose outstanding is 0 (fully settled).
+- **Negative balances are kept:** advances or overpayments (e.g. a supplier at −5,889.20) still show.
+- **Option:** **Show parties with a zero balance** on each AR / AP sheet in the pack designer (off by default); it can also be passed from the Ageing screen's download.
+- **Totals:** the Outstanding, ageing-bucket and Total Due totals, the check row and the Dashboard are unchanged. The Invoiced, Paid and Debit/Credit Note column totals cover the listed parties only.
+
+### Tests
+3 new; 703 total. They check that settled suppliers are hidden while the open and negative ones remain, that the option brings them back, and that the option is offered on both sheets.
+
 ## v3.6.4 — 2026-11-04 — People & Payroll: defined (master) payroll corrected
 
 ### Fixed: "Defined (master)" and "Next payroll" overstated the salary bill

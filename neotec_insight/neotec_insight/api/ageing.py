@@ -221,7 +221,7 @@ def list_parties(company=None, party_type="Customer", query=""):
 
 @frappe.whitelist()
 def billwise(company=None, party_type="Customer", parties=None, as_of=None,
-             based_on="due", mode="days", slabs="30,60,90,120"):
+             based_on="due", mode="days", slabs="30,60,90,120", max_parties=20):
     """Bill-wise analysis (v2.32.0) — per-party document statement in the
     classic ledger-analysis layout: every invoice and payment row in date
     order, payments allocated FIFO with the AGAINST VOUCHER shown, per-bill
@@ -237,7 +237,11 @@ def billwise(company=None, party_type="Customer", parties=None, as_of=None,
     acc_type = "Receivable" if party_type == "Customer" else "Payable"
     if isinstance(parties, str):
         parties = _json.loads(parties or "[]")
-    parties = [p for p in (parties or []) if p][:20]
+    # v3.6.9 — the screen shows 20 parties at a time; reports (the ageing pack)
+    # ask for every party. Before this, parties after the 20th were dropped
+    # silently, so their invoices were missing from the pack.
+    cap = max(1, min(int(max_parties or 20), 5000))
+    parties = [p for p in (parties or []) if p][:cap]
     if not parties:
         # v2.34.3 — no selection = the TOP 20 parties by absolute outstanding,
         # so the button always produces a useful report instead of a refusal.

@@ -151,9 +151,17 @@ SHEET_TYPES += [
         {"key": "color_band", "label": "Row banding colour (hex)", "kind": "text", "default": "F7F5FA"},
     ]},
     {"type": "ar_ageing", "label": "Accounts Receivable Ageing", "options": _AGEING_OPTS + [
-        {"key": "split_not_due", "label": "Show “Not Yet Due” separately", "kind": "check", "default": 1}]},
+        {"key": "split_not_due", "label": "Show “Not Yet Due” separately", "kind": "check", "default": 1},
+        {"key": "show_zero", "label": "Show parties with a zero balance", "kind": "check", "default": 0},
+        {"key": "amounts", "label": "Invoiced / Paid columns cover", "kind": "select", "default": "open",
+         "choices": [["open", "Open invoices only"], ["all", "All invoices"]]},
+        {"key": "details", "label": "Add a detail sheet (documents behind each party, clickable)", "kind": "check", "default": 1}]},
     {"type": "ap_ageing", "label": "Accounts Payable Ageing", "options": _AGEING_OPTS + [
-        {"key": "split_not_due", "label": "Show “Not Yet Due” separately", "kind": "check", "default": 1}]},
+        {"key": "split_not_due", "label": "Show “Not Yet Due” separately", "kind": "check", "default": 1},
+        {"key": "show_zero", "label": "Show parties with a zero balance", "kind": "check", "default": 0},
+        {"key": "amounts", "label": "Invoiced / Paid columns cover", "kind": "select", "default": "open",
+         "choices": [["open", "Open invoices only"], ["all", "All invoices"]]},
+        {"key": "details", "label": "Add a detail sheet (documents behind each party, clickable)", "kind": "check", "default": 1}]},
 ]
 _TYPES = {t["type"]: t for t in SHEET_TYPES}
 
@@ -306,12 +314,48 @@ def ageing_rows(company, as_of, party_type, opts):
                         based_on=opts.get("based_on") or "due", slabs=opts.get("slabs") or "30,60,90,120",
                         mode=opts.get("mode") or "days",
                         split_not_due=split)
-    notes = _notes_by_party(company, as_of, party_type)
     rows = []
+    if (opts.get("amounts") or "open") == "open":
+        # v3.6.7 — Invoiced / Received from the invoices still open: a fully
+        # settled invoice adds nothing to either column. Received = settled on
+        # those invoices (payments and notes) + payments not yet allocated, so
+        # Balance = Invoiced − Received.
+        from neotec_insight.neotec_insight.api.ageing import billwise
+        parties = [r.get("party") for r in data["rows"] if r.get("party")]
+        bw = billwise(company=company, party_type=party_type, parties=parties, as_of=as_of,
+                      based_on=opts.get("based_on") or "due", mode=opts.get("mode") or "days",
+                      slabs=opts.get("slabs") or "30,60,90,120", max_parties=len(parties)) if parties else {"blocks": []}
+        blocks = {b["party"]: b for b in bw.get("blocks") or []}
+        inv_dt = "Sales Invoice" if party_type == "Customer" else "Purchase Invoice"
+
+        def kind(vt):        # v3.6.8 — how a settlement was made
+            return "paid" if vt == "Payment Entry" else "note" if vt == inv_dt else "adj"
+        for r in data["rows"]:
+            b = blocks.get(r.get("party")) or {}
+            open_ = {x["bill"] for x in b.get("open_bills") or []}
+            inv = sum(flt(x.get("amount")) for x in b.get("open_bills") or [])
+            settled = sum(flt(x.get("amount")) - flt(x.get("remaining")) for x in b.get("open_bills") or [])
+            split = {"paid": 0.0, "note": 0.0, "adj": 0.0}
+            for ln in b.get("rows") or []:
+                if ln.get("allocated") and ln.get("against") in open_:
+                    split[kind(ln.get("voucher_type"))] += flt(ln["allocated"])
+            # anything the rows do not explain (rounding, merged invoice lines) is an adjustment
+            split["adj"] += settled - sum(split.values())
+            for u in b.get("unallocated") or []:
+                split[kind(u.get("voucher_type"))] += flt(u.get("amount"))
+            # v3.6.9 — does the invoice detail add up to the ageing balance?
+            detail_bal = sum(flt(x.get("remaining")) for x in b.get("open_bills") or []) \
+                - sum(flt(u.get("amount")) for u in b.get("unallocated") or [])
+            rows.append({"party": r.get("party"), "label": r["label"], "invoiced": flt(inv, 2),
+                         "paid": flt(split["paid"], 2), "note": flt(split["note"], 2), "adj": flt(split["adj"], 2),
+                         "outstanding": r["outstanding"], "not_due": r.get("not_due", 0.0), "buckets": r["buckets"],
+                         "mismatch": abs(detail_bal - flt(r["outstanding"])) > 0.01})
+        return data, rows
+    notes = _notes_by_party(company, as_of, party_type)
     for r in data["rows"]:
         note = notes.get(r["party"], 0.0)
-        rows.append({"label": r["label"], "invoiced": r["invoiced"], "paid": flt(r["paid"] - note, 2),
-                     "note": flt(note, 2), "outstanding": r["outstanding"], "not_due": r.get("not_due", 0.0),
+        rows.append({"party": r.get("party"), "label": r["label"], "invoiced": r["invoiced"], "paid": flt(r["paid"] - note, 2),
+                     "note": flt(note, 2), "adj": 0.0, "outstanding": r["outstanding"], "not_due": r.get("not_due", 0.0),
                      "buckets": r["buckets"]})
     return data, rows
 
@@ -546,7 +590,7 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
     # override the pack's sheet options for this download only.
     if overrides:
         ov = json.loads(overrides) if isinstance(overrides, str) else overrides
-        allowed = {k: v for k, v in (ov or {}).items() if k in ("slabs", "based_on", "mode")}
+        allowed = {k: v for k, v in (ov or {}).items() if k in ("slabs", "based_on", "mode", "show_zero")}
         if allowed.get("based_on") not in (None, "due", "posting"):
             allowed.pop("based_on")
         if allowed.get("mode") not in (None, "days", "months"):
@@ -853,6 +897,7 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
     as_of = to_date
     ageing_refs = {}            # sheet type -> dict(name, total_row, first_bucket, labels, has_nd, parties)
     dashboards = []
+    detail_jobs = []            # v3.6.6 — per-party document detail, written after the summaries
     F_NUM = "#,##0.00;[Red](#,##0.00);\"-\""
     COMPANY_LABEL = frappe.db.get_value("Company", company, "company_name") or company
     CURRENCY = frappe.db.get_value("Company", company, "default_currency") or "SAR"
@@ -875,6 +920,10 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
     def ageing_sheet(sheet_cfg, stype, opts):
         party_type = "Customer" if stype == "ar_ageing" else "Supplier"
         data, rows = ageing_rows(company, as_of, party_type, opts)
+        # v3.6.5 — fully settled parties (outstanding 0) are hidden unless asked for;
+        # negative balances (advances / overpayments) always stay.
+        if not int(opts.get("show_zero") or 0):
+            rows = [r for r in rows if abs(flt(r.get("outstanding"))) >= 0.005]
         title = sheet_cfg.get("title") or ("AR Ageing" if stype == "ar_ageing" else "AP Ageing")
         ws = new_sheet(title)
         heading = ("Accounts Receivable — Ageing Report" if stype == "ar_ageing"
@@ -883,7 +932,7 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
         # v3.2.1 — the engine's slab labels are {"key", "en", "ar"}; write text.
         labels = [label_text(x) for x in data["labels"]]
         cols = ["#", "Party Name", "Invoiced Amount", "Paid Amount",
-                "Credit Note" if stype == "ar_ageing" else "Debit Note", "Outstanding"]
+                "Credit Note" if stype == "ar_ageing" else "Debit Note", "Adjustment", "Outstanding"]
         cols += (["Not Yet Due"] if has_nd else []) + list(labels) + ["Total Due"]
         last = get_column_letter(len(cols))
         ws["B2"] = heading
@@ -905,21 +954,26 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
             c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.row_dimensions[9].height = 30
         first = r0 = 10
-        fb = 7 + (1 if has_nd else 0)                   # first ageing bucket column (1-based)
+        fb = 8 + (1 if has_nd else 0)                   # first ageing bucket column (1-based)
         parties = []
+        mismatched: list[str] = []
         for i, row in enumerate(rows, 1):
             rr = r0 + i - 1
-            vals = [i, row["label"], row["invoiced"], row["paid"], row["note"], None]
+            vals = [i, row["label"], row["invoiced"], row["paid"], row["note"], row.get("adj", 0.0), None]
             vals += ([row["not_due"]] if has_nd else []) + list(row["buckets"]) + [None]
             for j, v in enumerate(vals, 1):
                 c = ws.cell(row=rr, column=j, value=v)
                 c.font = font("999999", size=8) if j == 1 else font()
                 if j >= 3:
                     c.number_format = F_NUM
-            ws.cell(row=rr, column=6, value=f"=C{rr}-D{rr}-E{rr}")          # outstanding
+            ws.cell(row=rr, column=7, value=f"=C{rr}-D{rr}-E{rr}-F{rr}")    # outstanding
             lb = get_column_letter(len(cols) - 1)
-            ws.cell(row=rr, column=len(cols), value=f"=SUM(G{rr}:{lb}{rr})")  # total due
-            if i % 2 == 0:
+            ws.cell(row=rr, column=len(cols), value=f"=SUM(H{rr}:{lb}{rr})")  # total due
+            if row.get("mismatch"):
+                mismatched.append(row["label"])
+                for j in range(1, len(cols) + 1):
+                    ws.cell(row=rr, column=j).fill = fill("FFE8C2")
+            elif i % 2 == 0:
                 for j in range(1, len(cols) + 1):
                     ws.cell(row=rr, column=j).fill = fill(ST["band"])
             parties.append((row["label"], flt(row["outstanding"]), rr, flt(row.get("not_due"))))
@@ -936,12 +990,23 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
             c.border = Border(top=Side(style="thin", color=ST["accent"]), bottom=Side(style="double", color=ST["accent"]))
         chk = tr + 2
         ws.cell(row=chk, column=2, value="Check: Outstanding − Total Due (should be 0)").font = font("777777", size=8)
-        ws.cell(row=chk, column=len(cols), value=f"=F{tr}-{last}{tr}").number_format = F_NUM
-        note = (f"Source: Neotec Insight ageing engine (GL-based, payments matched to the invoices they settle); "
-                f"{'credit' if stype == 'ar_ageing' else 'debit'} notes shown separately from payments. "
-                f"Generated {datetime.now():%d %b %Y %H:%M}.")
+        ws.cell(row=chk, column=len(cols), value=f"=G{tr}-{last}{tr}").number_format = F_NUM
+        if (opts.get("amounts") or "open") == "open":
+            note = ("Amounts cover open invoices only (fully settled invoices are left out). Settled by: Paid = payment "
+                    f"entries; {'Credit' if stype == 'ar_ageing' else 'Debit'} Note = return invoices; Adjustment = journal "
+                    "entries and other vouchers. Unallocated items are included by the same rule. "
+                    f"Source: Neotec Insight ageing engine. Generated {datetime.now():%d %b %Y %H:%M}.")
+        else:
+            note = (f"Source: Neotec Insight ageing engine (GL-based, payments matched to the invoices they settle); "
+                    f"{'credit' if stype == 'ar_ageing' else 'debit'} notes shown separately from payments. "
+                    f"Generated {datetime.now():%d %b %Y %H:%M}.")
         ws.cell(row=chk + 1, column=2, value=note).font = font("777777", size=8)
         ws.merge_cells(start_row=chk + 1, start_column=2, end_row=chk + 1, end_column=len(cols))
+        if mismatched:
+            warn = ws.cell(row=chk + 2, column=2, value=(
+                f"⚠ {len(mismatched)} part{'y' if len(mismatched) == 1 else 'ies'} (highlighted) — the invoice detail does "
+                "not add up to the ageing balance; review before sending."))
+            warn.font = font("B42318", True, 9)
         ws.freeze_panes = "C10"
         ws.column_dimensions["A"].width = 5
         ws.column_dimensions["B"].width = 42
@@ -949,6 +1014,8 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
             ws.column_dimensions[get_column_letter(j)].width = 15
         ageing_refs[stype] = {"name": ws.title, "tr": tr, "fb": fb, "labels": labels, "has_nd": has_nd,
                               "parties": parties}
+        if int(opts.get("details", 1) if opts.get("details") not in (None, "") else 1) and rows:
+            detail_jobs.append((ws, party_type, [(r.get("party"), r["label"], r0 + i) for i, r in enumerate(rows)], opts))
 
     def ageing_dashboard(sheet_cfg, opts):
         ws = new_sheet(sheet_cfg.get("title") or "Dashboard")
@@ -982,7 +1049,7 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
                 cc.font = font(bold=True)
             tot = r + 1 + len(lines)
             ws.cell(row=tot, column=col0, value="Total AR Outstanding" if stype == "ar_ageing" else "Total AP Outstanding")
-            ws.cell(row=tot, column=vcol, value=f"={ref}!F{ref_['tr']}").number_format = F_NUM
+            ws.cell(row=tot, column=vcol, value=f"={ref}!G{ref_['tr']}").number_format = F_NUM
             for j in span:
                 ws.cell(row=tot, column=j).fill = fill(ST["dark"])
                 ws.cell(row=tot, column=j).font = font("FFFFFF", True, 10)
@@ -992,7 +1059,7 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
                     if any(x in lab for x in ("91", "121", "+", "Above", ">"))]
             if over:
                 expr = "+".join(f"{ref}!{L}{ref_['tr']}" for L in over)
-                sc = ws.cell(row=share, column=vcol, value=f"=IFERROR(({expr})/{ref}!F{ref_['tr']},0)")
+                sc = ws.cell(row=share, column=vcol, value=f"=IFERROR(({expr})/{ref}!G{ref_['tr']},0)")
                 sc.number_format = "0.0%"
                 sc.font = font("777777", size=8)
             bottom = max(bottom, share)
@@ -1101,6 +1168,90 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
 
     # v3.2.0 — dashboards are written last (they point at the AR/AP sheets) and
     # then moved to the front, as in the client's workbook.
+    def ageing_detail(summary_ws, party_type, party_rows, opts):
+        """v3.6.6 — the documents behind each party's outstanding, linked both ways."""
+        from neotec_insight.neotec_insight.api.ageing import billwise
+        from openpyxl.worksheet.hyperlink import Hyperlink
+
+        from neotec_insight.neotec_insight.utils.compat import desk_url
+        bw = billwise(company=company, party_type=party_type, parties=[p for p, _l, _r in party_rows if p],
+                      as_of=as_of, based_on=opts.get("based_on") or "due", mode=opts.get("mode") or "days",
+                      slabs=opts.get("slabs") or "30,60,90,120", max_parties=len(party_rows))
+        blocks = {b["party"]: b for b in bw.get("blocks") or []}
+        bills = {x["bill"] for b in blocks.values() for x in b.get("open_bills") or []}
+        inv_dt = "Sales Invoice" if party_type == "Customer" else "Purchase Invoice"
+        is_inv = set(frappe.get_all(inv_dt, filters={"name": ["in", list(bills)]}, pluck="name",
+                                    limit_page_length=0, order_by="name asc")) if bills else set()
+        base_url = frappe.utils.get_url()
+
+        def link(cell, dt, dn):
+            cell.hyperlink = base_url + desk_url(f"{dt.lower().replace(' ', '-')}/{dn}")
+            cell.font = font("1F4E9A")
+
+        title = (summary_ws.title[:24] + " Detail")[:31]
+        ws = new_sheet(title)
+        ws["B2"] = ("Accounts Receivable" if party_type == "Customer" else "Accounts Payable") + " — documents behind each balance"
+        ws["B2"].font = font(ST["accent"], True, 14)
+        ws["B3"] = f"{ST['subtitle'] or COMPANY_LABEL}   |   As of {getdate(as_of).strftime('%d %B %Y')}"
+        ws["B3"].font = font("555555", size=9)
+        heads = ["", "Date", "Document", "Type", "Age (days)", "Bucket", "Amount", "Settled", "Outstanding"]
+        r = 5
+        sref = "'" + summary_ws.title.replace("'", "''") + "'"
+        for party, label, srow in party_rows:
+            b = blocks.get(party) or {}
+            start = r
+            hc = ws.cell(row=r, column=2, value=label)
+            hc.font = font("FFFFFF", True, 10)
+            for j in range(1, 10):
+                ws.cell(row=r, column=j).fill = fill(ST["accent"])
+            back = ws.cell(row=r, column=9, value="↩ summary")
+            back.hyperlink = Hyperlink(ref=back.coordinate, location=f"{sref}!B{srow}")
+            back.font = font("FFFFFF", size=8)
+            # party name on the summary jumps here
+            sc = summary_ws.cell(row=srow, column=2)
+            sc.hyperlink = Hyperlink(ref=sc.coordinate, location=f"'{title}'!B{start}")
+            sc.font = font("1F4E9A")
+            r += 1
+            for j, h in enumerate(heads, 1):
+                c = ws.cell(row=r, column=j, value=h or None)
+                c.font = font(ST["accent"], True, 9)
+                c.border = Border(bottom=Side(style="thin", color=ST["accent"]))
+            r += 1
+            first = r
+            for x in b.get("open_bills") or []:
+                dt_ = inv_dt if x["bill"] in is_inv else "Journal Entry"
+                vals = [None, x["date"], x["bill"], "Invoice" if dt_ == inv_dt else "Journal Entry", x.get("age"),
+                        x.get("slab"), x["amount"], None, x["remaining"]]
+                for j, v in enumerate(vals, 1):
+                    ws.cell(row=r, column=j, value=v).font = font()
+                ws.cell(row=r, column=8, value=f"=G{r}-I{r}")
+                link(ws.cell(row=r, column=3), dt_, x["bill"])
+                r += 1
+            for u in b.get("unallocated") or []:
+                vals = [None, u.get("posting_date"), u.get("voucher_no"), (u.get("voucher_type") or "Payment") + " (unallocated)",
+                        None, None, None, None, -flt(u.get("amount"))]
+                for j, v in enumerate(vals, 1):
+                    ws.cell(row=r, column=j, value=v).font = font()
+                if u.get("voucher_type") and u.get("voucher_no"):
+                    link(ws.cell(row=r, column=3), u["voucher_type"], u["voucher_no"])
+                r += 1
+            for rr in range(first, r):
+                for j in (7, 8, 9):
+                    ws.cell(row=rr, column=j).number_format = F_NUM
+            tot = ws.cell(row=r, column=9, value=f"=SUM(I{first}:I{max(first, r - 1)})" if r > first else 0)
+            tot.number_format = F_NUM
+            tot.font = font(ST["total"], True)
+            ws.cell(row=r, column=3, value="Party total").font = font(ST["total"], True)
+            chk = ws.cell(row=r, column=8, value=f'=IF(ROUND(I{r}-{sref}!G{srow},2)=0,"✓ matches summary","check")')
+            chk.font = font("777777", size=8)
+            r += 2
+        for L, w in (("A", 2), ("B", 12), ("C", 24), ("D", 22), ("E", 10), ("F", 14), ("G", 15), ("H", 15), ("I", 15)):
+            ws.column_dimensions[L].width = w
+        ws.freeze_panes = "A5"
+
+    for job in detail_jobs:
+        ageing_detail(*job)
+
     for sheet_cfg, opts in dashboards:
         ageing_dashboard(sheet_cfg, opts)
 

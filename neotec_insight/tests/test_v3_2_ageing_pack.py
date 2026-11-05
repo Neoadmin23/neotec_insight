@@ -56,31 +56,37 @@ class Pack(unittest.TestCase):
 
     def test_layout_matches_the_template(self):
         wb = self.build()
-        self.assertEqual(wb.sheetnames, ["Dashboard", "AR Ageing", "AP Ageing"])
+        self.assertEqual(wb.sheetnames[:3], ["Dashboard", "AR Ageing", "AP Ageing"])   # v3.6.6: detail sheets follow
         ar, ap = wb["AR Ageing"], wb["AP Ageing"]
-        self.assertEqual([c.value for c in ar[9]][:6], ["#", "Party Name", "Invoiced Amount", "Paid Amount",
-                                                        "Credit Note", "Outstanding"])
-        self.assertEqual(ar["G9"].value, "Not Yet Due")                       # v3.3.1 — AR too
-        self.assertEqual(ar["M9"].value, "Total Due")
+        self.assertEqual([c.value for c in ar[9]][:7], ["#", "Party Name", "Invoiced Amount", "Paid Amount",
+                                                        "Credit Note", "Adjustment", "Outstanding"])
+        self.assertEqual(ar["H9"].value, "Not Yet Due")                       # v3.3.1 — AR too
+        self.assertEqual(ar["N9"].value, "Total Due")
         self.assertEqual(ap["E9"].value, "Debit Note")
-        self.assertEqual(ap["G9"].value, "Not Yet Due")
-        self.assertEqual(ap["M9"].value, "Total Due")
+        self.assertEqual(ap["H9"].value, "Not Yet Due")
+        self.assertEqual(ap["N9"].value, "Total Due")
         self.assertIn("30 September 2026", ar["B5"].value)
         self.assertEqual(ar.freeze_panes, "C10")
 
     def test_notes_split_out_of_payments(self):
+        # the separate note column belongs to "All invoices" (v3.6.7 default is open invoices only)
+        import json as _j
+        rec = self.site.table("Insight Export Pack")["ar_ap_ageing"]
+        cfg = _j.loads(rec["config_json"])
+        cfg["sheets"][1]["options"]["amounts"] = "all"
+        rec["config_json"] = _j.dumps(cfg)
         ar = self.build()["AR Ageing"]
         self.assertEqual((ar["D10"].value, ar["E10"].value), (250.0, 50.0))   # paid 300 = 250 payments + 50 notes
-        self.assertEqual(ar["F10"].value, "=C10-D10-E10")
-        self.assertEqual(ar["M10"].value, "=SUM(G10:L10)")
+        self.assertEqual(ar["G10"].value, "=C10-D10-E10-F10")
+        self.assertEqual(ar["N10"].value, "=SUM(H10:M10)")
         self.assertEqual(ar["A9"].fill.fgColor.rgb[-6:], "57257D")          # template heading colour
         self.assertEqual(ar["C12"].value, "=SUM(C10:C11)")                    # total row
 
     def test_dashboard_links(self):
         d = self.build()["Dashboard"]
-        self.assertEqual(d["E6"].value, "='AR Ageing'!G12")
-        self.assertEqual(d["I6"].value, "='AP Ageing'!G11")                   # AP: 1 supplier, total row 11, starts with Not Yet Due
-        self.assertTrue(str(d["I7"].value).startswith("='AP Ageing'!H"))
+        self.assertEqual(d["E6"].value, "='AR Ageing'!H12")
+        self.assertEqual(d["I6"].value, "='AP Ageing'!H11")                   # AP: 1 supplier, total row 11, starts with Not Yet Due
+        self.assertTrue(str(d["I7"].value).startswith("='AP Ageing'!I"))
 
     def test_pack_is_seeded_once(self):
         self.packs._seed_ageing_pack()
@@ -120,8 +126,8 @@ class FromAgeingScreen(Pack):
 class Labels(Pack):
     def test_bucket_headers_are_text_in_the_pack_language(self):
         ar = self.build()["AR Ageing"]
-        self.assertEqual(ar["H9"].value, "0\u201330 Days")
-        self.assertEqual(ar["L9"].value, "121+ Days")
+        self.assertEqual(ar["I9"].value, "0\u201330 Days")
+        self.assertEqual(ar["M9"].value, "121+ Days")
 
 
 def many_customers(company=None, as_of=None, party_type="Customer", split_not_due=0, **k):
