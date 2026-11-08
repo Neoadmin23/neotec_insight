@@ -1,3 +1,90 @@
+## v3.7.3 — 2026-11-08 — Ageing screen aligned with ERPNext and the pack
+
+### Changed
+The on-screen Ageing tab, with its default "actual" allocation, now reads **ERPNext's Payment Ledger** through the same function as the ageing pack (`ledger_rows`). The screen, the pack and ERPNext's own Accounts Receivable / Payable report therefore show the same figures:
+- **Allocation:** payments, returns and journals count against the document they were allocated to, including exchange gain/loss journals.
+- **Accounts:** all receivable/payable accounts are included.
+- **Ageing:** each document is aged by its own due date.
+- **Paid column:** Paid = payments + credit/debit notes + adjustments, as ERPNext shows it.
+- **Unchanged:** exclusions, includes, Top N / Others and totals.
+
+The note under the table states the source. The FIFO view remains GL-based, as an alternative. Sites without a Payment Ledger keep the GL engine.
+
+### Tests
+2 new; 724 total. The screen endpoint returns Oracle as ERPNext's AP report (595,199.63 / 199,887.12 / 395,312.51, all in 31–60). Exclusion still works, and FIFO stays on its own path.
+
+### Note
+The Bill-wise view still builds its per-invoice statement from the GL.
+
+## v3.7.2 — 2026-11-08 — AR / AP ageing pack from ERPNext's Payment Ledger
+
+### Fixed: pack figures differed from ERPNext's Accounts Payable / Receivable report
+For Oracle Systems Limited, ERPNext's AP report showed Invoiced 595,199.63 · Paid 199,887.12 · Outstanding 395,312.51, all in 31–60 days. The pack showed Paid 707,017.59 with Adjustment −509,361.34, and part of the balance in 121+ days.
+
+**Cause:** the pack's engines rebuilt the matching of payments to invoices from the GL. That misses links ERPNext made through reconciliation, misses exchange gain/loss journals posted against invoices, and leaves old balances on a second payable account. Historic payments therefore appeared "unallocated", and settled USD invoices kept SAR residue.
+
+**Now:** the pack reads **ERPNext's Payment Ledger**, document by document, as ERPNext's own report does.
+- **Documents:** every invoice, return, journal and unallocated payment is a document with its own entry and the settlements allocated to it. **Paid** = payment entries, **Credit/Debit Note** = returns, **Adjustment** = journals and other vouchers (ERPNext's "Paid" = Paid + Adjustment).
+- **Ageing:** each document's outstanding is aged by its own due date (or posting date); not-yet-due is kept separate.
+- **Accounts:** all receivable/payable accounts are included.
+- **Detail sheet:** each party's documents are the same documents, so party totals match the summary by construction. The "Exchange / rounding differences" line is no longer needed.
+- **Any report date:** the rule works for past dates too (Payment Ledger rows are dated), so the v3.7.1 "today only" limit is gone.
+- **Sign guard:** if a site stores supplier invoices with the opposite sign, it is normalised.
+- **Fallback:** sites without a Payment Ledger (pre-v13) keep the GL engine.
+
+### Tests
+3 new; 722 total. Oracle's document pattern from the ERPNext exports reproduces the AP report exactly (figures, all in 31–60, the same three documents). An AR customer with a credit note, payment, not-yet-due invoice and unallocated advance lands in the right columns and buckets. A LibreOffice recalculation shows the check rows at 0 and every party "✓ matches summary".
+
+### Note
+The on-screen Ageing tab still uses the GL engine.
+
+## v3.7.1 — 2026-11-07 — Ageing pack: "open" means the invoice's own outstanding
+
+### Fixed: USD supplier invoices inflated Invoiced / Paid (reported: Oracle)
+The prepared report showed Oracle at **595,200 / 199,887 / 395,313**, while the pack showed **2,299,869.59 / 1,886,583.35 / 395,312.50**. The Outstanding agreed; the "open invoices" did not.
+- **Cause:** USD invoices paid at different exchange rates leave small SAR remainders in the ledger. The ledger-based engine treated each of those invoices as still open.
+- **New rule:** an invoice is **open when its own outstanding (in its currency) is not zero**, which is ERPNext's rule. **Invoiced** is the SAR total of those invoices. Paid / Debit Note come from settlements applied to them. **Adjustment** holds everything else between Invoiced and the ageing balance (exchange differences, rounding), so the row still balances exactly.
+- **Detail sheet:** lists the same open invoices at their own outstanding, plus an **"Exchange / rounding differences"** line when needed, so the party total still matches the summary.
+- **When it applies:** the invoice's outstanding is a current figure, so the rule is used for report dates of today or later. Packs dated in the past keep the ledger-based method.
+
+### Tests
+2 new; 719 total. They reproduce the Oracle case: 17 residue-only invoices are excluded, the prepared report's figures come out, the residue goes to Adjustment, and the detail lists only the open invoice plus the differences line. They also confirm the rule is used only for current dates. Earlier ledger-path tests are pinned to that path.
+
+## v3.7.0 — 2026-11-05 — Expense Audit (company): steps 1–2
+
+### Added: Performance → Expense audit
+Company spending, computed from the bank and card statements already imported in Operations → Reconcile. Personal finances are out of scope. Every figure is computed from the statement lines; nothing is estimated.
+
+**Step 1 — Clean**
+- **Accounts:** per account, the bank, currency, first and last date, and number of lines. Overlapping statements count each line once.
+- **One cleaned table**, downloadable as CSV: date, account, payee, middleman, cost centre, kind, direction, amount, currency.
+  - **Payee names** are cleaned from Saudi bank text: names after TO:/FROM, government and utility billers (MOL, GOSI, EJAR, SE…), clear transaction types (Corporate payroll, Bank fees), else the first meaningful comma-separated part. References, IBANs, bank codes, channel words and dates are removed, and card-processor prefixes are stripped ("SQ *JOES COFFEE 4421" → "Joes Coffee").
+- **Money moving between your own accounts is removed** from spending and income:
+  - transfers naming the company (4+ character names, whole words);
+  - "My Account In Another Bank";
+  - same-amount out/in pairs across two company accounts within 3 days.
+
+  Refunds are separated. Card-bill payments with no card statement imported are listed.
+- **Middleman charges** (Apple, Google, PayPal, Amazon, Stripe, Paddle, Microsoft) are grouped by amount and day of month, so each hidden subscription shows on its own line.
+
+**Step 2 — First look**
+- **Totals:** money in, out and left, for the period and per month.
+- **Cost centres, biggest first,** each with its top payees: payroll, loans and financing, rent, government and visas, taxes and Zakat, utilities, telecom, bank fees, software and subscriptions, advertising, professional services, travel, food and catering, other.
+  - **Fees** are recognised by the bank's transaction type, not by the word "fee" in a description.
+  - **Keywords** match as whole words, so "Current account" is not Rent.
+- **Recurring charges** (weekly, monthly, quarterly, yearly) with price, yearly cost, last date, next renewal and price rises.
+
+### Statement reader: rows from the drawn table lines
+Where a bank draws row lines (Riyad Bank does, under the date cells), each description is assigned to the row between the same two lines rather than to the nearest date. A long description no longer spills into the next row: on the Riyad statement, the Taj Advertising payment had picked up the next row's text. Amounts and the balance proof were never affected. Pages without drawn lines keep the nearest-date rule.
+
+### Verified on a real Riyad Bank statement (May 2026)
+- **Lines:** all 124 lines; only the 900,000 own-account transfer is internal.
+- **Totals:** spending 1,322,738.90 equals the statement's debits; money in is 183,389.05.
+- **Fees:** 28 fee lines (305.39), the 10,000 international transfer excluded.
+
+### Tests
+5 new; 717 total. They cover payee cleaning, cost centres (fee by type, whole words, billers), internal moves (own name, pairs, customer receipts kept as income, short abbreviations not matching inside names), recurring detection (price rise, an Apple subscription, next renewal), and the endpoint end to end (overlapping statements counted once, totals, card payments flagged).
+
 ## v3.6.9 — 2026-11-05 — Ageing pack: every party included; mismatches flagged
 
 ### Fixed: customers after the 20th showed ageing but no invoices

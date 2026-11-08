@@ -24,6 +24,7 @@ const AgeingTab = lazy(() => import('./features/ageing/AgeingTab'));
 const StatementApp = lazy(() => import('./features/statement/StatementApp'));
 const ControlsApp = lazy(() => import('./features/controls/ControlsApp'));
 const BankRecApp = lazy(() => import('./features/bankrec/BankRecApp'));
+const ExpenseAudit = lazy(() => import('./features/spend/ExpenseAudit'));
 const GstTab = lazy(() => import('./features/gst/GstTab'));
 const BankApp = lazy(() => import('./features/bank/BankApp'));
 const HrApp = lazy(() => import('./features/hr/HrApp'));
@@ -65,6 +66,7 @@ const DEFAULT_SECTIONS: NavSection[] = [
       { ws: 'dashboard', label: 'Dashboard' },
       { ws: 'health', label: 'Financial Health' },
       { ws: 'designer', label: 'Designer', title: 'Build your own dashboards: drag and resize visuals over analyses and Studio reports, with page filters and click-to-filter' },
+      { ws: 'spend', label: 'Expense audit', title: 'Company spending from bank statements: cost centres, recurring charges, internal moves removed' },
       { ws: 'insights', label: 'Analysis', title: 'Profit bridge, what moved profit, common-size statements, working-capital cycle, DuPont, concentration and journal checks' },
       { ws: 'classification', label: 'Classification',
         title: 'Tag an account once — COGS, Cash, Investing, Financing, Provisions and your own labels. Financial Health, Cash Flow and Zakat all obey it' },
@@ -444,6 +446,11 @@ export default function App() {
         {workspace === 'designer' && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
             <BoardsApp />
+          </Suspense>
+        )}
+        {workspace === 'spend' && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9a948a' }}>{t('Loading…')}</div>}>
+            <ExpenseAudit />
           </Suspense>
         )}
         {workspace === 'insights' && (

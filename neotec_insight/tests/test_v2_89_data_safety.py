@@ -351,7 +351,7 @@ class TestModalClassesExist(unittest.TestCase):
              "features/shell/RecoverPanel.tsx", "features/copilot/CopilotPanel.tsx",
              "features/designer/BoardsApp.tsx", "features/analysis/AnalysisPack.tsx",
              "features/controls/ControlsApp.tsx", "features/bankrec/BankRecApp.tsx",
-             "features/bankrec/FormatMapper.tsx"]
+             "features/bankrec/FormatMapper.tsx", "features/spend/ExpenseAudit.tsx"]
 
     def test_classes_defined(self):
         src = REPO / "reportManager" / "src"

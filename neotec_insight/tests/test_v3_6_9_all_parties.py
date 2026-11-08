@@ -80,6 +80,7 @@ class Flagged(unittest.TestCase):
                                                    "unallocated": [], "rows": []},
                                                   {"party": "C2", "open_bills": [], "unallocated": [], "rows": []}]}
             packs._notes_by_party = lambda *a: {}
+            packs.open_invoice_docs = lambda *a, **k: None
             packs._seed_ageing_pack()
             packs.generate_pack("ar_ap_ageing", "Alpha Co", "2026-11-05", "2026-11-05")
             import openpyxl

@@ -37,6 +37,7 @@ class HideZero(unittest.TestCase):
         self.packs = packs
         ag.ar_ap_ageing = ageing
         packs._notes_by_party = lambda c, d, pt: {"Tawuniya": 57646.62} if pt == "Supplier" else {}
+        packs.open_invoice_docs = lambda *a, **k: None      # the ledger-based path (past report dates)
         packs._seed_ageing_pack()
 
     def tearDown(self):

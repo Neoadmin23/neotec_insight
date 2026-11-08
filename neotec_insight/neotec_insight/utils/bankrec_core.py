@@ -37,7 +37,14 @@ def pdf_words(content: bytes) -> list[list[dict]]:
     out = []
     with fitz.open(stream=content, filetype="pdf") as doc:
         for page in doc:
-            out.append([{"text": w[4], "x0": w[0], "x1": w[2], "top": w[1]} for w in page.get_text("words")])
+            words = [{"text": w[4], "x0": w[0], "x1": w[2], "top": w[1]} for w in page.get_text("words")]
+            # v3.7.0 — horizontal ruling lines: exact row boundaries where a bank draws them
+            for d in page.get_drawings():
+                for it in d.get("items") or []:
+                    if it[0] == "l" and abs(it[1].y - it[2].y) < 0.6 and abs(it[2].x - it[1].x) > 20:
+                        words.append({"_rule": True, "text": "", "x0": min(it[1].x, it[2].x),
+                                      "x1": max(it[1].x, it[2].x), "top": it[1].y})
+            out.append(words)
     return out
 
 
@@ -64,6 +71,7 @@ def parse_date(s: str, fmt: str) -> dt.date | None:
 
 def column_starts(words: list[dict], fmt: dict) -> dict[str, float] | None:
     """Find the header row on a page: x0 of each column label."""
+    words = [w for w in words if not w.get("_rule")]
     labels = {c: v for c, v in fmt["columns"].items() if v}   # col -> header label ("Word" or "Word#n")
     first = _label_word(labels["date"])
     # The same words can appear elsewhere on the page (a "Transaction Type"
@@ -112,6 +120,9 @@ def parse_pages(pages: list[list[dict]], fmt: dict) -> list[dict]:
         if not starts:
             continue
         head = starts.get("_header_top", 0)
+        dx = starts["date"] + 5
+        rules = sorted(w["top"] for w in words if w.get("_rule") and w["x0"] <= dx <= w["x1"] and w["top"] > head)
+        words = [w for w in words if not w.get("_rule")]
         body = [w for w in words if w["top"] > head + 4 and not _is_footer(w, fmt)]
         anchors = []
         for w in body:
@@ -122,11 +133,18 @@ def parse_pages(pages: list[list[dict]], fmt: dict) -> list[dict]:
         if not anchors:
             continue
         anchors.sort(key=lambda a: a["top"])
+        import bisect
+        band_of = {}
+        if len(rules) >= 2:                       # rows bounded by drawn lines: same band = same row
+            for a in anchors:
+                band_of.setdefault(bisect.bisect(rules, a["top"]), a)
         for w in body:
             col = _col_of(w["x0"], starts, slack)
             if not col or col == "date":
                 continue
-            a = min(anchors, key=lambda a: abs(a["top"] - w["top"]))
+            a = band_of.get(bisect.bisect(rules, w["top"])) if band_of else None
+            if a is None:
+                a = min(anchors, key=lambda a: abs(a["top"] - w["top"]))
             a["words"][col].append(w)
         for a in anchors:
             def txt(c, a=a):
@@ -300,7 +318,7 @@ def header_candidates(pages: list[list[dict]], limit: int = 6) -> list[dict]:
     out = []
     for pno, words in enumerate(pages[:3], 1):
         rows: dict[int, list[dict]] = {}
-        for w in words:
+        for w in (x for x in words if not x.get("_rule")):
             rows.setdefault(round(w["top"] / 2.5), []).append(w)
         for _k, row in rows.items():
             row = sorted(row, key=lambda x: x["x0"])

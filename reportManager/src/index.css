@@ -4842,3 +4842,15 @@ tr:hover .row-livegroup { opacity: 1; }
 .br-nav { display: flex; gap: 6px; border-bottom: 1px solid var(--border, #e5e7eb); padding-bottom: 8px; }
 .br-navbtn { border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13.5px; color: inherit; }
 .br-navbtn.on { background: var(--surface-2, #f1efe9); font-weight: 600; }
+/* v3.7.0 — expense audit */
+.ea { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.ea-h { margin: 12px 0 4px; }
+.ea-centre { border-bottom: 1px solid var(--border, #eee); }
+.ea-row { display: grid; grid-template-columns: 240px 1fr 140px; gap: 10px; align-items: center; width: 100%; padding: 6px 0;
+  background: none; border: 0; cursor: pointer; text-align: start; color: inherit; font-size: 13.5px; }
+.ea-row b { text-align: end; font-variant-numeric: tabular-nums; }
+.ea-bar { height: 10px; background: var(--surface-2, #f1efe9); border-radius: 6px; overflow: hidden; }
+.ea-bar i { display: block; height: 100%; background: var(--info, #2563eb); }
+.ea-merchants { list-style: none; margin: 0 0 8px; padding: 0 0 0 16px; font-size: 13px; }
+.ea-merchants li { display: flex; justify-content: space-between; padding: 2px 0; max-width: 520px; }
+.ea-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

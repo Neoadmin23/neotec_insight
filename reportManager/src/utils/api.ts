@@ -276,6 +276,9 @@ export const api = {
   // v3.0.1 — desk reports linked from the Ageing screen
   ageingLinkedReports: (side: string) =>
     call<{ report: string; label: string; url: string }[]>('ageing.linked_reports', { side }),
+  // v3.7.0 — expense audit
+  spendAudit: (company: string, from_date: string, to_date: string) =>
+    call<any>('spend.audit', { company, from_date, to_date }),
   // v3.6.0 — bank reconciliation
   bankrec: (method: string, args: Record<string, any> = {}, post = false) =>
     call<any>(`bankrec.${method}`, args, post ? 'POST' : 'GET'),

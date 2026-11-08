@@ -147,7 +147,26 @@ def ar_ap_ageing(company=None, as_of=None, party_type="Customer", based_on="due"
             include_parties = []
     incl = set(include_parties or [])   # empty = all parties
 
+    # v3.7.3 — "actual" allocation reads ERPNext's Payment Ledger: the same source and
+    # function as the ageing pack, so the screen, the pack and ERPNext's own AR/AP
+    # report agree (payments, returns and journals count against the document they
+    # were allocated to, including exchange gain/loss journals; all party accounts).
+    from neotec_insight.neotec_insight.api import packs as _packs
+    ledger = allocation == "actual" and _packs._has_ple()
     out_rows = []
+    if ledger:
+        _data, lrows = _packs.ledger_rows(company, str(as_of), party_type, {
+            "slabs": slabs, "mode": mode, "based_on": based_on, "amounts": "open",
+            "split_not_due": int(split_not_due or 0)})
+        for r in lrows:
+            if r["party"] in excl or (incl and r["party"] not in incl):
+                continue
+            if abs(r["outstanding"]) < 0.01 and all(abs(b) < 0.01 for b in r["buckets"]):
+                continue
+            out_rows.append({"party": r["party"], "label": r["label"], "invoiced": r["invoiced"],
+                             "paid": flt(r["paid"] + r["note"] + r["adj"], 2),     # ERPNext's "Paid"
+                             "outstanding": r["outstanding"], "not_due": r["not_due"], "buckets": r["buckets"]})
+        parties = {}                    # the GL rows are not used on this path
     for party, p in parties.items():
         if party in excl or (incl and party not in incl):
             continue
@@ -196,7 +215,9 @@ def ar_ap_ageing(company=None, as_of=None, party_type="Customer", based_on="due"
         "rows": out_rows, "others": others, "total": total,
         "excluded_parties": sorted(excl),
         "notes": [
-            ("GL-based with ACTUAL allocation: each payment settles exactly the invoice it was applied to (Payment Entry references); payments not applied to any invoice appear as negative amounts aged by their own date."
+            ("ERPNext Payment Ledger (as ERPNext's own AR/AP report): each payment, return and journal settles the document it was allocated to; unallocated items appear as negative amounts aged by their own date."
+             if ledger else
+             "GL-based with ACTUAL allocation: each payment settles exactly the invoice it was applied to (Payment Entry references); payments not applied to any invoice appear as negative amounts aged by their own date."
              if allocation == "actual" else
              "GL-based with FIFO allocation: payments settle the oldest open items first; unallocated payments/advances appear as negative amounts aged by their own date."),
             "Ageing base: " + ("due date (falling back to posting date)" if based_on == "due" else "posting date") + ".",

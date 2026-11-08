@@ -45,6 +45,7 @@ class OpenInvoices(unittest.TestCase):
         self.packs = packs
         ag.ar_ap_ageing, ag.billwise = ageing, billwise
         packs._notes_by_party = lambda c, d, pt: {}
+        packs.open_invoice_docs = lambda *a, **k: None      # the ledger-based path (past report dates)
         packs._seed_ageing_pack()
 
     def tearDown(self):

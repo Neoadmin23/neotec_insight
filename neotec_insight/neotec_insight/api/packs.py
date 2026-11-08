@@ -304,9 +304,82 @@ def _notes_by_party(company, as_of, party_type):
     return {r["party"]: flt(r["amount"]) for r in rows}
 
 
+def open_invoice_docs(company, party_type, parties, as_of):
+    """{party: {invoice: {base_total, base_outstanding}}} of invoices whose own
+    outstanding is not zero — ERPNext's notion of 'open' (v3.7.1). The document
+    outstanding is current, so this is used for report dates of today or later
+    (None otherwise: the ledger-based method applies)."""
+    from frappe.utils import nowdate
+    if not parties or getdate(as_of) < getdate(nowdate()):
+        return None
+    dt, pf = ("Sales Invoice", "customer") if party_type == "Customer" else ("Purchase Invoice", "supplier")
+    out: dict[str, dict] = {}
+    for d in frappe.get_all(dt, filters={"company": company, "docstatus": 1, "is_return": 0, pf: ["in", parties],
+                                         "posting_date": ["<=", as_of], "outstanding_amount": ["!=", 0]},
+                            fields=["name", pf, "base_grand_total", "base_rounded_total", "outstanding_amount",
+                                    "conversion_rate"], limit_page_length=0, order_by="posting_date asc"):
+        total = flt(d.get("base_rounded_total")) or flt(d.get("base_grand_total"))
+        out.setdefault(d[pf], {})[d["name"]] = {
+            "base_total": total, "base_outstanding": flt(d["outstanding_amount"]) * (flt(d.get("conversion_rate")) or 1)}
+    return out
+
+
+def _has_ple() -> bool:
+    try:
+        return bool(frappe.db.table_exists("Payment Ledger Entry"))
+    except Exception:
+        return False
+
+
+def ledger_rows(company, as_of, party_type, opts):
+    """v3.7.2 — AR / AP rows from ERPNext's Payment Ledger, document by document,
+    as ERPNext's own Accounts Receivable / Payable report: each payment, return
+    and journal counts against the document it was allocated to (including
+    exchange gain/loss journals), across every receivable/payable account."""
+    from neotec_insight.neotec_insight.api.ageing import _parse_slabs, _slab_labels
+    from neotec_insight.neotec_insight.utils import ledger_ageing as la
+    bounds = _parse_slabs(opts.get("slabs") or "30,60,90,120")
+    mode = opts.get("mode") or "days"
+    based_on = opts.get("based_on") or "due"
+    inv_dt = "Sales Invoice" if party_type == "Customer" else "Purchase Invoice"
+    ple = frappe.db.sql(
+        """select ple.party, ple.voucher_type, ple.voucher_no, ple.against_voucher_type, ple.against_voucher_no,
+                  ple.posting_date, ple.due_date, ple.amount
+           from `tabPayment Ledger Entry` ple
+           join `tabAccount` a on a.name = ple.account
+           where ple.company = %s and ple.party_type = %s and ple.delinked = 0 and ple.posting_date <= %s
+             and a.account_type = %s""",
+        (company, party_type, as_of, "Receivable" if party_type == "Customer" else "Payable"), as_dict=True)
+    # sign guard: invoices must increase what is owed; normalise if a site stores them the other way
+    own_inv = sum(flt(r["amount"]) for r in ple if r["voucher_type"] == inv_dt and r["voucher_no"] == r.get("against_voucher_no"))
+    if own_inv < 0:
+        ple = [{**r, "amount": -flt(r["amount"])} for r in ple]
+    docs = la.documents(ple, inv_dt)
+    prs = la.party_rows(docs, as_of, bounds, based_on, mode, open_only=(opts.get("amounts") or "open") == "open")
+    labels = _slab_labels(bounds, mode)
+    split = int(opts.get("split_not_due", 1) if opts.get("split_not_due") not in (None, "") else 1)
+    name_field = "customer_name" if party_type == "Customer" else "supplier_name"
+    names = {r["name"]: r[name_field] for r in frappe.get_all(party_type, filters={"name": ["in", list(docs)]},
+                                                               fields=["name", name_field], limit_page_length=0,
+                                                               order_by="name asc")} if docs else {}
+    rows = []
+    for p in prs:
+        for g in p["docs"]:
+            g["slab"] = labels[g["slab_index"]]["en"] if g.get("slab_index", -1) >= 0 else "Not yet due"
+        if not split:
+            p["buckets"][0] = round(p["buckets"][0] + p["not_due"], 2)
+            p["not_due"] = 0.0
+        rows.append({**p, "label": names.get(p["party"]) or p["party"], "mismatch": False})
+    rows.sort(key=lambda r: -abs(r["outstanding"]))
+    cur = frappe.db.get_value("Company", company, "default_currency") or "SAR"
+    return {"rows": rows, "labels": labels, "currency": cur}, rows
+
+
 def ageing_rows(company, as_of, party_type, opts):
     """Ageing pack rows: the same engine as the Ageing screen, with notes split
     out of 'paid' and (AP) not-yet-due items kept out of the first bucket."""
+    if _has_ple() and (opts.get("engine") or "ledger") == "ledger":
+        return ledger_rows(company, as_of, party_type, opts)
     from neotec_insight.neotec_insight.api.ageing import ar_ap_ageing
     # v3.3.1 — both sides split "not yet due" (default on), so overdue can be shown
     split = int(opts.get("split_not_due", 1) if opts.get("split_not_due") not in (None, "") else 1)
@@ -327,22 +400,30 @@ def ageing_rows(company, as_of, party_type, opts):
                       slabs=opts.get("slabs") or "30,60,90,120", max_parties=len(parties)) if parties else {"blocks": []}
         blocks = {b["party"]: b for b in bw.get("blocks") or []}
         inv_dt = "Sales Invoice" if party_type == "Customer" else "Purchase Invoice"
+        docs = open_invoice_docs(company, party_type, parties, as_of)     # v3.7.1 — None for past dates
 
         def kind(vt):        # v3.6.8 — how a settlement was made
             return "paid" if vt == "Payment Entry" else "note" if vt == inv_dt else "adj"
         for r in data["rows"]:
             b = blocks.get(r.get("party")) or {}
-            open_ = {x["bill"] for x in b.get("open_bills") or []}
-            inv = sum(flt(x.get("amount")) for x in b.get("open_bills") or [])
-            settled = sum(flt(x.get("amount")) - flt(x.get("remaining")) for x in b.get("open_bills") or [])
+            if docs is not None:
+                # v3.7.1 — open = the invoice's own outstanding (in its currency) is not zero, as in
+                # ERPNext. Invoices left with only exchange-rate residue in SAR are not open.
+                mine = docs.get(r.get("party"), {})
+                open_ = set(mine)
+                inv = sum(d["base_total"] for d in mine.values())
+            else:
+                open_ = {x["bill"] for x in b.get("open_bills") or []}
+                inv = sum(flt(x.get("amount")) for x in b.get("open_bills") or [])
             split = {"paid": 0.0, "note": 0.0, "adj": 0.0}
             for ln in b.get("rows") or []:
                 if ln.get("allocated") and ln.get("against") in open_:
                     split[kind(ln.get("voucher_type"))] += flt(ln["allocated"])
-            # anything the rows do not explain (rounding, merged invoice lines) is an adjustment
-            split["adj"] += settled - sum(split.values())
             for u in b.get("unallocated") or []:
                 split[kind(u.get("voucher_type"))] += flt(u.get("amount"))
+            # whatever is left between Invoiced and the ageing balance — exchange differences,
+            # rounding, entries the rows do not explain — is an adjustment, so the row balances
+            split["adj"] = inv - split["paid"] - split["note"] - flt(r["outstanding"])
             # v3.6.9 — does the invoice detail add up to the ageing balance?
             detail_bal = sum(flt(x.get("remaining")) for x in b.get("open_bills") or []) \
                 - sum(flt(u.get("amount")) for u in b.get("unallocated") or [])
@@ -1015,7 +1096,8 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
         ageing_refs[stype] = {"name": ws.title, "tr": tr, "fb": fb, "labels": labels, "has_nd": has_nd,
                               "parties": parties}
         if int(opts.get("details", 1) if opts.get("details") not in (None, "") else 1) and rows:
-            detail_jobs.append((ws, party_type, [(r.get("party"), r["label"], r0 + i) for i, r in enumerate(rows)], opts))
+            detail_jobs.append((ws, party_type, [(r.get("party"), r["label"], r0 + i, flt(r["outstanding"]), r.get("docs"))
+                                                 for i, r in enumerate(rows)], opts))
 
     def ageing_dashboard(sheet_cfg, opts):
         ws = new_sheet(sheet_cfg.get("title") or "Dashboard")
@@ -1174,7 +1256,9 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
         from openpyxl.worksheet.hyperlink import Hyperlink
 
         from neotec_insight.neotec_insight.utils.compat import desk_url
-        bw = billwise(company=company, party_type=party_type, parties=[p for p, _l, _r in party_rows if p],
+        ledger = all(pr[4] is not None for pr in party_rows)          # v3.7.2 — documents from the Payment Ledger
+        docs = None if ledger else open_invoice_docs(company, party_type, [p for p, *_x in party_rows if p], as_of)
+        bw = {"blocks": []} if ledger else billwise(company=company, party_type=party_type, parties=[p for p, *_x in party_rows if p],
                       as_of=as_of, based_on=opts.get("based_on") or "due", mode=opts.get("mode") or "days",
                       slabs=opts.get("slabs") or "30,60,90,120", max_parties=len(party_rows))
         blocks = {b["party"]: b for b in bw.get("blocks") or []}
@@ -1197,7 +1281,7 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
         heads = ["", "Date", "Document", "Type", "Age (days)", "Bucket", "Amount", "Settled", "Outstanding"]
         r = 5
         sref = "'" + summary_ws.title.replace("'", "''") + "'"
-        for party, label, srow in party_rows:
+        for party, label, srow, p_out, ldocs in party_rows:
             b = blocks.get(party) or {}
             start = r
             hc = ws.cell(row=r, column=2, value=label)
@@ -1218,9 +1302,19 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
                 c.border = Border(bottom=Side(style="thin", color=ST["accent"]))
             r += 1
             first = r
-            for x in b.get("open_bills") or []:
-                dt_ = inv_dt if x["bill"] in is_inv else "Journal Entry"
-                vals = [None, x["date"], x["bill"], "Invoice" if dt_ == inv_dt else "Journal Entry", x.get("age"),
+            bills = b.get("open_bills") or []
+            if ldocs is not None:
+                bills = [{"bill": g["name"], "date": str(g["posting_date"]), "amount": g["invoiced"],
+                          "remaining": g["outstanding"], "age": g.get("age"), "slab": g.get("slab"), "_dt": g["doctype"]}
+                         for g in ldocs]
+                b = {"unallocated": []}
+            elif docs is not None:                    # v3.7.1 — the invoices ERPNext calls open, at their own outstanding
+                mine = docs.get(party, {})
+                bills = [{**x, "amount": mine[x["bill"]]["base_total"], "remaining": mine[x["bill"]]["base_outstanding"]}
+                         for x in bills if x["bill"] in mine]
+            for x in bills:
+                dt_ = x.get("_dt") or (inv_dt if x["bill"] in is_inv else "Journal Entry")
+                vals = [None, x["date"], x["bill"], "Invoice" if dt_ == inv_dt else dt_, x.get("age"),
                         x.get("slab"), x["amount"], None, x["remaining"]]
                 for j, v in enumerate(vals, 1):
                     ws.cell(row=r, column=j, value=v).font = font()
@@ -1234,6 +1328,11 @@ def generate_pack(slug=None, company=None, from_date=None, to_date=None, letter_
                     ws.cell(row=r, column=j, value=v).font = font()
                 if u.get("voucher_type") and u.get("voucher_no"):
                     link(ws.cell(row=r, column=3), u["voucher_type"], u["voucher_no"])
+                r += 1
+            shown = sum(flt(x["remaining"]) for x in bills) - sum(flt(u.get("amount")) for u in b.get("unallocated") or [])
+            if abs(p_out - shown) > 0.005:          # what the documents do not explain, shown openly
+                ws.cell(row=r, column=3, value="Exchange / rounding differences").font = font("777777")
+                ws.cell(row=r, column=9, value=round(p_out - shown, 2)).font = font("777777")
                 r += 1
             for rr in range(first, r):
                 for j in (7, 8, 9):
