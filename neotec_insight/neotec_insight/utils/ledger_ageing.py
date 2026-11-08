@@ -72,7 +72,9 @@ def age_documents(docs: list[dict], as_of, bounds: list[int], based_on: str = "d
     buckets = [0.0] * (len(bounds) + 1)
     not_due = 0.0
     for g in docs:
-        ref = g["due_date"] if based_on == "due" and g.get("due_date") else g["posting_date"]
+        # a due date belongs to invoices and journals; payments (and anything else) age from their own date
+        use_due = based_on == "due" and g.get("due_date") and g["doctype"] != "Payment Entry"
+        ref = g["due_date"] if use_due else g["posting_date"]
         age = ((as_of.year - ref.year) * 12 + as_of.month - ref.month - (1 if as_of.day < ref.day else 0)
                if mode == "months" else (as_of - ref).days)
         g["age"] = age
@@ -87,11 +89,14 @@ def age_documents(docs: list[dict], as_of, bounds: list[int], based_on: str = "d
 
 
 def party_rows(docs_by_party: dict[str, list[dict]], as_of, bounds, based_on="due", mode="days",
-               open_only: bool = True) -> list[dict]:
-    """One row per party: sums of its documents (open documents only by default)."""
+               open_only: bool = True, min_balance: float = 1.0) -> list[dict]:
+    """One row per party: sums of its documents. With open_only, only pending
+    documents — a remaining balance below min_balance (exchange-rate or
+    rounding leftovers on settled invoices) is not a pending document (v3.7.4)."""
     out = []
+    floor = max(0.005, float(min_balance or 0))
     for party, docs in docs_by_party.items():
-        shown = [g for g in docs if abs(g["outstanding"]) >= 0.005] if open_only else docs
+        shown = [g for g in docs if abs(g["outstanding"]) >= floor] if open_only else docs
         buckets, not_due = age_documents(shown, as_of, bounds, based_on, mode)
         out.append({"party": party, "docs": shown,
                     "invoiced": round(sum(g["invoiced"] for g in shown), 2),

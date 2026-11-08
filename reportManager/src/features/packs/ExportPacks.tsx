@@ -162,6 +162,12 @@ export default function ExportPacks() {
                         {(op.choices || []).map((c: any) => <option key={c[0]} value={c[0]}>{t(c[1])}</option>)}
                       </select>
                     </label>
+                  ) : op.kind === 'number' ? (
+                    <label key={op.key} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12.5 }}>
+                      {t(op.label)}
+                      <input type="number" min={0} step="0.01" style={{ width: 90 }} value={s.options[op.key] ?? op.default}
+                        onChange={(e) => upd(i, { options: { ...s.options, [op.key]: e.target.value } })} />
+                    </label>
                   ) : (
                     op.key === 'accounts' ? (
                       (s.options['accounts_mode'] ?? 'output_vat') === 'custom' ? (

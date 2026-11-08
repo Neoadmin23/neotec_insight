@@ -1,3 +1,16 @@
+## v3.7.4 — 2026-11-08 — Ageing: pending documents only
+
+### Fixed: settled invoices still listed for Oracle (Invoiced 1,083,261.79 instead of 595,199.63)
+Fully settled USD invoices left with a few halalas of exchange or rounding difference were counted as open documents. Their full invoiced and paid amounts went into the row, and their leftovers (−0.06 in total) pulled Outstanding to 395,312.45.
+- **Rule:** a document is **pending** only when its remaining balance is at least **1.00**, configurable per AR/AP sheet as *Ignore leftover balances below* (new number option in the pack designer). Smaller leftovers are not listed, as in ERPNext's report and the reference workbook. The Ageing screen uses the same rule.
+- **Result:** Oracle shows Invoiced 595,199.63 · Outstanding 395,312.51 (all 31–60), with only its pending documents in the detail sheet. Parties left with only such leftovers (Tawuniya 0.01) disappear.
+
+### Fixed: payments aged by their own date
+A Payment Ledger row for a payment can carry a due date taken from a linked invoice. Payments are now aged from their own date, as ERPNext does, so Digital Twins' old overpayment sits in 121+ as in the reference.
+
+### Tests
+2 new; 726 total. They cover Oracle with three settled invoices carrying +0.02 / −0.03 / −0.05, Tawuniya with 0.01, and an old Digital Twins overpayment with a recent due date on its row. The reference figures come out, and the threshold is an option.
+
 ## v3.7.3 — 2026-11-08 — Ageing screen aligned with ERPNext and the pack
 
 ### Changed

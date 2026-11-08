@@ -155,12 +155,14 @@ SHEET_TYPES += [
         {"key": "show_zero", "label": "Show parties with a zero balance", "kind": "check", "default": 0},
         {"key": "amounts", "label": "Invoiced / Paid columns cover", "kind": "select", "default": "open",
          "choices": [["open", "Open invoices only"], ["all", "All invoices"]]},
+        {"key": "min_balance", "label": "Ignore leftover balances below (exchange / rounding)", "kind": "number", "default": 1},
         {"key": "details", "label": "Add a detail sheet (documents behind each party, clickable)", "kind": "check", "default": 1}]},
     {"type": "ap_ageing", "label": "Accounts Payable Ageing", "options": _AGEING_OPTS + [
         {"key": "split_not_due", "label": "Show “Not Yet Due” separately", "kind": "check", "default": 1},
         {"key": "show_zero", "label": "Show parties with a zero balance", "kind": "check", "default": 0},
         {"key": "amounts", "label": "Invoiced / Paid columns cover", "kind": "select", "default": "open",
          "choices": [["open", "Open invoices only"], ["all", "All invoices"]]},
+        {"key": "min_balance", "label": "Ignore leftover balances below (exchange / rounding)", "kind": "number", "default": 1},
         {"key": "details", "label": "Add a detail sheet (documents behind each party, clickable)", "kind": "check", "default": 1}]},
 ]
 _TYPES = {t["type"]: t for t in SHEET_TYPES}
@@ -355,7 +357,9 @@ def ledger_rows(company, as_of, party_type, opts):
     if own_inv < 0:
         ple = [{**r, "amount": -flt(r["amount"])} for r in ple]
     docs = la.documents(ple, inv_dt)
-    prs = la.party_rows(docs, as_of, bounds, based_on, mode, open_only=(opts.get("amounts") or "open") == "open")
+    mb = opts.get("min_balance")
+    prs = la.party_rows(docs, as_of, bounds, based_on, mode, open_only=(opts.get("amounts") or "open") == "open",
+                        min_balance=1.0 if mb in (None, "") else flt(mb))
     labels = _slab_labels(bounds, mode)
     split = int(opts.get("split_not_due", 1) if opts.get("split_not_due") not in (None, "") else 1)
     name_field = "customer_name" if party_type == "Customer" else "supplier_name"
