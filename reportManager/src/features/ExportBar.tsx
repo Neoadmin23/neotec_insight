@@ -5,6 +5,7 @@ import { csvDoc, imageDoc, pdfDoc, printDoc, xlsxDoc, type ReportDoc } from '../
 import { frameParts, loadPrint, savePrint, toLayout, type ReportPrintSettings } from '../utils/printSettings';
 import { fetchLetterhead, type LetterheadPayload } from '../utils/letterhead';
 import { PrintLayoutModal } from './PrintLayoutModal';
+import { applyColumnPick, loadHidden, saveHidden } from '../utils/columnPick';
 
 /* v2.55.0 — the same output row on every report menu.
  *
@@ -43,6 +44,9 @@ export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], 
   // v3.4.0 — per-report layout and letterhead
   const key = reportKey || 'report';
   const [layoutOpen, setLayoutOpen] = useState(false);
+  // v3.7.5 — columns to include in the exports
+  const [hiddenCols, setHiddenCols] = useState<string[]>(() => loadHidden(reportKey || 'report'));
+  const [colsOpen, setColsOpen] = useState<string[] | null>(null);
   const [ps, setPs] = useState<ReportPrintSettings>(() => loadPrint(key, company));
   const [lh, setLh] = useState<LetterheadPayload | null>(null);
   useEffect(() => { setPs(loadPrint(key, company)); }, [key, company]);
@@ -66,6 +70,7 @@ export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], 
     let doc: ReportDoc | null = null;
     try { doc = getDoc(); } catch (e: any) { setErr(e?.message || t('Could not build the export.')); return; }
     if (!doc) { setErr(t('Run the report first.')); return; }
+    doc = applyColumnPick(doc, hiddenCols);
     doc = { ...doc, layout: { ...(doc.layout || {}), ...toLayout(ps) }, letterhead: lh || doc.letterhead || null,
       frame: frameParts(ps, lh) };
     if (job) setBusy(job);
@@ -100,6 +105,37 @@ export function ExportBar({ getDoc, company, companyLabel, disabled, omit = [], 
       {show('image') && (
         <button type="button" disabled={disabled || busy === 'image'} title={t('Download as a PNG image')}
           onClick={() => run('image', imageDoc)}>{busy === 'image' ? t('Capturing…') : t('Image')}</button>
+      )}
+      <button type="button" className="ni-exp-gear" title={t('Choose the columns to print and export')} disabled={disabled}
+        onClick={() => {
+          try { const d = getDoc(); if (d) setColsOpen(d.columns.slice(1).map((c) => c.label)); else setErr(t('Run the report first.')); }
+          catch (e: any) { setErr(e?.message || t('Could not build the export.')); }
+        }}>
+        <span aria-hidden>☰</span>
+        <span className="ni-exp-gear-lbl">{t('Columns')}{hiddenCols.length ? ` · ${hiddenCols.length} ${t('hidden')}` : ''}</span>
+      </button>
+      {colsOpen && (
+        <div className="theme-overlay" onClick={(e) => { if (e.target === e.currentTarget) setColsOpen(null); }}>
+          <div className="theme-panel" role="dialog" aria-label={t('Columns to export')} style={{ width: 'min(420px, 100%)' }}>
+            <div className="theme-h"><h3>{t('Columns to print and export')}</h3>
+              <button type="button" className="cp-x" onClick={() => setColsOpen(null)}>×</button></div>
+            <p className="bk-hint">{t('Applies to Print, PDF, Excel, CSV and Image for this report. The first column always stays.')}</p>
+            {colsOpen.map((l) => (
+              <label key={l} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
+                <input type="checkbox" checked={!hiddenCols.includes(l)}
+                  onChange={(e) => {
+                    const next = e.target.checked ? hiddenCols.filter((x) => x !== l) : [...hiddenCols, l];
+                    setHiddenCols(next); saveHidden(key, next);
+                  }} />
+                {t(l)}
+              </label>
+            ))}
+            <div className="pl-actions">
+              <button type="button" className="bk-btn" onClick={() => { setHiddenCols([]); saveHidden(key, []); }}>{t('Show all')}</button>
+              <button type="button" className="bk-btn bk-primary" onClick={() => setColsOpen(null)}>{t('Done')}</button>
+            </div>
+          </div>
+        </div>
       )}
       <button type="button" className="ni-exp-gear" title={t('This report: letterhead, field positions, paper, sizes')}
         onClick={() => setLayoutOpen(true)}>

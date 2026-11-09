@@ -694,6 +694,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
                   <th colSpan={2}>{t('Opening')}</th>
                   <th colSpan={2}>{t('Period')}</th>
                   <th colSpan={2}>{t('Closing')}</th>
+                  <th rowSpan={2} title={t('Closing Debit − Closing Credit')}>{t('Net')}</th>
                 </tr>
                 <tr className="h2">
                   <th />
@@ -752,7 +753,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
                         </tr>
                       ))}
                       {a.has_parties && isPartyOpen && partyData[a.name] && partyData[a.name].length === 0 && (
-                        <tr><td colSpan={7} className="muted" style={{ paddingLeft: padLeft + 24, fontStyle: 'italic' }}>No parties with activity in this period.</td></tr>
+                        <tr><td colSpan={8} className="muted" style={{ paddingLeft: padLeft + 24, fontStyle: 'italic' }}>No parties with activity in this period.</td></tr>
                       )}
                     </>
                   );
@@ -765,6 +766,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
                   <td>{fmtD(result.result.totals.period_credit, decimals)}</td>
                   <td>{fmtD(result.result.totals.closing_debit, decimals)}</td>
                   <td>{fmtD(result.result.totals.closing_credit, decimals)}</td>
+                  <td>{fmtD((result.result.totals.closing_debit || 0) - (result.result.totals.closing_credit || 0), decimals)}</td>
                 </tr>
                 {(() => {
                   // TB balance check — each section's Debit must equal its
@@ -930,6 +932,7 @@ function renderTbCells(row: {
     cell(row.opening_debit), cell(row.opening_credit),
     cell(row.period_debit), cell(row.period_credit),
     cell(row.closing_debit), cell(row.closing_credit),
+    cell((row.closing_debit || 0) - (row.closing_credit || 0)),          // v3.7.5 — Net
   ];
 }
 
@@ -977,6 +980,7 @@ function buildTbDoc(r: any, partyData: Record<string, any[]>, partyOpen: Set<str
     cell(a.opening_debit), cell(a.opening_credit),
     cell(a.period_debit), cell(a.period_credit),
     cell(a.closing_debit), cell(a.closing_credit),
+    cell((a.closing_debit || 0) - (a.closing_credit || 0)),
   ];
 
   for (const a of r.result.accounts) {
@@ -1016,6 +1020,7 @@ function buildTbDoc(r: any, partyData: Record<string, any[]>, partyOpen: Set<str
       { label: 'Opening Dr', num: true }, { label: 'Opening Cr', num: true },
       { label: 'Period Dr', num: true }, { label: 'Period Cr', num: true },
       { label: 'Closing Dr', num: true }, { label: 'Closing Cr', num: true },
+      { label: 'Net (Dr − Cr)', num: true },
     ],
     rows,
     fileBase: 'trial_balance',

@@ -69,3 +69,18 @@ assert.ok(f.headerHtml.includes('width:100%') && f.footerHtml.includes('width:10
 f = frameParts(S({ letterhead: 'IRSAA', lhImageSize: 'natural' }), { header_html: one, footer_html: '' });
 assert.ok(f.headerHtml.includes('120mm'));                                  // "As designed" keeps it
 console.log('letterhead fit: passed');
+
+// v3.7.5 — choose the columns to print / export
+import { applyColumnPick } from '../src/utils/columnPick.ts';
+const tb = {
+  title: 'Trial Balance', columns: [{ label: 'Account' }, { label: 'Opening Dr' }, { label: 'Opening Cr' },
+    { label: 'Closing Dr' }, { label: 'Closing Cr' }, { label: 'Net (Dr − Cr)' }],
+  rows: [{ kind: 'normal', cells: [{ v: '1110 Bank' }, { v: 10 }, { v: 0 }, { v: 30 }, { v: 5 }, { v: 25 }] },
+         { kind: 'sec', cells: [{ v: 'Assets', colSpan: 6 }] }],
+};
+let pk = applyColumnPick(tb, ['Opening Dr', 'Opening Cr', 'Account']);          // Account cannot be hidden
+assert.deepEqual(pk.columns.map((c) => c.label), ['Account', 'Closing Dr', 'Closing Cr', 'Net (Dr − Cr)']);
+assert.deepEqual(pk.rows[0].cells.map((c) => c.v), ['1110 Bank', 30, 5, 25]);
+assert.equal(pk.rows[1].cells[0].colSpan, 6);                                    // spanning row untouched
+assert.equal(applyColumnPick(tb, []), tb);                                       // nothing hidden → same doc
+console.log('column pick: passed');

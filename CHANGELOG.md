@@ -1,3 +1,17 @@
+## v3.7.5 — 2026-11-09 — Trial Balance: Net column; choose columns to print/export
+
+### Added: Net column in the Trial Balance
+**Net = Closing Debit − Closing Credit** for every account, party line and the total, on screen and in every export.
+
+### Added: Columns chooser on every report
+A **Columns** button beside **Layout** in the export bar lists the report's columns as checkboxes. The choice applies to **Print, PDF, Excel, CSV and Image**, is remembered per report in this browser, and **Show all** resets it.
+- **Always kept:** the first column (account / party).
+- **Unchanged rows:** rows spanning several columns (sections, gaps) are left as they are.
+- **Where:** it lives in the shared export bar, so every report has it, not only the Trial Balance.
+
+### Tests
+A Node group for the column filter covers hidden columns removed from headers and rows, the first column kept, spanning rows untouched, and no change when nothing is hidden. 726 Python tests pass.
+
 ## v3.7.4 — 2026-11-08 — Ageing: pending documents only
 
 ### Fixed: settled invoices still listed for Oracle (Invoiced 1,083,261.79 instead of 595,199.63)
