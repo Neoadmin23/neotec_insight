@@ -104,6 +104,10 @@ export function csvHeader(company: string, title: string, period: string): strin
  *  screen, plus their cached account rows. Exports mirror the screen. */
 export interface ExportDrill {
   expanded: string[];
+  /** v3.8.2 — the screen's metric toggles (the exports used to ignore them) */
+  show?: { growth: boolean; pctrev: boolean; ach: boolean; varv: boolean; pctLastOnly?: boolean };
+  /** v3.8.2 — selected cost centres, printed in the heading */
+  costCentres?: string[];
   drill: Record<string, { account: string; account_code: string; account_name: string; monthly: Record<number, number> }[]>;
 }
 
@@ -117,12 +121,13 @@ function exportCompany(run: RunResult, letterhead?: LetterheadPayload): string {
 
 /** Subtitle tokens; the segment is dropped when it just repeats the company
  *  already shown in the title line. */
-function exportSubtitle(run: RunResult, co: string): string {
+function exportSubtitle(run: RunResult, co: string, costCentres?: string[]): string {
   const f = run.filters;
   const parts = [
     f.fy_label || ('FY' + f.fiscal_year),
     `${monthLabel(f.fy_start_month, f.month_from)}\u2013${monthLabel(f.fy_start_month, f.month_to)}`,
   ];
+  if (costCentres && costCentres.length) parts.push((costCentres.length > 1 ? 'Cost centres: ' : 'Cost centre: ') + costCentres.join(', '));
   if (f.segment && f.segment.trim() !== (co || '').trim()) parts.push(f.segment);
   parts.push(f.comparison_mode === 'vs_budget' ? 'Actual vs Budget' : 'Actuals only');
   if (f.granularity) parts.push(f.granularity);
@@ -133,7 +138,10 @@ function exportSubtitle(run: RunResult, co: string): string {
  * buildStyledMatrix — single source of truth for export structure & styles.
  * Builds the same matrix RunTab renders, but as data plus style hints.
  * ───────────────────────────────────────────────────────────────────────── */
-function buildStyledMatrix(run: RunResult, show = { growth: true, pctrev: true, ach: true, varv: false }, drillOpt?: ExportDrill): StyledMatrix {
+function buildStyledMatrix(run: RunResult, showIn?: ExportDrill['show'], drillOpt?: ExportDrill): StyledMatrix {
+  const show = showIn || { growth: true, pctrev: true, ach: true, varv: false };
+  // v3.8.2 — "% on the total column only": the months show the figures, the total keeps the metrics
+  const per = show.pctLastOnly ? { growth: false, pctrev: false, ach: false, varv: false } : show;
   const f = run.filters;
   const groups = run.period_groups && run.period_groups.length > 0
     ? run.period_groups
@@ -166,10 +174,10 @@ function buildStyledMatrix(run: RunResult, show = { growth: true, pctrev: true, 
   const subLabels: string[] = ['Actual'];
   if (f.comparison_mode === 'vs_budget') { subs.push('budget'); subLabels.push('Budget'); }
   for (let i = 0; i < run.priors.length; i++) { subs.push('py'); subLabels.push(`FY${run.priors[i].fiscal_year}`); }
-  if (show.varv && f.comparison_mode === 'vs_budget') { subs.push('derived'); subLabels.push('Variance'); }
-  if (show.growth && run.priors.length > 0) { subs.push('derived'); subLabels.push('% Growth'); }
-  if (show.ach && f.comparison_mode === 'vs_budget') { subs.push('derived'); subLabels.push('% Achieved'); }
-  if (show.pctrev) { subs.push('derived'); subLabels.push('% Rev'); }
+  if (per.varv && f.comparison_mode === 'vs_budget') { subs.push('derived'); subLabels.push('Variance'); }
+  if (per.growth && run.priors.length > 0) { subs.push('derived'); subLabels.push('% Growth'); }
+  if (per.ach && f.comparison_mode === 'vs_budget') { subs.push('derived'); subLabels.push('% Achieved'); }
+  if (per.pctrev) { subs.push('derived'); subLabels.push('% Rev'); }
 
   // Trailing YTD-Total block — same sub-columns as per-period, computed over
   // the full month range. Skipped when granularity = 'ytd' (which already
@@ -422,8 +430,8 @@ function rgbToHex(r: number, g: number, b: number): string {
  * (xlsx@0.18 community build doesn't write cell styles, hence the hand roll.)
  * ───────────────────────────────────────────────────────────────────────── */
 export function exportXlsx(run: RunResult, fileName = 'neotec_insight_report.xlsx', letterhead?: LetterheadPayload, drillOpt?: ExportDrill) {
-  const m = buildStyledMatrix(run, undefined, drillOpt);
-  const blob = writeStyledXlsx(m, run, letterhead);
+  const m = buildStyledMatrix(run, drillOpt?.show, drillOpt);
+  const blob = writeStyledXlsx(m, run, letterhead, drillOpt);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = fileName;
@@ -431,7 +439,7 @@ export function exportXlsx(run: RunResult, fileName = 'neotec_insight_report.xls
   URL.revokeObjectURL(a.href);
 }
 
-function writeStyledXlsx(m: StyledMatrix, run: RunResult, letterhead?: LetterheadPayload): Blob {
+function writeStyledXlsx(m: StyledMatrix, run: RunResult, letterhead?: LetterheadPayload, drillOpt?: ExportDrill): Blob {
   const fills: string[] = ['FFFFFF', 'FFFFFF'];
   const fontHexes: string[] = ['2C2C2A'];
   const fillIdx = (hex: string) => {
@@ -510,7 +518,7 @@ function writeStyledXlsx(m: StyledMatrix, run: RunResult, letterhead?: Letterhea
     s: xfIdx({ fillId: 0, fontId: fontIdx(C.textPrimary.hex, true), horizontal: 'left', bold: true }),
   }]);
   sheet.push([{
-    v: exportSubtitle(run, exportCompany(run, letterhead)),
+    v: exportSubtitle(run, exportCompany(run, letterhead), drillOpt?.costCentres),
     t: 's',
     s: xfIdx({ fillId: 0, fontId: fontIdx('5F5E5A'), horizontal: 'left' }),
   }]);
@@ -800,7 +808,7 @@ export function exportPdf(run: RunResult, fileName = 'neotec_insight_report.pdf'
 }
 
 function exportPdfImpl(jsPDF: typeof JsPDFType, autoTable: AutoTableFn, run: RunResult, fileName = 'neotec_insight_report.pdf', letterhead?: LetterheadPayload, drillOpt?: ExportDrill) {
-  const m = buildStyledMatrix(run, undefined, drillOpt);
+  const m = buildStyledMatrix(run, drillOpt?.show, drillOpt);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a3' });
 
   // v1.9.53 — Letter Head: draw company name, address, contact, tax ID
@@ -850,7 +858,7 @@ function exportPdfImpl(jsPDF: typeof JsPDFType, autoTable: AutoTableFn, run: Run
   doc.text(`${exportCompany(run, letterhead)} — ${run.report.report_name}`, 40, cursorY);
   cursorY += 16;
   doc.setFontSize(9);
-  doc.text(exportSubtitle(run, exportCompany(run, letterhead)), 40, cursorY);
+  doc.text(exportSubtitle(run, exportCompany(run, letterhead), drillOpt?.costCentres), 40, cursorY);
   cursorY += 18;
 
   const head: any[] = [
@@ -931,7 +939,7 @@ function exportPdfImpl(jsPDF: typeof JsPDFType, autoTable: AutoTableFn, run: Run
  * CSV — plain text. Colors are meaningless here; layout stays faithful.
  * ───────────────────────────────────────────────────────────────────────── */
 export function exportCsv(run: RunResult, fileName = 'neotec_insight_report.csv', letterhead?: LetterheadPayload, drillOpt?: ExportDrill) {
-  const m = buildStyledMatrix(run, undefined, drillOpt);
+  const m = buildStyledMatrix(run, drillOpt?.show, drillOpt);
   const rows: string[] = [];
 
   // v1.9.53 — Letter Head as plain-text header lines. CSV can't embed
@@ -987,7 +995,7 @@ export function exportPrint(run: RunResult, letterhead?: LetterheadPayload, dril
   // columns combo prints large), or fixed compact/medium/large.
   let printSize = 'auto';
   try { printSize = localStorage.getItem('ni-print-size') || 'auto'; } catch { /* */ }
-  const m = buildStyledMatrix(run, undefined, drillOpt);
+  const m = buildStyledMatrix(run, drillOpt?.show, drillOpt);
   const win = window.open('', '_blank', 'width=1200,height=800');
   if (!win) {
     alert('Pop-ups blocked. Please allow pop-ups for this site so we can open the print view.');
@@ -1098,7 +1106,7 @@ export function exportPrint(run: RunResult, letterhead?: LetterheadPayload, dril
     const fr = buildFrame(b, {
       title: run.report.report_name,
       companyLabel: exportCompany(run, letterhead),
-      periodLabel: exportSubtitle(run, exportCompany(run, letterhead)),
+      periodLabel: exportSubtitle(run, exportCompany(run, letterhead), drillOpt?.costCentres),
       paperOverride: 'A3',  // reports keep their wide default unless brand narrows later
       orientationOverride: 'landscape',
     });
@@ -1110,7 +1118,7 @@ export function exportPrint(run: RunResult, letterhead?: LetterheadPayload, dril
   <body>
     ${brandHead ? '' : lhHeader}
     ${brandHead ? '' : `<h1>${escHtml(exportCompany(run, letterhead))} — ${escHtml(run.report.report_name)}</h1>
-    <div class="sub">${escHtml(exportSubtitle(run, exportCompany(run, letterhead)))}</div>`}
+    <div class="sub">${escHtml(exportSubtitle(run, exportCompany(run, letterhead), drillOpt?.costCentres))}</div>`}
     <table>${brandHead
       ? renderHeader().replace('<thead>', '<thead>' + bandRow(brandHead))
       : renderHeader()}${brandHead ? stripRow(brandFoot) : ''}<tbody>${renderBody()}</tbody></table>

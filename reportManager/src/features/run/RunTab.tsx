@@ -73,6 +73,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
   const [showPctRev, setShowPctRev] = useState(true);
   const [showAch, setShowAch] = useState(true);
   const [showVar, setShowVar] = useState(false);
+  const [pctLastOnly, setPctLastOnly] = useState(false);   // v3.8.2
   // v2.34.1 — toggle for prior-year & growth on account drill rows
   const [qfFuture, setQfFuture] = useState<string>(() => { try { return localStorage.getItem('ni-qframe-future') || 'budget'; } catch { return 'budget'; } });
   // v2.39.0 — +/- on quarter headers (Quarterly only et al.): which quarters
@@ -444,6 +445,8 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
     // v2.31.0 — exports mirror the on-screen expand/collapse state exactly:
     // expanded source rows carry their account drill into Excel/PDF/CSV/Print.
     const drillOpt = {
+      show: { growth: showGrowth, pctrev: showPctRev, ach: showAch, varv: showVar, pctLastOnly },
+      costCentres: (costCenter || []).filter(Boolean),
       expanded: Array.from(gridStateRef.expanded),
       drill: showDrillCmp ? gridStateRef.drill : Object.fromEntries(
         Object.entries(gridStateRef.drill).map(([k, accs]) => [k, (accs as any[]).map((a) => ({ ...a, monthly_prev: undefined }))])),
@@ -1242,6 +1245,8 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
           <label className="chk"><input type="checkbox" checked={showGrowth} onChange={(e) => setShowGrowth(e.target.checked)} /> {t('% Growth')}</label>
           <label className="chk"><input type="checkbox" checked={showPctRev} onChange={(e) => setShowPctRev(e.target.checked)} /> {t('% of Revenue')}</label>
           <label className="chk"><input type="checkbox" checked={showAch} onChange={(e) => setShowAch(e.target.checked)} /> {t('% Achieved')}</label>
+          <label className="chk" title={t('Print / export the % and variance columns only under the total (Yearly) column')}>
+            <input type="checkbox" checked={pctLastOnly} onChange={(e) => setPctLastOnly(e.target.checked)} /> {t('% on total column only')}</label>
           <label className="chk"><input type="checkbox" checked={showVar} onChange={(e) => setShowVar(e.target.checked)} /> {t('Variance')}</label>
           <label className="chk" title={t('Show prior-year values and growth % on the account rows when a source row is expanded — applies on screen and in every export')}><input type="checkbox" checked={showDrillCmp} onChange={(e) => setShowDrillCmp(e.target.checked)} /> {t('Account comparisons')}</label>
           <label className="chk" title={t('Print text size. Auto fits the font to the number of visible columns — with quarter frame + hidden columns the print comes out large and readable; fixed sizes override.')}>

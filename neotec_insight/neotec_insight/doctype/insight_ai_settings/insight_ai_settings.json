@@ -6,6 +6,7 @@
  "field_order": [
   "ai_section",
   "ai_enabled",
+  "ai_engine",
   "ai_provider",
   "ai_endpoint",
   "ai_model",
@@ -51,6 +52,14 @@
    "label": "Enable Neotec AI",
    "default": "0",
    "description": "When on, the Ask Neotec AI panel on the Reports screen sends live report figures to the endpoint below."
+  },
+  {
+   "fieldname": "ai_engine",
+   "fieldtype": "Select",
+   "label": "AI Engine",
+   "options": "Insight built-in\nNeotec AI",
+   "default": "Insight built-in",
+   "description": "Neotec AI: use the Neotec AI gateway (its providers, routes, residency and usage log) when Neotec AI is installed. Insight's own connection below is then the fallback when Neotec AI is unavailable."
   },
   {
    "fieldname": "ai_provider",
@@ -249,7 +258,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-20 09:00:00",
+ "modified": "2026-11-10 09:00:00.000000",
  "module": "Neotec Insight",
  "name": "Insight AI Settings",
  "owner": "Administrator",

@@ -103,9 +103,21 @@ def _ollama_structure_vision(image_path: str) -> dict[str, Any]:
     (Qwen2.5-VL) — OCR + structure in one call, Arabic + English."""
     import base64
     import requests
-    cfg = _ollama_config()
     with open(image_path, "rb") as fh:
         b64 = base64.b64encode(fh.read()).decode()
+    from neotec_insight.neotec_insight.utils import neotec_ai_link
+    if neotec_ai_link.routed():                      # v3.8.0 — Vision route of the Neotec AI gateway
+        lower = (image_path or "").lower()
+        media = "image/png" if lower.endswith(".png") else "image/webp" if lower.endswith(".webp") else "image/jpeg"
+        try:
+            from neotec_ai.platform import extract_json
+            return extract_json(neotec_ai_link.chat(_EXTRACTION_PROMPT + _direction_hint(), "Read this bank slip.",
+                                                    feature="bank_slip_vision", temperature=0, json_mode=True,
+                                                    images=[{"data": b64, "media_type": media}]))
+        except Exception:                            # v3.8.1 — fall back to Insight's own vision model
+            frappe.log_error(title="Bank slip: Neotec AI vision failed; using Insight's own model",
+                             message=frappe.get_traceback())
+    cfg = _ollama_config()
     r = requests.post(
         f"{cfg['url']}/api/chat",
         json={
@@ -154,6 +166,15 @@ def _direction_hint() -> str:
 
 def _ollama_structure_text(text: str) -> dict[str, Any]:
     import requests
+    from neotec_insight.neotec_insight.utils import neotec_ai_link
+    if neotec_ai_link.routed():                      # v3.8.0
+        try:
+            from neotec_ai.platform import extract_json
+            return extract_json(neotec_ai_link.chat(_EXTRACTION_PROMPT + _direction_hint(), text,
+                                                    feature="bank_slip_text", temperature=0, json_mode=True))
+        except Exception:                            # v3.8.1 — fall back to Insight's own model
+            frappe.log_error(title="Bank slip: Neotec AI failed; using Insight's own model",
+                             message=frappe.get_traceback())
     cfg = _ollama_config()
     r = requests.post(
         f"{cfg['url']}/api/chat",

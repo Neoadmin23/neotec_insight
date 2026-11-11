@@ -84,3 +84,25 @@ assert.deepEqual(pk.rows[0].cells.map((c) => c.v), ['1110 Bank', 30, 5, 25]);
 assert.equal(pk.rows[1].cells[0].colSpan, 6);                                    // spanning row untouched
 assert.equal(applyColumnPick(tb, []), tb);                                       // nothing hidden → same doc
 console.log('column pick: passed');
+
+// v3.8.2 — Trial Balance net values (as ERPNext) on the reported figures
+import { netTrialBalance } from '../src/utils/tbNet.ts';
+import { readFileSync } from 'node:fs';
+const roots = [
+  { depth: 0, opening_debit: 37872016.91, opening_credit: 3385813.51, closing_debit: 0, closing_credit: 0 },
+  { depth: 0, opening_debit: 52863.89, opening_credit: 46994720.22, closing_debit: 0, closing_credit: 0 },
+  { depth: 0, opening_debit: 12555652.93, opening_credit: 100000.0, closing_debit: 0, closing_credit: 0 },
+  { depth: 1, opening_debit: 999, opening_credit: 0, closing_debit: 0, closing_credit: 0 },         // children not added again
+];
+const nt = netTrialBalance({ result: { accounts: roots, totals: {} } });
+assert.equal(nt.result.accounts[0].opening_debit, 34486203.4);
+assert.equal(nt.result.accounts[0].opening_credit, 0);
+assert.ok(Math.abs(nt.result.totals.opening_debit - 46941856.33) < 0.02);     // ERPNext: 46,941,856.33
+assert.ok(Math.abs(nt.result.totals.opening_credit - 46941856.33) < 0.02);
+// v3.8.2 — exports honour the % toggles and "total only"
+const src = readFileSync(new URL('../src/utils/export.ts', import.meta.url), 'utf8');
+assert.equal((src.match(/buildStyledMatrix\(run, drillOpt\?\.show, drillOpt\)/g) || []).length, 4);
+assert.ok(!/buildStyledMatrix\(run, undefined/.test(src));
+assert.ok(/if \(per\.growth && run\.priors\.length > 0\) \{ subs\.push/.test(src));          // months use `per`
+assert.ok(/if \(show\.growth && run\.priors\.length > 0\) \{ totSubs\.push/.test(src));      // total keeps `show`
+console.log('tb net + % toggles: passed');

@@ -1,3 +1,74 @@
+## v3.8.2 — 2026-11-11 — Report printing: % columns, cost centre heading, Trial Balance net values
+
+### Fixed: unticked % columns still printed
+The P&L screen's **% Growth / % of Revenue / % Achieved / Variance** ticks were not passed to Excel, PDF, CSV or Print: every export fell back to "on". All four now follow the ticks.
+
+### Added: % on the total column only
+New tick-box **"% on total column only"**: the months print figures only, and the % and variance columns appear only under the total (Yearly) column.
+
+### Added: cost centre in the heading
+Exports name the selected cost centre(s) in the subtitle, e.g. "FY 2026 · Jan–Dec · Cost centre: GMO · Actuals only · month".
+
+### Trial Balance: net values (as ERPNext)
+New **"Net values (as ERPNext)"** option, on by default, applied on screen and in every export.
+- **Rows:** each account, group and party row shows opening and closing as one net figure (Dr − Cr).
+- **Total:** the sum of the netted top-level groups.
+- **Period columns:** unchanged.
+
+Every account already matched ERPNext. Group rows and the Total were added up gross (each side separately), so the reported Trial Balance showed an opening of 50,480,533.74 against ERPNext's 46,941,856.33. With net values they agree. Untick the option for the gross view.
+
+### Next
+Allocation printing options (source cost centre: detailed rows or net only, per report; several cost centres: user-selectable mode).
+
+### Tests
+A Node group reproduces the reported Trial Balance figures netting to ERPNext's 46,941,856.33, and checks the % toggles wiring. Python suite unchanged.
+
+## v3.8.1 — 2026-11-10 — Health check of 3.8.0 (Neotec AI connection)
+
+### Health check
+733 Python tests (731 from 3.8.0 + 2 new), lint and behaviour checks clean; TypeScript and ESLint clean; the four front-end test scripts pass; the production build succeeds; the Insight AI Settings form is valid, with *AI Engine* defaulting to *Insight built-in*.
+
+Security review of the coworker tools:
+- **Read-only:** inputs go through Copilot's own validation, and output is limited to 100 rows.
+- **Permissions:** finance-read is required. People tools additionally check people access inside the tool itself, so coworkers cannot bypass it.
+- **Company scope:** company permission is checked through Copilot's company resolution.
+
+### Fixed: bank-slip reading had no fallback
+With AI Engine = Neotec AI, a gateway failure made slip reading (text and image) fail, although 3.8.0 states that Insight's own connection answers instead. Both now log the failure and fall back to Insight's own model, as Copilot and the CFO brief already did.
+
+### Fixed: coworker tools returned empty column names
+Copilot columns are `{key, label}`; the tool runner read `fieldname`, so every column name came back as `None`. Tools now return `columns` (keys) and `column_labels`.
+
+### Fixed: the screen showed "v3.7.5"
+3.8.0 updated the app version but not the front-end's (`reportManager/package.json`), so Insight's header still read v3.7.5 after deploying 3.8.0. Both are now 3.8.1.
+
+### Tests
+2 new; 733 total. They cover a gateway failure falling back to Insight's own model with the failure logged, and coworker tool columns.
+
+## v3.8.0 — 2026-11-10 — Neotec AI connection
+
+### Added: use the Neotec AI gateway (optional)
+**Insight AI Settings → AI Engine** now offers **Neotec AI** beside **Insight built-in**. With Neotec AI 4 installed and
+this set, every Insight model call goes through Neotec AI's gateway: its providers and routes, fallback that respects
+data residency, personal-data masking, compression and the shared usage log (Neotec AI Call Log, app "neotec_insight").
+- **Covered:** Copilot (planning and explaining), Studio's AI builder, AI analysis, questions about outside databases,
+  the **CFO brief** narrative and the **bank-slip reader** (text and images; images use Neotec AI's Vision route).
+- **Fallback:** if the gateway fails and Insight's own connection is configured, Insight's connection answers instead.
+- **One click:** Neotec AI's Coworker Setup → Connected apps switches this setting.
+
+### Added: Copilot tools for Neotec AI coworkers
+All 17 read-only Copilot tools (KPIs, trends, top accounts and parties, ageing, cash position, dimensions, headcount,
+people cost, Saudization, compliance overview, control findings, profit bridge, variance drivers, working capital
+cycle, GL anomalies, find records) are offered to Neotec AI coworkers as `insight_*` tools, with the same validation,
+company scope and permissions. Finance tools are granted once to the Finance Analyst, people and compliance tools to
+the HR & Labor Law Advisor.
+
+### Unchanged
+Without Neotec AI, or with AI Engine = Insight built-in, Insight behaves exactly as in 3.7.5.
+
+### Tests
+`tests/test_v3_8_neotec_ai.py`: tool schemas for every Copilot tool, integration spec, routing off without the app.
+
 ## v3.7.5 — 2026-11-09 — Trial Balance: Net column; choose columns to print/export
 
 ### Added: Net column in the Trial Balance

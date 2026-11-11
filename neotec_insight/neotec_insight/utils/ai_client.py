@@ -51,6 +51,9 @@ def ready(s=None) -> bool:
     s = s or settings()
     if not getattr(s, "ai_enabled", 0):
         return False
+    from neotec_insight.neotec_insight.utils import neotec_ai_link
+    if neotec_ai_link.routed(s):          # v3.8.0
+        return True
     return bool(getattr(s, "ai_endpoint", None) or provider(s) == ANTHROPIC)
 
 
@@ -198,6 +201,19 @@ def chat(system: str, user: str, temperature: float = 0.2, max_tokens: int | Non
     s = settings()
     if not ready(s):
         raise AIError(_("AI is off. Turn it on in Insight AI Settings."))
+    # v3.8.0 — through the Neotec AI gateway when chosen; Insight's own connection is the fallback.
+    from neotec_insight.neotec_insight.utils import neotec_ai_link
+    if neotec_ai_link.routed(s):
+        try:
+            text = neotec_ai_link.chat(system, user, feature="chat", temperature=temperature,
+                                       max_tokens=max_tokens, timeout=timeout)
+            if text:
+                return text
+        except Exception as e:
+            if not (getattr(s, "ai_endpoint", None) and (getattr(s, "ai_model", None) or "").strip()):
+                raise AIError(str(e)[:400]) from e
+            frappe.logger("neotec_insight").warning("Neotec AI gateway failed; using Insight's own connection",
+                                                    exc_info=True)
     if not (getattr(s, "ai_model", None) or "").strip():
         raise AIError(_("Set AI Model in Insight AI Settings."))
     max_tokens = max_tokens or int(getattr(s, "ai_max_tokens", 0) or 4096)
@@ -262,6 +278,10 @@ def list_models() -> list[str]:
 
 def describe() -> dict:
     s = settings()
+    from neotec_insight.neotec_insight.utils import neotec_ai_link
+    if neotec_ai_link.routed(s):
+        return {"provider": "Neotec AI", "model": "(Neotec AI routes)", "endpoint": "", "external": False,
+                "enabled": bool(getattr(s, "ai_enabled", 0)), "engine": "Neotec AI"}
     ep = _endpoint(s)
     return {"provider": provider(s), "model": getattr(s, "ai_model", "") or "", "endpoint": ep,
             "external": is_external(ep), "enabled": bool(getattr(s, "ai_enabled", 0))}

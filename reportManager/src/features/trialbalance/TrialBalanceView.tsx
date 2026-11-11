@@ -6,6 +6,7 @@ import { api } from '../../utils/api';
 import { fmtD, dropEmptyDimensions } from '../../utils/format';
 import { exportDimensionPivotXlsx, printDimensionPivot } from '../../utils/export';
 import { ExportBar } from '../ExportBar';
+import { netTrialBalance } from '../../utils/tbNet';
 import { setActiveCompany } from '../../utils/activeCompany';
 import type { ReportDoc, DocRow } from '../../utils/reportdoc';
 import { useDimFilters } from '../../utils/dimFilters';
@@ -89,7 +90,10 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
   const [pivotResult, setPivotResult] = useState<BalancePivotResult | null>(null);
   // v1.9.12 — hide dimension columns that are empty for every account.
   const [hideEmptyDims, setHideEmptyDims] = useState(true);
-  const [result, setResult] = useState<TrialBalanceResult | null>(null);
+  const [rawResult, setResult] = useState<TrialBalanceResult | null>(null);
+  // v3.8.2 — net values as ERPNext (on by default); applied to screen and exports alike
+  const [netValues, setNetValues] = useState(true);
+  const result = useMemo(() => (netValues && rawResult ? netTrialBalance(rawResult) : rawResult), [rawResult, netValues]);
   const [, setAccTick] = useState(0);
   useEffect(() => {
     const accs: any[] = (result as any)?.result?.accounts || [];
@@ -637,6 +641,9 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
         <div className="derived-row">
           <label className="chk"><input type="checkbox" checked={showGroupAccounts} onChange={(e) => setShowGroupAccounts(e.target.checked)} /> Show group accounts</label>
           <label className="chk"><input type="checkbox" checked={showZeroValues} onChange={(e) => setShowZeroValues(e.target.checked)} /> Show zero values</label>
+          <label className="chk" title={t('Opening and closing as one net figure per row; the Total adds the netted top-level groups (as ERPNext)')}>
+            <input type="checkbox" checked={netValues} onChange={(e) => setNetValues(e.target.checked)} /> {t('Net values (as ERPNext)')}
+          </label>
           {viewMode === 'dimension' && (
             <label className="chk"><input type="checkbox" checked={hideEmptyDims} onChange={(e) => setHideEmptyDims(e.target.checked)} /> Hide empty dimensions</label>
           )}

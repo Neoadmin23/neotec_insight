@@ -543,7 +543,19 @@ def _narrative(m, alerts) -> str:
     tops = [x["title"] for x in alerts[:3]]
     if tops:
         base += " Top attention: " + "; ".join(tops) + "."
-    # optional local-Ollama polish
+    # v3.8.0 — Neotec AI gateway when chosen, else the optional local-Ollama polish
+    try:
+        from neotec_insight.neotec_insight.utils import neotec_ai_link
+        if neotec_ai_link.routed():
+            facts = json.dumps({"metrics": m, "alerts": alerts[:5]}, default=str)
+            txt = neotec_ai_link.chat(
+                "You are a precise CFO. In 3 short sentences, summarise the financial situation and the single most "
+                "important action. Use only the numbers given. Do not invent figures. Plain text, no markdown.",
+                facts, feature="cfo_brief", temperature=0.2, max_tokens=400)
+            if txt:
+                return txt
+    except Exception:
+        frappe.log_error(title="cfo: Neotec AI narrative failed", message=frappe.get_traceback())
     try:
         cfg = _ollama_cfg()
         if cfg:

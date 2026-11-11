@@ -81,3 +81,8 @@ doctype_js = {
 }
 
 fixtures = []
+
+# v3.8.0 — Neotec AI: Copilot's read-only tools for Neotec AI coworkers, and the one-click switch shown in
+# Neotec AI's setup. Both are read only when Neotec AI is installed; harmless otherwise.
+neotec_ai_tools = ["neotec_insight.neotec_insight.utils.neotec_ai_link.get_tools"]
+neotec_ai_integrations = ["neotec_insight.neotec_insight.utils.neotec_ai_link.integration"]
