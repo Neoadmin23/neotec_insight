@@ -3071,6 +3071,7 @@ def run_report(
     period_mode: str = "fiscal_year",
     period_from_date: str | None = None,
     period_to_date: str | None = None,
+    alloc_multi: str | None = None,   # v3.8.3 — allocation with several cost centres (read in execution)
 ) -> dict:
     _require_read()
     from neotec_insight.neotec_insight.utils.periods import build_period_groups

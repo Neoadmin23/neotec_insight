@@ -424,6 +424,17 @@ function RowEditor({ row, all, report, onChange, onRenameKey, onDelete, onMove }
             </span>
           </label>
         )}
+        <label><span className="flbl">Hide row when</span>
+          <select value={(row as any).hide_if || ''}
+            onChange={(e) => onChange({ ...row, hide_if: e.target.value || undefined } as DefinitionRow)}>
+            <option value="">Never</option>
+            <option value="all_zero">Every month is zero</option>
+            <option value="total_zero">The period total is zero</option>
+            <option value="total_negative">The period total is negative</option>
+            <option value="total_positive">The period total is positive</option>
+          </select>
+          <span className="muted" style={{ fontSize: 11 }}>Display only — the row still counts in totals and formulas.</span>
+        </label>
       </div>
 
       {/* v1.9.48 — T-Account classification. Shown only when the report's

@@ -74,6 +74,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
   const [showAch, setShowAch] = useState(true);
   const [showVar, setShowVar] = useState(false);
   const [pctLastOnly, setPctLastOnly] = useState(false);   // v3.8.2
+  const [allocMulti, setAllocMulti] = useState<string>(() => localStorage.getItem('insight.allocMulti') || 'net');   // v3.8.3
   // v2.34.1 — toggle for prior-year & growth on account drill rows
   const [qfFuture, setQfFuture] = useState<string>(() => { try { return localStorage.getItem('ni-qframe-future') || 'budget'; } catch { return 'budget'; } });
   // v2.39.0 — +/- on quarter headers (Quarterly only et al.): which quarters
@@ -365,7 +366,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     fy, from, to, granularity, company,
-    costCenter, project, department, branch,
+    costCenter, project, department, branch, allocMulti,
     comparisonMode, priorYears, compareToBook,
   ]);
 
@@ -504,6 +505,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
         month_to: periodMode === 'date_range' ? 11 : to,
         segment: segmentTag,
         cost_center: costCenter.length ? costCenter : null,
+        alloc_multi: allocMulti,
         project: project.length ? project : null,
         department: department.length ? department : null,
         branch: branch.length ? branch : null,
@@ -578,6 +580,7 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
           month_to: 11,
           segment: segmentTag,
           cost_center: costCenter.length ? costCenter : null,
+        alloc_multi: allocMulti,
           project: project.length ? project : null,
           department: department.length ? department : null,
           branch: branch.length ? branch : null,
@@ -1245,6 +1248,16 @@ export function RunTab({ reports, selectedReport, setSelectedReport, report, onR
           <label className="chk"><input type="checkbox" checked={showGrowth} onChange={(e) => setShowGrowth(e.target.checked)} /> {t('% Growth')}</label>
           <label className="chk"><input type="checkbox" checked={showPctRev} onChange={(e) => setShowPctRev(e.target.checked)} /> {t('% of Revenue')}</label>
           <label className="chk"><input type="checkbox" checked={showAch} onChange={(e) => setShowAch(e.target.checked)} /> {t('% Achieved')}</label>
+          {costCenter.length > 1 && (
+            <label className="chk" title={t('How allocation rows show when several cost centres are selected')}>
+              {t('Allocation with several cost centres')}
+              <select value={allocMulti} onChange={(e) => { setAllocMulti(e.target.value); localStorage.setItem('insight.allocMulti', e.target.value); }}>
+                <option value="net">{t('Combined — allocations between selected centres cancel')}</option>
+                <option value="received">{t('Combined — only what is charged into them')}</option>
+                <option value="per_cc">{t('One row per cost centre')}</option>
+              </select>
+            </label>
+          )}
           <label className="chk" title={t('Print / export the % and variance columns only under the total (Yearly) column')}>
             <input type="checkbox" checked={pctLastOnly} onChange={(e) => setPctLastOnly(e.target.checked)} /> {t('% on total column only')}</label>
           <label className="chk"><input type="checkbox" checked={showVar} onChange={(e) => setShowVar(e.target.checked)} /> {t('Variance')}</label>

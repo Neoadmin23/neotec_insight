@@ -1,3 +1,22 @@
+## v3.8.3 — 2026-11-11 — Allocations with several cost centres; hide rows on conditions
+
+### Added: allocation rows with several cost centres
+Allocation rows were computed only for a single selected cost centre; with several selected they were hidden. They now show, combined by a new setting on the run screen, **Allocation with several cost centres** (appears when more than one cost centre is selected; remembered in the browser):
+
+| Mode | What the allocation row shows |
+|---|---|
+| **Combined — allocations between selected centres cancel** (default) | the sum of each selected centre's allocation; the source's credit offsets the shares it gives to other selected centres, so only flows into or out of the selection remain |
+| **Combined — only what is charged into them** | the shares received by the selected centres; credits back to a source are ignored |
+| **One row per cost centre** | one row per selected centre, labelled with its name; the combined (cancelling) figure still feeds totals and formulas |
+
+Example: Procurement (source, −300) allocates 200 to Finance and 100 to GMO. With Procurement + Finance selected, the row shows −100, +200, or two rows (−300, +200) respectively.
+
+### Added: hide a row on a condition
+Row editor → **Hide row when**: never / every month is zero / the period total is zero / the period total is negative / the period total is positive. Display only: the row still counts in totals and formulas. It also applies to the per-cost-centre allocation rows.
+
+### Tests
+4 new; 737 total. They cover the three modes on the example above (visibility, totals using the cancelling figure) and every hide condition. Existing reports are unchanged.
+
 ## v3.8.2 — 2026-11-11 — Report printing: % columns, cost centre heading, Trial Balance net values
 
 ### Fixed: unticked % columns still printed

@@ -751,6 +751,7 @@ export const api = {
   },
 
   runReport: (args: {
+    alloc_multi?: string;   // v3.8.3
     report: string;
     fiscal_year: number;
     month_from: number;

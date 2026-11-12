@@ -111,6 +111,7 @@ def execute_report(
     out: list[dict] = []
 
     for row in rows:
+        extra_rows: list[dict] = []
         kind = row.get("kind")
         key = row.get("key")
         monthly: dict[int, float] = {m: 0.0 for m in months}
@@ -152,18 +153,36 @@ def execute_report(
             # The pool is taken from this report's own flag map, so the
             # allocation and the expense lines it spreads can never be
             # reading different accounts.
-            monthly, cc_applies = _allocation_monthly(
-                rule_name=row.get("allocation_rule"),
-                fiscal_year=fiscal_year,
-                months=months,
-                company=company,
-                cost_center=_single_cost_center(cost_center),
-                flag_to_accounts=flag_to_accounts,
-                fy_start_month_override=fy_start_month_override,
-                period_mode=period_mode,
-                period_from_date=period_from_date,
-                period_to_date=period_to_date,
-            )
+            multi = [str(c) for c in cost_center] if isinstance(cost_center, list) and len(cost_center) > 1 else None
+            if multi:
+                # v3.8.3 — several cost centres: each centre's own allocation, combined by the chosen mode
+                per_cc, cc_applies = {}, False
+                for cc in multi:
+                    m_cc, ap = _allocation_monthly(
+                        rule_name=row.get("allocation_rule"), fiscal_year=fiscal_year, months=months, company=company,
+                        cost_center=cc, flag_to_accounts=flag_to_accounts, fy_start_month_override=fy_start_month_override,
+                        period_mode=period_mode, period_from_date=period_from_date, period_to_date=period_to_date)
+                    per_cc[cc] = m_cc
+                    cc_applies = cc_applies or ap
+                mode = alloc_multi_mode()
+                monthly = combine_allocations(per_cc, months, mode)
+                if mode == "per_cc":
+                    extra_rows.extend({**row, "key": f"{key}__{i}", "label": f"{row.get('label') or key} · {cc}",
+                                       "monthly": per_cc[cc], "derived_from": key, "excluded_from_totals": 1}
+                                      for i, cc in enumerate(multi))
+            else:
+                monthly, cc_applies = _allocation_monthly(
+                    rule_name=row.get("allocation_rule"),
+                    fiscal_year=fiscal_year,
+                    months=months,
+                    company=company,
+                    cost_center=_single_cost_center(cost_center),
+                    flag_to_accounts=flag_to_accounts,
+                    fy_start_month_override=fy_start_month_override,
+                    period_mode=period_mode,
+                    period_from_date=period_from_date,
+                    period_to_date=period_to_date,
+                )
             if row.get("sign") == "invert":
                 monthly = {m: -v for m, v in monthly.items()}
             ctx[key] = monthly
@@ -223,7 +242,8 @@ def execute_report(
         # relevant row also reading zero that month. Only refines the
         # already-hidden-unless-selected default; an explicit "Always" is
         # left alone; deliberately unselected cost centres.
-        if is_row_hidden(row, kind, _single_cost_center(cost_center), cc_applies):
+        sel = _single_cost_center(cost_center) or ("__multi__" if isinstance(cost_center, list) and len(cost_center) > 1 else None)
+        if is_row_hidden(row, kind, sel, cc_applies) or (extra_rows and alloc_multi_mode() == "per_cc"):
             row = {**row, "hidden": 1}
             # v2.81.0 — 'cost_center_exclude' additionally removes the row from
             # the ARITHMETIC, not just the display.
@@ -244,9 +264,50 @@ def execute_report(
                 monthly = {m: 0.0 for m in months}
                 row = {**row, "excluded_from_totals": 1}
 
+        if hide_by_condition(row.get("hide_if"), monthly):          # v3.8.3 — display only; totals unchanged
+            row = {**row, "hidden": 1}
         out.append({**row, "monthly": monthly})
+        for xr in extra_rows:
+            if not hide_by_condition(row.get("hide_if"), xr["monthly"]):
+                out.append(xr)
 
     return {"rows": out, "months": months, "formula_errors": formula_errors}
+
+
+ALLOC_MULTI_MODES = ("net", "received", "per_cc")
+
+
+def alloc_multi_mode() -> str:
+    """How allocation rows combine with several cost centres selected (v3.8.3),
+    from the report request; default 'net'."""
+    try:
+        v = str((frappe.form_dict or {}).get("alloc_multi") or "").strip()
+    except Exception:
+        v = ""
+    return v if v in ALLOC_MULTI_MODES else "net"
+
+
+def combine_allocations(per_cc: dict, months: list[int], mode: str) -> dict:
+    """net      — sum of each centre's allocation: allocations between selected
+                  centres cancel (the source's credit offsets the receivers' shares);
+       received — only what is charged INTO the selected centres (credits ignored);
+       per_cc   — the combined row carries the net (for totals); centres show separately."""
+    if mode == "received":
+        return {m: round(sum(max(v.get(m, 0.0), 0.0) for v in per_cc.values()), 2) for m in months}
+    return {m: round(sum(v.get(m, 0.0) for v in per_cc.values()), 2) for m in months}
+
+
+HIDE_IF = ("all_zero", "total_zero", "total_negative", "total_positive")
+
+
+def hide_by_condition(cond, monthly: dict) -> bool:
+    """Per-row display condition (v3.8.3). The row's figures still feed totals and formulas."""
+    if cond not in HIDE_IF:
+        return False
+    vals = list((monthly or {}).values())
+    tot = round(sum(vals), 2)
+    return {"all_zero": all(abs(v) < 0.005 for v in vals), "total_zero": abs(tot) < 0.005,
+            "total_negative": tot < -0.005, "total_positive": tot > 0.005}[cond]
 
 
 
