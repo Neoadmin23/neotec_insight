@@ -1,3 +1,35 @@
+## v3.8.5 — 2026-11-12 — Trial Balance: ERPNext's options
+
+### Added (alongside Insight's existing options)
+| ERPNext option | Default | Effect |
+|---|---|---|
+| **With Period Closing Entry for opening balances** | on | income and expense accounts open from the fiscal-year start (prior years closed to equity), as ERPNext. Off: full history, as before v3.8.4 |
+| **Period Closing Entry for current period** | on | off: Period Closing Vouchers are left out of the period columns |
+| **Show unclosed fiscal year's P&L balances** | off | on: prior-year income and expense not closed to equity stay in the opening |
+| **Include Default FB Entries** | on | with a finance book selected, entries with no book or the company's default book are included too |
+
+- **Cache:** the options are part of the result cache key, so toggling one re-runs the report.
+- **Scope:** they apply to the main Trial Balance run. The pivot and multi-period views keep their behaviour.
+
+### Tests
+4 new; 744 total. They cover the defaults (Round Off opens at 0 and the closing voucher is in the period), unclosed P&L or the option off (opening 0.01), the period closing entry off (voucher left out), and the default-book condition.
+
+### Next
+General Ledger: ERPNext's options.
+
+## v3.8.4 — 2026-11-12 — Trial Balance opening for income/expense; General Ledger account options
+
+### Fixed: Trial Balance showed prior-year amounts in income/expense openings
+Income and expense accounts restart at zero each fiscal year (the prior year is closed to equity). The Trial Balance summed their opening from the beginning of time.
+- **Effect:** Round Off showed a 0.01 opening that ERPNext shows as 0.00, and the totals carried a 0.01 TB Difference.
+- **Now:** their opening counts only from the fiscal-year start to the day before the report's From date, as in ERPNext's Trial Balance. That is zero for a report starting on the first day of the year. Balance-sheet accounts are unchanged.
+
+### Fixed: General Ledger listed accounts without transactions
+The options *Show accounts without transactions / with zero closing balance / having only opening balance* reached the server as text. "0" is true in Python, so unticked boxes acted as ticked, and empty accounts (e.g. Main Cash with 0.00 opening and no entries) were listed. They are now converted to numbers. A scan of every report endpoint found no other unconverted yes/no option.
+
+### Tests
+3 new; 740 total. They cover Round Off with a 0.01 prior-year amount opening at 0 from 1 Jan, a July start counting Jan–Jun only, the bank keeping its history, and the General Ledger flags being converted.
+
 ## v3.8.3 — 2026-11-11 — Allocations with several cost centres; hide rows on conditions
 
 ### Added: allocation rows with several cost centres

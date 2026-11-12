@@ -730,6 +730,11 @@ def run_trial_balance(
     show_zero_values: int = 0,
     presentation_currency: str | None = None,
     use_cache: int = 1,
+    # v3.8.5 — ERPNext's Trial Balance options
+    with_period_closing_entry_for_opening: int = 1,
+    period_closing_entry_for_current_period: int = 1,
+    show_unclosed_fy_pl_balances: int = 0,
+    include_default_book_entries: int = 1,
 ) -> dict:
     """Run a trial balance.
 
@@ -785,6 +790,8 @@ def run_trial_balance(
         dims=json.dumps(dim_filters, sort_keys=True, default=str),
         sga=cint(show_group_accounts), szv=cint(show_zero_values),
         pc=presentation_currency or "",
+        erp=f"{cint(with_period_closing_entry_for_opening)}{cint(period_closing_entry_for_current_period)}"
+            f"{cint(show_unclosed_fy_pl_balances)}{cint(include_default_book_entries)}",
         kind="trial_balance",
     )
     if cint(use_cache):
@@ -804,6 +811,10 @@ def run_trial_balance(
             show_group_accounts=bool(cint(show_group_accounts)),
             show_zero_values=bool(cint(show_zero_values)),
             presentation_currency=presentation_currency or None,
+            with_pcv_opening=bool(cint(with_period_closing_entry_for_opening)),
+            pcv_current=bool(cint(period_closing_entry_for_current_period)),
+            show_unclosed_pl=bool(cint(show_unclosed_fy_pl_balances)),
+            include_default_fb=bool(cint(include_default_book_entries)),
         )
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Trial balance failed")
@@ -2500,6 +2511,12 @@ def general_ledger(
       - show_zero_closing: keep accounts whose closing balance is exactly 0
       - show_only_opening: include accounts that have only an opening balance
     """
+    # v3.8.4 — request values arrive as text: "0" is truthy in Python, so an
+    # unticked box behaved as ticked and empty accounts were listed.
+    from frappe.utils import cint as _cint
+    show_without_transactions = _cint(show_without_transactions)
+    show_zero_closing = _cint(show_zero_closing)
+    show_only_opening = _cint(show_only_opening)
     _require_read()
     if isinstance(accounts, str):
         try:

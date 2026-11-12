@@ -88,6 +88,7 @@ def _apply_extra_gl_filters(
     *,
     finance_book: str | None = None,
     dimension_filters: dict | None = None,
+    include_default_fb: bool = False,
 ) -> None:
     """Append finance-book and custom-dimension WHERE clauses in place.
 
@@ -99,7 +100,12 @@ def _apply_extra_gl_filters(
         silently skipped rather than crashing the query.
     """
     if finance_book:
-        conds.append("g.finance_book = %(finance_book)s")
+        if include_default_fb:           # v3.8.5 — also entries with no book or the company's default book
+            conds.append("(g.finance_book = %(finance_book)s OR IFNULL(g.finance_book, '') = ''"
+                         " OR g.finance_book = (SELECT c.default_finance_book FROM `tabCompany` c"
+                         " WHERE c.name = g.company))")
+        else:
+            conds.append("g.finance_book = %(finance_book)s")
         params["finance_book"] = finance_book
     if dimension_filters:
         for i, (col, val) in enumerate(dimension_filters.items()):
@@ -120,6 +126,8 @@ def _gl_sums_per_account(
     accounts: list[str] | None = None,
     finance_book: str | None = None,
     dimension_filters: dict | None = None,
+    exclude_pcv: bool = False,
+    include_default_fb: bool = False,
 ) -> dict[str, dict[str, float]]:
     """One SQL query: SUM(debit), SUM(credit) per account in a date window.
 
@@ -145,7 +153,10 @@ def _gl_sums_per_account(
     # v1.9.58 — native dims now accept lists for multi-select.
     _apply_in_clause(conds, params, "cost_center", cost_center, "cost_center")
     _apply_in_clause(conds, params, "project", project, "project")
-    _apply_extra_gl_filters(conds, params, finance_book=finance_book, dimension_filters=dimension_filters)
+    _apply_extra_gl_filters(conds, params, finance_book=finance_book, dimension_filters=dimension_filters,
+                            include_default_fb=include_default_fb)
+    if exclude_pcv:                      # v3.8.5 — "Period Closing Entry for current period" off
+        conds.append("g.voucher_type != 'Period Closing Voucher'")
     if accounts:
         placeholders = ", ".join(f"%(a{i})s" for i in range(len(accounts)))
         conds.append(f"g.account IN ({placeholders})")
@@ -200,6 +211,10 @@ def run_trial_balance_engine(
     show_group_accounts: bool = True,
     show_zero_values: bool = False,
     presentation_currency: str | None = None,
+    with_pcv_opening: bool = True,
+    pcv_current: bool = True,
+    show_unclosed_pl: bool = False,
+    include_default_fb: bool = True,
 ) -> dict[str, Any]:
     """Run a trial balance for `company`.
 
@@ -262,13 +277,28 @@ def run_trial_balance_engine(
         company=company, from_date=None, to_date=opening_to,
         cost_center=cost_center, project=project,
         finance_book=finance_book, dimension_filters=dimension_filters,
+        include_default_fb=include_default_fb,
     )
+
+    # v3.8.4 — income and expense accounts restart at zero each fiscal year
+    # (the prior year is closed to equity), as in ERPNext's Trial Balance: their
+    # opening counts only from the fiscal-year start to the day before the period.
+    pl_opening = (_gl_sums_per_account(
+        company=company, from_date=fiscal_year_start, to_date=opening_to,
+        cost_center=cost_center, project=project,
+        finance_book=finance_book, dimension_filters=dimension_filters,
+        include_default_fb=include_default_fb,
+    ) if fiscal_year_start and str(period_start) > str(fiscal_year_start) else {})
+    # v3.8.5 — without the period-closing rule (or showing unclosed P&L), income and
+    # expense carry their full history like every other account
+    pl_full_history = (not with_pcv_opening) or show_unclosed_pl
 
     # Period activity: period_start through as_of_date (the TO date).
     period_sums = _gl_sums_per_account(
         company=company, from_date=period_start, to_date=as_of_date,
         cost_center=cost_center, project=project,
         finance_book=finance_book, dimension_filters=dimension_filters,
+        exclude_pcv=not pcv_current, include_default_fb=include_default_fb,
     )
 
     # First pass: leaf account rows.
@@ -276,7 +306,10 @@ def run_trial_balance_engine(
     for a in coa:
         if a.get("is_group"):
             continue
-        op = opening_sums.get(a["name"], {"debit": 0.0, "credit": 0.0})
+        if a.get("root_type") in ("Income", "Expense") and not pl_full_history:
+            op = pl_opening.get(a["name"], {"debit": 0.0, "credit": 0.0})
+        else:
+            op = opening_sums.get(a["name"], {"debit": 0.0, "credit": 0.0})
         pd = period_sums.get(a["name"], {"debit": 0.0, "credit": 0.0})
         op_dr, op_cr = op["debit"], op["credit"]
         pd_dr, pd_cr = pd["debit"], pd["credit"]

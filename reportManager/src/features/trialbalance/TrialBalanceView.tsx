@@ -52,6 +52,11 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
   const [presentationCurrency, setPresentationCurrency] = useState('');
   const [showGroupAccounts, setShowGroupAccounts] = useState(true);
   const [showZeroValues, setShowZeroValues] = useState(false);
+  // v3.8.5 — ERPNext's Trial Balance options (defaults as ERPNext / as Insight before)
+  const [erpPcvOpening, setErpPcvOpening] = useState(true);
+  const [erpPcvCurrent, setErpPcvCurrent] = useState(true);
+  const [erpUnclosedPl, setErpUnclosedPl] = useState(false);
+  const [erpDefaultFb, setErpDefaultFb] = useState(true);
   // v1.9.61 — dimFilters values widened to string | string[] for multi-
   // select consistency with native dims. Backend (_sanitise_dimension_filters)
   // already accepts both shapes since v1.9.58.
@@ -216,6 +221,8 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
           dimension_filters: Object.keys(dimFilters).length ? dimFilters : undefined,
           show_group_accounts: showGroupAccounts ? 1 : 0,
           show_zero_values: showZeroValues ? 1 : 0,
+          with_period_closing_entry_for_opening: erpPcvOpening ? 1 : 0, period_closing_entry_for_current_period: erpPcvCurrent ? 1 : 0,
+          show_unclosed_fy_pl_balances: erpUnclosedPl ? 1 : 0, include_default_book_entries: erpDefaultFb ? 1 : 0,
           presentation_currency: presentationCurrency || null,
         })) as TrialBalanceResult;
         setResult(r);
@@ -644,6 +651,10 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
           <label className="chk" title={t('Opening and closing as one net figure per row; the Total adds the netted top-level groups (as ERPNext)')}>
             <input type="checkbox" checked={netValues} onChange={(e) => setNetValues(e.target.checked)} /> {t('Net values (as ERPNext)')}
           </label>
+          <label className="chk"><input type="checkbox" checked={erpPcvOpening} onChange={(e) => setErpPcvOpening(e.target.checked)} /> {t('With Period Closing Entry for opening balances')}</label>
+          <label className="chk"><input type="checkbox" checked={erpPcvCurrent} onChange={(e) => setErpPcvCurrent(e.target.checked)} /> {t('Period Closing Entry for current period')}</label>
+          <label className="chk"><input type="checkbox" checked={erpUnclosedPl} onChange={(e) => setErpUnclosedPl(e.target.checked)} /> {t("Show unclosed fiscal year's P&L balances")}</label>
+          <label className="chk"><input type="checkbox" checked={erpDefaultFb} onChange={(e) => setErpDefaultFb(e.target.checked)} /> {t('Include Default FB Entries')}</label>
           {viewMode === 'dimension' && (
             <label className="chk"><input type="checkbox" checked={hideEmptyDims} onChange={(e) => setHideEmptyDims(e.target.checked)} /> Hide empty dimensions</label>
           )}

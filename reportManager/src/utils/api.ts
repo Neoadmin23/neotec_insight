@@ -557,6 +557,8 @@ export const api = {
     call<any>('report.list_report_filter_options', company ? { company } : {}),
 
   runTrialBalance: (args: {
+    with_period_closing_entry_for_opening?: number; period_closing_entry_for_current_period?: number;
+    show_unclosed_fy_pl_balances?: number; include_default_book_entries?: number;   // v3.8.5
     report: string;
     company: string;
     fiscal_year: string | number;
