@@ -57,6 +57,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
   const [erpPcvCurrent, setErpPcvCurrent] = useState(true);
   const [erpUnclosedPl, setErpUnclosedPl] = useState(false);
   const [erpDefaultFb, setErpDefaultFb] = useState(true);
+  const [engine, setEngine] = useState<string>(() => localStorage.getItem('insight.tbEngine') || 'erpnext');   // v3.9.1
   // v1.9.61 — dimFilters values widened to string | string[] for multi-
   // select consistency with native dims. Backend (_sanitise_dimension_filters)
   // already accepts both shapes since v1.9.58.
@@ -223,6 +224,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
           show_zero_values: showZeroValues ? 1 : 0,
           with_period_closing_entry_for_opening: erpPcvOpening ? 1 : 0, period_closing_entry_for_current_period: erpPcvCurrent ? 1 : 0,
           show_unclosed_fy_pl_balances: erpUnclosedPl ? 1 : 0, include_default_book_entries: erpDefaultFb ? 1 : 0,
+          engine,
           presentation_currency: presentationCurrency || null,
         })) as TrialBalanceResult;
         setResult(r);
@@ -252,6 +254,7 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
     viewMode, pivotBy,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate (v2.91.0 review): the derived value in the list is the intended trigger
     showGroupAccounts, showZeroValues, JSON.stringify(dimFilters),
+    erpPcvOpening, erpPcvCurrent, erpUnclosedPl, erpDefaultFb, engine,   // v3.8.6 — toggling an ERPNext option re-runs
   ]);
 
   async function loadParties(account: string) {
@@ -271,6 +274,10 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
         fiscal_year: fy, as_of_date: asOfDate,
         cost_center: costCenter.length ? costCenter : null,
         presentation_currency: presentationCurrency || null,
+        // v3.8.6 — the same period and options as the row being expanded
+        from_date: fromDate || null, finance_book: financeBook || null,
+        include_default_book_entries: erpDefaultFb ? 1 : 0,
+        period_closing_entry_for_current_period: erpPcvCurrent ? 1 : 0,
       });
       setPartyData((d) => ({ ...d, [account]: r.result.parties || [] }));
       setPartyOpen((s) => { const n = new Set(s); n.add(account); return n; });
@@ -651,6 +658,13 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
           <label className="chk" title={t('Opening and closing as one net figure per row; the Total adds the netted top-level groups (as ERPNext)')}>
             <input type="checkbox" checked={netValues} onChange={(e) => setNetValues(e.target.checked)} /> {t('Net values (as ERPNext)')}
           </label>
+          <label className="chk" title={t("ERP (default): the ERP's own Trial Balance — identical figures. Insight: Insight's engine (several cost centres, root-type subsets).")}>
+            {t('Calculation')}
+            <select value={engine} onChange={(e) => { setEngine(e.target.value); localStorage.setItem('insight.tbEngine', e.target.value); }}>
+              <option value="erpnext">{t('ERP (default)')}</option>
+              <option value="insight">{t('Insight')}</option>
+            </select>
+          </label>
           <label className="chk"><input type="checkbox" checked={erpPcvOpening} onChange={(e) => setErpPcvOpening(e.target.checked)} /> {t('With Period Closing Entry for opening balances')}</label>
           <label className="chk"><input type="checkbox" checked={erpPcvCurrent} onChange={(e) => setErpPcvCurrent(e.target.checked)} /> {t('Period Closing Entry for current period')}</label>
           <label className="chk"><input type="checkbox" checked={erpUnclosedPl} onChange={(e) => setErpUnclosedPl(e.target.checked)} /> {t("Show unclosed fiscal year's P&L balances")}</label>
@@ -698,6 +712,11 @@ export function TrialBalanceView({ reports, selectedReport, setSelectedReport, c
           )}
           <span style={{ flex: 1 }} />
           {result?.performance && <span className="run-meta">{result.performance.execution_ms}ms{result.performance.cache_hit ? ' · cached' : ''}</span>}
+          {result?.result && (
+            <span className="run-meta" title={(result.result as any).engine_note || ''}>
+              {(result.result as any).engine === 'erpnext' ? t('ERP Trial Balance') : ((result.result as any).engine_note || t("Insight's engine"))}
+            </span>
+          )}
         </div>
         {error && <div className="run-error">{error}</div>}
       </div>

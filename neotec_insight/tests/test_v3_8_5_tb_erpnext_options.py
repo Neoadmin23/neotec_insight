@@ -47,6 +47,10 @@ class TbErpOptions(unittest.TestCase):
 
     def test_unclosed_pl_and_without_pcv_opening(self):
         self.assertEqual(self.ro(show_unclosed_pl=True)["opening_debit"], 0.01)
+        # v3.8.6 — as ERPNext: the option leaves Period Closing Vouchers out of the
+        # opening, which matters only when the books were closed before the period
+        self.assertEqual(self.ro(with_pcv_opening=False)["opening_debit"], 0.0)
+        self.be._last_period_closing_end = lambda company, before: "2025-12-31"
         self.assertEqual(self.ro(with_pcv_opening=False)["opening_debit"], 0.01)
 
     def test_pcv_current_period_off(self):

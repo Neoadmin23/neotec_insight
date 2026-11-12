@@ -31,6 +31,7 @@ const ALL_COLUMNS: { key: string; label: string; num?: boolean }[] = [
   { key: 'against_voucher', label: 'Against Voucher' },
   { key: 'finance_book', label: 'Finance Book' },
   { key: 'is_opening', label: 'Is Opening' },
+  { key: 'is_cancelled', label: 'Is Cancelled' },
   { key: 'account_currency', label: 'Account Currency' },
   { key: 'debit_in_account_currency', label: 'Debit (Account Currency)', num: true },
   { key: 'credit_in_account_currency', label: 'Credit (Account Currency)', num: true },
@@ -136,6 +137,24 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
   const [optOnlyOpening, setOptOnlyOpening] = useState(false);
   const [optPageBreak, setOptPageBreak] = useState(false);
   const [optSplit, setOptSplit] = useState(true);
+  // v3.8.6 — ERPNext's General Ledger options (ERPNext's defaults)
+  const [financeBook, setFinanceBook] = useState('');
+  const [financeBooks, setFinanceBooks] = useState<string[]>([]);
+  const [erpDefaultFb, setErpDefaultFb] = useState(true);
+  const [erpOpeningEntries, setErpOpeningEntries] = useState(false);
+  const [erpNoOpening, setErpNoOpening] = useState(false);
+  const [erpCancelled, setErpCancelled] = useState(false);
+  const [erpIgnoreErr, setErpIgnoreErr] = useState(false);
+  const [erpIgnoreNotes, setErpIgnoreNotes] = useState(false);
+  const [voucherNo, setVoucherNo] = useState('');
+  const [againstVoucherNo, setAgainstVoucherNo] = useState('');
+  useEffect(() => {
+    let alive = true;
+    api.listReportFilterOptions(company || undefined)
+      .then((r: any) => { if (alive) setFinanceBooks(r?.finance_books || []); })
+      .catch(() => { /* no finance books: the picker stays hidden */ });
+    return () => { alive = false; };
+  }, [company]);
   const [supplier, setSupplier] = useState<string[]>([]);
   const [customer, setCustomer] = useState<string[]>([]);
   const [supplierOpts, setSupplierOpts] = useState<{ name: string; label?: string }[]>([]);
@@ -404,6 +423,15 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
         exclude_voucher_types: exTypes.length ? exTypes : null,
         exclude_vouchers: exVouchers.length ? exVouchers : null,
         doc_fields: Object.keys(docFields).length ? JSON.stringify(docFields) : null,
+        finance_book: financeBook || null,
+        include_default_book_entries: erpDefaultFb ? 1 : 0,
+        show_opening_entries: erpOpeningEntries && !erpNoOpening ? 1 : 0,
+        disable_opening_balance_calculation: erpNoOpening ? 1 : 0,
+        show_cancelled_entries: erpCancelled ? 1 : 0,
+        ignore_err: erpIgnoreErr ? 1 : 0,
+        ignore_cr_dr_notes: erpIgnoreNotes ? 1 : 0,
+        voucher_no: voucherNo.trim() || null,
+        against_voucher_no: againstVoucherNo.trim() || null,
       });
       // load Arabic names for the accounts shown
       loadArabicLabels('Account', (r.accounts || []).map((b: any) => b.account));
@@ -413,6 +441,22 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     } finally {
       setLoading(false);
     }
+  }
+
+  /** v3.8.6 — the ERPNext options in force for the ledger on screen, when they
+   *  differ from the defaults. Read from the server's echo, so the heading
+   *  describes the data shown, not boxes ticked since the last run. */
+  function erpNotes(): string[] {
+    const f = data?.filters || {};
+    const out: string[] = [];
+    if (f.finance_book) out.push(t('Finance Book') + ': ' + f.finance_book);
+    if (f.voucher_no) out.push(t('Voucher No') + ': ' + f.voucher_no);
+    if (f.against_voucher_no) out.push(t('Against Voucher No') + ': ' + f.against_voucher_no);
+    if (f.disable_opening_balance_calculation) out.push(t('Opening balances not calculated'));
+    if (f.show_cancelled_entries) out.push(t('Includes cancelled entries'));
+    if (f.ignore_err) out.push(t('Excludes exchange revaluation and gain / loss journals'));
+    if (f.ignore_cr_dr_notes) out.push(t('Excludes system generated credit / debit notes'));
+    return out;
   }
 
   /** Desk URL for the source document.
@@ -434,6 +478,7 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
     if (key === 'credit') return tx.credit ? fmtD(tx.credit, decimals) : '';
     if (key === 'balance') return balText(tx.balance_raw, decimals, balStyle);
     if (key === 'posting_date') return tx.posting_date || '';
+    if (key === 'is_cancelled') return tx.is_cancelled ? t('Yes') : '';
     // The combined column joins whatever the user picked, skipping blanks so a
     // field that is empty on this document leaves no dangling separator.
     if (key === '__combined__') {
@@ -528,7 +573,9 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
             // handed to an auditor and read as complete.
             ? '  ·  ' + t('EXCLUDES') + ': '
               + [...exTypes, ...exVouchers].join(', ')
-            : ''),
+            : '')
+        // v3.8.6 — options that change which entries or balances are shown print on the document
+        + erpNotes().map((n) => '  ·  ' + n).join(''),
       columns: colDefs.map((c) => ({ label: t(c.label), num: c.num, width: c.key === 'remarks' ? 34 : undefined })),
       rows,
       fileBase: isParty ? (mode === 'customer' ? 'customer_ledger' : 'supplier_ledger') : 'general_ledger',
@@ -662,6 +709,30 @@ export function GeneralLedger({ reportName, mode = 'accounts' }: { reportName?: 
           <label className="gl-cbx"><input type="checkbox" checked={optZeroClosing} onChange={(e) => setOptZeroClosing(e.target.checked)} /> {t('Show accounts with zero closing balance')}</label>
           <label className="gl-cbx"><input type="checkbox" checked={optOnlyOpening} onChange={(e) => setOptOnlyOpening(e.target.checked)} /> {t('Show accounts having only opening balance')}</label>
           <label className="gl-cbx"><input type="checkbox" checked={optSplit} onChange={(e) => setOptSplit(e.target.checked)} /> {t('Show each other account on its own line')}</label>
+          {/* v3.8.6 — ERPNext's General Ledger options */}
+          {financeBooks.length > 0 && (
+            <label className="gl-cbx gl-groupby">{t('Finance Book')}
+              <select value={financeBook} onChange={(e) => setFinanceBook(e.target.value)}>
+                <option value="">—</option>
+                {financeBooks.map((fb) => <option key={fb} value={fb}>{fb}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="gl-cbx" title={t("With a finance book selected or not, entries in the company's default book are included")}>
+            <input type="checkbox" checked={erpDefaultFb} onChange={(e) => setErpDefaultFb(e.target.checked)} /> {t('Include Default FB Entries')}</label>
+          <label className="gl-cbx" title={t('Off: entries marked Is Opening inside the period are part of the opening balance (as ERPNext). On: they are listed as rows')}>
+            <input type="checkbox" checked={erpOpeningEntries && !erpNoOpening} disabled={erpNoOpening} onChange={(e) => setErpOpeningEntries(e.target.checked)} /> {t('Show Opening Entries')}</label>
+          <label className="gl-cbx" title={t('Every account opens at zero; only the entries in the period are shown')}>
+            <input type="checkbox" checked={erpNoOpening} onChange={(e) => setErpNoOpening(e.target.checked)} /> {t('Disable Opening Balance Calculation')}</label>
+          <label className="gl-cbx"><input type="checkbox" checked={erpCancelled} onChange={(e) => setErpCancelled(e.target.checked)} /> {t('Show Cancelled Entries')}</label>
+          <label className="gl-cbx"><input type="checkbox" checked={erpIgnoreErr} onChange={(e) => setErpIgnoreErr(e.target.checked)} /> {t('Ignore Exchange Rate Revaluation and Gain / Loss Journals')}</label>
+          <label className="gl-cbx"><input type="checkbox" checked={erpIgnoreNotes} onChange={(e) => setErpIgnoreNotes(e.target.checked)} /> {t('Ignore System Generated Credit / Debit Notes')}</label>
+          <label className="gl-cbx gl-groupby">{t('Voucher No')}
+            <input value={voucherNo} onChange={(e) => setVoucherNo(e.target.value)} style={{ width: 150 }} />
+          </label>
+          <label className="gl-cbx gl-groupby">{t('Against Voucher No')}
+            <input value={againstVoucherNo} onChange={(e) => setAgainstVoucherNo(e.target.value)} style={{ width: 150 }} />
+          </label>
           {!isParty && (
             <label className="gl-cbx gl-groupby">{t('Group by')}
               <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as any)}>

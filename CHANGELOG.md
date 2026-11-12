@@ -1,3 +1,79 @@
+## v3.9.3 — 2026-11-12 — Trial Balance: full precision (the 0.01); "ERP (default)"
+
+### Fixed: the remaining 0.01
+Amounts on this company carry 3 decimals (e.g. 170,084.427). Insight rounded every account to 2 decimals and then added them, so the totals drifted by 0.01. On the reported export, the period debit total moves from …701.96 to …701.97 when rounded per account first. Both engines now keep full precision (6 decimals) for every account, group and total; the screen rounds only for display (the Decimals setting), as ERPNext does.
+
+### Changed: naming
+*Calculation:* **ERP (default)** / **Insight**. The engine line reads "ERP Trial Balance".
+
+### Tests
+772 total, plus a rounding case for the ERP engine.
+
+## v3.9.3 — 2026-11-12 — ERP engine: halala-exact totals; renamed "ERP (default)"
+
+- **Totals:** each account's figures from the ERP report are rounded to 2 decimals before the net opening and closing totals are added, as ERPNext does. Unrounded values (e.g. 23,582,680.0600000002) could leave 0.01 in the totals.
+- **Renamed:** *ERPNext (exact)* is now **ERP (default)**, and the engine line reads **ERP Trial Balance**.
+
+### Tests
+1 new; 772 total.
+
+## v3.9.2 — 2026-11-12 — ERPNext engine: net opening/closing totals
+
+### Fixed
+With *Calculation = ERPNext (exact)*, the Total row showed opening 50,480,533.73 and closing 64,008,828.45: ERPNext's Total row adds each side gross. ERPNext's screen shows the sum of the netted top-level accounts (46,941,856.33). Opening and closing totals are now built that way; the period totals stay ERPNext's own (78,113,874.19 on both sides, no TB difference).
+
+### Tests
+1 new (the reported figures); 765 total.
+
+## v3.9.1 — 2026-11-12 — v3.8.6 + Trial Balance calculated by ERPNext's own report
+
+Built on v3.8.6 (ERPNext's rules in Insight's engine for the General Ledger and Trial Balance), adding the ERPNext engine from v3.9.0, which was built on v3.8.5 in parallel.
+
+### Trial Balance: Calculation — ERPNext (exact) / Insight
+- **ERPNext (exact)** (default): runs ERPNext's own Trial Balance on the server and shows it in Insight's screen. Same code and rounding as ERPNext, so the figures are identical.
+- **Insight:** Insight's engine, which since v3.8.6 follows ERPNext's rules (Is Opening entries, finance books, period closing, disabled accounts).
+- **Automatic fallback:** Insight's engine runs when the selection does not fit ERPNext's report (several cost centres or projects, a subset of root types) or if ERPNext's report fails (logged). A line beside the run time says which engine produced the figures and why.
+- **Re-run and cache:** the setting re-runs the report when changed, is remembered in the browser, and is part of the result cache key.
+
+### Tests
+764 total: v3.8.6's 761 + 3 for the ERPNext engine.
+
+## v3.8.6 — 2026-11-12 — General Ledger and Trial Balance: ERPNext's rules
+
+Both reports were checked line by line against ERPNext's own General Ledger and Trial Balance (v15 and v16).
+
+### General Ledger: ERPNext's options
+| ERPNext option | Default | Effect |
+|---|---|---|
+| **Finance Book** | none | shown when the site has finance books |
+| **Include Default FB Entries** | on | entries in the company's default book are included |
+| **Show Opening Entries** | off | off: entries marked *Is Opening* inside the period are part of the opening balance. On: they are listed as rows |
+| **Disable Opening Balance Calculation** | off | on: every account opens at 0 and only the period's entries are shown |
+| **Show Cancelled Entries** | off | on: cancelled entries are listed (an *Is Cancelled* column is available) |
+| **Ignore Exchange Rate Revaluation and Gain / Loss Journals** | off | those journals are left out |
+| **Ignore System Generated Credit / Debit Notes** | off | those journals are left out |
+| **Voucher No / Against Voucher No** | empty | only that voucher |
+
+- **Headings:** options that change which entries or balances are shown print in the heading of every export.
+- **Party grouping** uses the same opening rule.
+- **Statement of account** is unchanged: it keeps listing opening invoices as lines.
+
+### Changed results (both reports)
+- **Entries marked *Is Opening*:** an opening entry dated inside the period (for example opening balances posted on 1 January) was counted as period movement. It now counts in the opening, as ERPNext. Closing balances are unchanged. Accounts Settings → *Ignore Is Opening check for reporting* is respected.
+- **Finance books:** on sites with finance books, entries posted only to a book other than the selected or default one were added on top of the main books. They are now left out, and with a book selected, entries with no book are included, as ERPNext. Sites without finance books are unaffected.
+
+### Trial Balance
+- **With Period Closing Entry for opening balances — off** now does what ERPNext does: Period Closing Vouchers are left out of the opening, so income and expense accounts open with what they held before the last closing and retained earnings without the transfer. It has an effect only when a Period Closing Voucher was submitted before the period. In 3.8.5 it showed full income and expense history instead.
+- **Disabled accounts** with a balance are listed, so the report still balances.
+- **Party lines** under a receivable or payable account follow the row's period (From date), finance book and options; they add up to the account row. They used to run from the fiscal-year start.
+- **ERPNext options** re-run the report when ticked.
+
+### Scope
+The pivot, multi-period and combo views of the Trial Balance and the Balance Sheet keep their behaviour.
+
+### Tests
+17 new; 761 total. The reports' SQL runs against an in-memory copy of GL Entry: every General Ledger option, the opening-entry and finance-book rules in both reports, the period-closing option with and without a closing, disabled accounts, and party lines adding up to the account row. One 3.8.5 test was updated for the corrected period-closing option.
+
 ## v3.8.5 — 2026-11-12 — Trial Balance: ERPNext's options
 
 ### Added (alongside Insight's existing options)

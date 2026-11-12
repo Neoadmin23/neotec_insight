@@ -735,6 +735,7 @@ def run_trial_balance(
     period_closing_entry_for_current_period: int = 1,
     show_unclosed_fy_pl_balances: int = 0,
     include_default_book_entries: int = 1,
+    engine: str = "erpnext",
 ) -> dict:
     """Run a trial balance.
 
@@ -792,6 +793,7 @@ def run_trial_balance(
         pc=presentation_currency or "",
         erp=f"{cint(with_period_closing_entry_for_opening)}{cint(period_closing_entry_for_current_period)}"
             f"{cint(show_unclosed_fy_pl_balances)}{cint(include_default_book_entries)}",
+        engine=engine or "erpnext",
         kind="trial_balance",
     )
     if cint(use_cache):
@@ -802,20 +804,43 @@ def run_trial_balance(
 
     started = time.perf_counter()
     try:
-        result = run_trial_balance_engine(
-            company=company, fiscal_year_start=fy_start,
-            as_of_date=as_of_date, from_date=from_date or None,
-            cost_center=cost_center,
-            project=project, root_types=rt_list,
-            finance_book=finance_book, dimension_filters=dim_filters,
-            show_group_accounts=bool(cint(show_group_accounts)),
-            show_zero_values=bool(cint(show_zero_values)),
-            presentation_currency=presentation_currency or None,
-            with_pcv_opening=bool(cint(with_period_closing_entry_for_opening)),
-            pcv_current=bool(cint(period_closing_entry_for_current_period)),
-            show_unclosed_pl=bool(cint(show_unclosed_fy_pl_balances)),
-            include_default_fb=bool(cint(include_default_book_entries)),
-        )
+        # v3.9.1 — ERPNext's own Trial Balance (exact figures) when the selection fits;
+        # Insight's engine (ERPNext rules since v3.8.6) for what ERPNext's report cannot do.
+        from neotec_insight.neotec_insight.utils import erpnext_engine as _erp
+        ok, why = _erp.fits(cost_center, project, rt_list) if (engine or "erpnext") == "erpnext" else (False, "")
+        result = None
+        if ok:
+            try:
+                result = _erp.trial_balance(
+                    company=company, fiscal_year_start=fy_start, as_of_date=as_of_date, from_date=from_date or None,
+                    cost_center=cost_center, project=project, finance_book=finance_book,
+                    dimension_filters=dim_filters, show_group_accounts=bool(cint(show_group_accounts)),
+                    show_zero_values=bool(cint(show_zero_values)), presentation_currency=presentation_currency or None,
+                    with_pcv_opening=bool(cint(with_period_closing_entry_for_opening)),
+                    pcv_current=bool(cint(period_closing_entry_for_current_period)),
+                    show_unclosed_pl=bool(cint(show_unclosed_fy_pl_balances)),
+                    include_default_fb=bool(cint(include_default_book_entries)))
+            except Exception:
+                frappe.log_error(frappe.get_traceback(), "Trial balance: ERPNext engine failed; Insight engine used")
+                why, result = "ERPNext's report failed (see Error Log)", None
+        if result is None:
+            result = run_trial_balance_engine(
+                company=company, fiscal_year_start=fy_start,
+                as_of_date=as_of_date, from_date=from_date or None,
+                cost_center=cost_center,
+                project=project, root_types=rt_list,
+                finance_book=finance_book, dimension_filters=dim_filters,
+                show_group_accounts=bool(cint(show_group_accounts)),
+                show_zero_values=bool(cint(show_zero_values)),
+                presentation_currency=presentation_currency or None,
+                with_pcv_opening=bool(cint(with_period_closing_entry_for_opening)),
+                pcv_current=bool(cint(period_closing_entry_for_current_period)),
+                show_unclosed_pl=bool(cint(show_unclosed_fy_pl_balances)),
+                include_default_fb=bool(cint(include_default_book_entries)),
+            )
+            result["engine"] = "insight"
+            if why:
+                result["engine_note"] = f"Calculated by Insight's engine: {why}."
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Trial balance failed")
         frappe.throw(f"Trial balance failed: {e}")
@@ -979,6 +1004,11 @@ def run_trial_balance_parties(
     project: str | None = None,
     presentation_currency: str | None = None,
     use_cache: int = 1,
+    # v3.8.6 — the same period and options as the Trial Balance row being expanded
+    from_date: str | None = None,
+    finance_book: str | None = None,
+    include_default_book_entries: int = 1,
+    period_closing_entry_for_current_period: int = 1,
 ) -> dict:
     """Per-party breakdown for one Receivable/Payable account in a trial balance.
 
@@ -998,6 +1028,8 @@ def run_trial_balance_parties(
         company=company, fy_start=fy_start, as_of_date=as_of_date,
         cost_center=cost_center, project=project, account=account,
         pc=presentation_currency or "",
+        from_date=from_date or "", finance_book=finance_book or "",
+        erp=f"{cint(include_default_book_entries)}{cint(period_closing_entry_for_current_period)}",
         kind="trial_balance_parties",
     )
     if cint(use_cache):
@@ -1011,8 +1043,11 @@ def run_trial_balance_parties(
         parties = run_trial_balance_parties_engine(
             company=company, account=account,
             fiscal_year_start=fy_start, as_of_date=as_of_date,
-            cost_center=cost_center, project=project,
+            cost_center=_normalise_dim_param(cost_center), project=_normalise_dim_param(project),
             presentation_currency=presentation_currency or None,
+            from_date=from_date or None, finance_book=finance_book or None,
+            include_default_fb=bool(cint(include_default_book_entries)),
+            pcv_current=bool(cint(period_closing_entry_for_current_period)),
         )
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Trial balance parties failed")
@@ -2242,6 +2277,30 @@ def voucher_field_options(voucher_types=None):
     return out
 
 
+def _gl_ignored_journals(company, ignore_err, ignore_cr_dr_notes) -> list[str]:
+    """Journal Entries ERPNext's General Ledger leaves out on request (v3.8.6).
+
+    ignore_err: Exchange Rate Revaluation and Exchange Gain Or Loss journals.
+    ignore_cr_dr_notes: Credit / Debit Note journals the system generated.
+    """
+    out: list[str] = []
+    base = {"docstatus": 1}
+    if company:
+        base["company"] = company
+    try:
+        if ignore_err:
+            out += frappe.get_all(
+                "Journal Entry", pluck="name", limit_page_length=0,
+                filters={**base, "voucher_type": ["in", ["Exchange Rate Revaluation", "Exchange Gain Or Loss"]]})
+        if ignore_cr_dr_notes and frappe.db.has_column("Journal Entry", "is_system_generated"):
+            out += frappe.get_all(
+                "Journal Entry", pluck="name", limit_page_length=0,
+                filters={**base, "voucher_type": ["in", ["Credit Note", "Debit Note"]], "is_system_generated": 1})
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "General Ledger: ignored journals lookup failed")
+    return list(dict.fromkeys(out))
+
+
 def _gl_voucher_types(where: str, params: dict, from_date, to_date) -> list[str]:
     """Distinct voucher types in the window, ignoring exclusions."""
     try:
@@ -2358,7 +2417,7 @@ def _gl_descriptions(tx_rows: list[dict]) -> dict[tuple, str]:
 
 
 def _gl_regroup_by_party(blocks: list[dict], base_where: str, params: dict,
-                         from_date: str) -> list[dict]:
+                         from_date: str, opening_cond: str | None = "g.posting_date < %(fd)s") -> list[dict]:
     """Re-bucket the ledger by party instead of by account.
 
     Filtering by a supplier and then reading a block headed "Creditors" tells
@@ -2371,11 +2430,12 @@ def _gl_regroup_by_party(blocks: list[dict], base_where: str, params: dict,
     """
     opening: dict[str, float] = {}
     try:
-        op_rows = frappe.db.sql(
+        # v3.8.6 — the same opening rule as the account ledger (None = no opening)
+        op_rows = [] if not opening_cond else frappe.db.sql(
             f"""SELECT g.party_type AS party_type, g.party AS party,
                        SUM(g.debit - g.credit) AS bal
                 FROM `tabGL Entry` g
-                WHERE {base_where} AND g.posting_date < %(fd)s
+                WHERE {base_where} AND {opening_cond}
                   AND g.party IS NOT NULL AND g.party != ''
                 GROUP BY g.party_type, g.party""",
             {**params, "fd": from_date}, as_dict=True,
@@ -2495,6 +2555,16 @@ def general_ledger(
     exclude_voucher_types=None,
     exclude_vouchers=None,
     doc_fields=None,
+    # v3.8.6 — ERPNext's General Ledger options
+    finance_book=None,
+    include_default_book_entries=1,
+    show_opening_entries=0,
+    disable_opening_balance_calculation=0,
+    show_cancelled_entries=0,
+    ignore_err=0,
+    ignore_cr_dr_notes=0,
+    voucher_no=None,
+    against_voucher_no=None,
 ):
     """ERPNext-style grouped General Ledger.
 
@@ -2510,6 +2580,19 @@ def general_ledger(
       - show_without_transactions: include accounts with no entries in the window
       - show_zero_closing: keep accounts whose closing balance is exactly 0
       - show_only_opening: include accounts that have only an opening balance
+
+    ERPNext's options (v3.8.6), with ERPNext's defaults:
+      - finance_book / include_default_book_entries (on): entries with no book
+        always count, plus the selected book, plus the company's default book
+        when the option is on. Entries only in another book are left out.
+      - show_opening_entries (off): entries marked "Is Opening" dated inside the
+        window are part of the opening balance; on, they are listed as rows.
+      - disable_opening_balance_calculation (off): on, every account opens at 0.
+      - show_cancelled_entries (off): on, cancelled entries are listed too.
+      - ignore_err: leave out Exchange Rate Revaluation and Exchange Gain Or
+        Loss journals. ignore_cr_dr_notes: leave out system-generated Credit /
+        Debit Note journals.
+      - voucher_no / against_voucher_no: only that voucher.
     """
     # v3.8.4 — request values arrive as text: "0" is truthy in Python, so an
     # unticked box behaved as ticked and empty accounts were listed.
@@ -2517,6 +2600,15 @@ def general_ledger(
     show_without_transactions = _cint(show_without_transactions)
     show_zero_closing = _cint(show_zero_closing)
     show_only_opening = _cint(show_only_opening)
+    include_default_book_entries = _cint(include_default_book_entries)
+    show_opening_entries = _cint(show_opening_entries)
+    disable_opening_balance_calculation = _cint(disable_opening_balance_calculation)
+    show_cancelled_entries = _cint(show_cancelled_entries)
+    ignore_err = _cint(ignore_err)
+    ignore_cr_dr_notes = _cint(ignore_cr_dr_notes)
+    split_by_against = _cint(split_by_against)
+    voucher_no = (voucher_no or "").strip() if isinstance(voucher_no, str) else None
+    against_voucher_no = (against_voucher_no or "").strip() if isinstance(against_voucher_no, str) else None
     _require_read()
     if isinstance(accounts, str):
         try:
@@ -2584,11 +2676,36 @@ def general_ledger(
                 "filters": {"from_date": from_date, "to_date": to_date, "company": eff_company}}
 
     # ── Common WHERE fragments ───────────────────────────────────────────
-    base_conds = ["g.is_cancelled = 0", "g.account IN %(accs)s"]
+    from neotec_insight.neotec_insight.utils.balance_execution import (
+        _erp_finance_book_clause,
+        _has_finance_books,
+        _ignore_is_opening_check,
+    )
+    base_conds = ["g.account IN %(accs)s"]
     params: dict[str, Any] = {"accs": tuple(leaf_accounts)}
+    if not show_cancelled_entries:
+        base_conds.append("g.is_cancelled = 0")
+    else:
+        # A cancelled voucher's entries and their reversals cannot be attributed
+        # to its other accounts line by line, so they are listed as posted.
+        split_by_against = 0
     if eff_company:
         base_conds.append("g.company = %(company)s")
         params["company"] = eff_company
+    # v3.8.6 — ERPNext's finance-book rule
+    if _has_finance_books():
+        base_conds.append(_erp_finance_book_clause(params, finance_book or None,
+                                                   bool(include_default_book_entries)))
+    if voucher_no:
+        base_conds.append("g.voucher_no = %(f_voucher_no)s")
+        params["f_voucher_no"] = voucher_no
+    if against_voucher_no:
+        base_conds.append("g.against_voucher = %(f_against_voucher)s")
+        params["f_against_voucher"] = against_voucher_no
+    ignored_journals = _gl_ignored_journals(eff_company, ignore_err, ignore_cr_dr_notes)
+    if ignored_journals:
+        base_conds.append("g.voucher_no NOT IN %(ignored_journals)s")
+        params["ignored_journals"] = tuple(ignored_journals)
 
     def _dim(col, val):
         if val in (None, "", []):
@@ -2666,13 +2783,26 @@ def general_ledger(
     base_where = " AND ".join(base_conds)
 
     # ── Opening balances (everything strictly before from_date) ──────────
+    # v3.8.6 — as ERPNext: entries marked "Is Opening" dated inside the window
+    # belong to the opening balance unless "Show Opening Entries" lists them as
+    # rows (Accounts Settings → "Ignore Is Opening check for reporting" makes
+    # them ordinary entries). With the opening calculation disabled every
+    # account opens at zero and every entry in the window is listed.
+    opening_by_flag = (not show_opening_entries and not disable_opening_balance_calculation
+                       and not _ignore_is_opening_check())
+    if opening_by_flag:
+        opening_cond = "(g.posting_date < %(fd)s OR (g.is_opening = 'Yes' AND g.posting_date <= %(td)s))"
+        window_cond = "g.posting_date BETWEEN %(fd)s AND %(td)s AND IFNULL(g.is_opening, 'No') != 'Yes'"
+    else:
+        opening_cond = "g.posting_date < %(fd)s"
+        window_cond = "g.posting_date BETWEEN %(fd)s AND %(td)s"
     opening: dict[str, float] = {a: 0.0 for a in leaf_accounts}
-    op_rows = frappe.db.sql(
+    op_rows = [] if disable_opening_balance_calculation else frappe.db.sql(
         f"""SELECT g.account AS account, SUM(g.debit - g.credit) AS bal
             FROM `tabGL Entry` g
-            WHERE {base_where} AND g.posting_date < %(fd)s
+            WHERE {base_where} AND {opening_cond}
             GROUP BY g.account""",
-        {**params, "fd": from_date}, as_dict=True,
+        {**params, "fd": from_date, "td": to_date}, as_dict=True,
     )
     for r in op_rows:
         opening[r["account"]] = float(r["bal"] or 0.0)
@@ -2688,11 +2818,12 @@ def general_ledger(
                    g.debit AS debit, g.credit AS credit, g.remarks AS remarks{dept_sel},
                    g.against_voucher_type AS against_voucher_type, g.against_voucher AS against_voucher,
                    g.finance_book AS finance_book, g.is_opening AS is_opening,
+                   g.is_cancelled AS is_cancelled,
                    g.account_currency AS account_currency,
                    g.debit_in_account_currency AS debit_in_account_currency,
                    g.credit_in_account_currency AS credit_in_account_currency
             FROM `tabGL Entry` g
-            WHERE {base_where} AND g.posting_date BETWEEN %(fd)s AND %(td)s
+            WHERE {base_where} AND {window_cond}
             ORDER BY g.account ASC, g.posting_date ASC, g.creation ASC""",
         {**params, "fd": from_date, "td": to_date}, as_dict=True,
     )
@@ -2704,7 +2835,7 @@ def general_ledger(
     # can list each affected account on its own row (invoice-wise) instead of
     # cramming them into one "against" cell. (v1.9.65 feature add.)
     contra_map: dict[tuple, list] = {}
-    if int(split_by_against or 0):
+    if split_by_against:
         vno_list = list({r["voucher_no"] for r in tx_rows if r.get("voucher_no")})
         leaf_set = set(leaf_accounts)
         leg_rows: list[dict] = []
@@ -2782,11 +2913,12 @@ def general_ledger(
                 "against_voucher": tr.get("against_voucher") or "",
                 "finance_book": tr.get("finance_book") or "",
                 "is_opening": tr.get("is_opening") or "",
+                "is_cancelled": 1 if tr.get("is_cancelled") else 0,
                 "account_currency": tr.get("account_currency") or "",
                 "debit_in_account_currency": flt(tr.get("debit_in_account_currency")),
                 "credit_in_account_currency": flt(tr.get("credit_in_account_currency")),
             }
-            legs = contra_map.get((vt, vno), []) if int(split_by_against or 0) else []
+            legs = contra_map.get((vt, vno), []) if split_by_against else []
             if legs:
                 # Split this voucher into one row per other account. The portion
                 # attributable to each contra leg = (its credit − its debit),
@@ -2903,7 +3035,9 @@ def general_ledger(
     if gb not in ("account", "party"):
         gb = "account"
     if gb == "party":
-        blocks = _gl_regroup_by_party(blocks, base_where, params, from_date)
+        blocks = _gl_regroup_by_party(
+            blocks, base_where, {**params, "td": to_date}, from_date,
+            opening_cond=None if disable_opening_balance_calculation else opening_cond)
 
     return {
         "accounts": blocks,
@@ -2922,7 +3056,17 @@ def general_ledger(
             # artefact that gets handed to an auditor and misread.
             "excluded_voucher_types": ex_types,
             "excluded_vouchers": ex_vouchers,
-            "is_filtered": 1 if (ex_types or ex_vouchers) else 0,
+            "is_filtered": 1 if (ex_types or ex_vouchers or ignored_journals or voucher_no
+                                 or against_voucher_no) else 0,
+            # v3.8.6 — ERPNext's options, echoed back for the screen and exports
+            "finance_book": finance_book or "",
+            "include_default_book_entries": include_default_book_entries,
+            "show_opening_entries": show_opening_entries,
+            "disable_opening_balance_calculation": disable_opening_balance_calculation,
+            "show_cancelled_entries": show_cancelled_entries,
+            "ignore_err": ignore_err, "ignore_cr_dr_notes": ignore_cr_dr_notes,
+            "voucher_no": voucher_no or "", "against_voucher_no": against_voucher_no or "",
+            "ignored_journal_count": len(ignored_journals),
             # Voucher types actually present in the window, so the exclusion
             # picker offers what this ledger contains rather than a generic list.
             "voucher_types": _gl_voucher_types(where_before_exclusions, params, from_date, to_date),

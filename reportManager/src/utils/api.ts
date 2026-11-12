@@ -559,6 +559,7 @@ export const api = {
   runTrialBalance: (args: {
     with_period_closing_entry_for_opening?: number; period_closing_entry_for_current_period?: number;
     show_unclosed_fy_pl_balances?: number; include_default_book_entries?: number;   // v3.8.5
+    engine?: string;   // v3.9.1
     report: string;
     company: string;
     fiscal_year: string | number;
@@ -599,6 +600,11 @@ export const api = {
     project?: string | string[] | null;
     presentation_currency?: string | null;
     use_cache?: number;
+    // v3.8.6 — the same period and options as the row being expanded
+    from_date?: string | null;
+    finance_book?: string | null;
+    include_default_book_entries?: number;
+    period_closing_entry_for_current_period?: number;
   }) => {
     const serial = (v: string | string[] | null | undefined) =>
       Array.isArray(v) ? (v.length ? JSON.stringify(v) : null) : (v ?? null);
@@ -893,6 +899,16 @@ export const api = {
     exclude_voucher_types?: string[] | null;
     exclude_vouchers?: string[] | null;
     doc_fields?: string | null;
+    // v3.8.6 — ERPNext's General Ledger options
+    finance_book?: string | null;
+    include_default_book_entries?: number;
+    show_opening_entries?: number;
+    disable_opening_balance_calculation?: number;
+    show_cancelled_entries?: number;
+    ignore_err?: number;
+    ignore_cr_dr_notes?: number;
+    voucher_no?: string | null;
+    against_voucher_no?: string | null;
   }) => {
     const serial = (v: string | string[] | null | undefined) =>
       Array.isArray(v) ? (v.length ? JSON.stringify(v) : null) : (v ?? null);

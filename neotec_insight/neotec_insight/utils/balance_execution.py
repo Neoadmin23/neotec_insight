@@ -116,7 +116,94 @@ def _apply_extra_gl_filters(
             _apply_in_clause(conds, params, col, val, f"dim{i}")
 
 
-def _gl_sums_per_account(
+# ─── ERPNext parity helpers (v3.8.6) ─────────────────────────────────────
+
+
+def _ignore_is_opening_check() -> bool:
+    """Accounts Settings → "Ignore Is Opening check for reporting". When set,
+    ERPNext treats opening entries like any other entry (by posting date)."""
+    try:
+        return bool(frappe.utils.cint(frappe.db.get_single_value(
+            "Accounts Settings", "ignore_is_opening_check_for_reporting")))
+    except Exception:
+        return False
+
+
+def _has_finance_books() -> bool:
+    try:
+        return bool(frappe.db.count("Finance Book"))
+    except Exception:
+        return False
+
+
+def _erp_finance_book_clause(params: dict, finance_book: str | None, include_default_fb: bool,
+                             alias: str = "g") -> str:
+    """ERPNext's finance-book rule for the General Ledger and Trial Balance.
+
+    Entries with no book always count. The selected book counts when one is
+    chosen, and the company's default book counts when "Include Default FB
+    Entries" is ticked. Entries posted only to another book (a tax depreciation
+    book, say) are left out, so they are not added on top of the main books.
+    """
+    parts = [f"IFNULL({alias}.finance_book, '') = ''"]
+    if finance_book:
+        parts.append(f"{alias}.finance_book = %(finance_book)s")
+        params["finance_book"] = finance_book
+    if include_default_fb:
+        parts.append(f"{alias}.finance_book = (SELECT c.default_finance_book FROM `tabCompany` c"
+                     f" WHERE c.name = {alias}.company)")
+    return "(" + " OR ".join(parts) + ")"
+
+
+def _last_period_closing_end(company: str, before_date: str) -> str | None:
+    """End date of the last submitted Period Closing Voucher before `before_date`,
+    or None. ERPNext opens the Trial Balance from that closing when one exists
+    (unless Accounts Settings → "Ignore Account Closing Balance" is set)."""
+    try:
+        if frappe.utils.cint(frappe.db.get_single_value("Accounts Settings", "ignore_account_closing_balance")):
+            return None
+        col = "period_end_date" if frappe.db.has_column("Period Closing Voucher", "period_end_date") \
+            else "posting_date"
+        rows = frappe.get_all(
+            "Period Closing Voucher",
+            filters={"docstatus": 1, "company": company, col: ["<", before_date]},
+            fields=[col], order_by=f"{col} desc", limit_page_length=1,
+        )
+        return str(rows[0][col]) if rows and rows[0].get(col) else None
+    except Exception:
+        return None
+
+
+def _load_disabled_accounts(company: str) -> list[dict]:
+    """Disabled accounts. ERPNext's Trial Balance lists every account, so a
+    disabled account that still carries a balance must not drop out."""
+    try:
+        return frappe.get_all(
+            "Account",
+            filters={"company": company, "disabled": 1},
+            fields=[
+                "name", "account_number", "account_name", "parent_account",
+                "is_group", "account_type", "root_type", "lft", "rgt",
+            ],
+            order_by="lft asc",
+            limit_page_length=0,
+        )
+    except Exception:
+        return []
+
+
+def _gl_sums_per_account(**kwargs) -> dict[str, dict[str, float]]:
+    """SUM(debit), SUM(credit) per account in a date window. See `_gl_sums_query`."""
+    return _gl_sums_query(**kwargs)
+
+
+def _gl_opening_entry_sums(**kwargs) -> dict[str, dict[str, float]]:
+    """Entries marked "Is Opening" inside a date window, per account (v3.8.6).
+    ERPNext shows these in the opening columns, not in the period."""
+    return _gl_sums_query(only_opening=True, **kwargs)
+
+
+def _gl_sums_query(
     *,
     company: str,
     from_date: str | None,
@@ -128,6 +215,9 @@ def _gl_sums_per_account(
     dimension_filters: dict | None = None,
     exclude_pcv: bool = False,
     include_default_fb: bool = False,
+    exclude_opening: bool = False,
+    only_opening: bool = False,
+    erp_books: bool = False,
 ) -> dict[str, dict[str, float]]:
     """One SQL query: SUM(debit), SUM(credit) per account in a date window.
 
@@ -153,10 +243,19 @@ def _gl_sums_per_account(
     # v1.9.58 — native dims now accept lists for multi-select.
     _apply_in_clause(conds, params, "cost_center", cost_center, "cost_center")
     _apply_in_clause(conds, params, "project", project, "project")
-    _apply_extra_gl_filters(conds, params, finance_book=finance_book, dimension_filters=dimension_filters,
-                            include_default_fb=include_default_fb)
+    if erp_books:                        # v3.8.6 — ERPNext's finance-book rule (Trial Balance)
+        _apply_extra_gl_filters(conds, params, dimension_filters=dimension_filters)
+        if _has_finance_books():
+            conds.append(_erp_finance_book_clause(params, finance_book, include_default_fb))
+    else:
+        _apply_extra_gl_filters(conds, params, finance_book=finance_book, dimension_filters=dimension_filters,
+                                include_default_fb=include_default_fb)
     if exclude_pcv:                      # v3.8.5 — "Period Closing Entry for current period" off
         conds.append("g.voucher_type != 'Period Closing Voucher'")
+    if only_opening:                     # v3.8.6 — entries marked "Is Opening"
+        conds.append("g.is_opening = 'Yes'")
+    elif exclude_opening:
+        conds.append("IFNULL(g.is_opening, 'No') != 'Yes'")
     if accounts:
         placeholders = ", ".join(f"%(a{i})s" for i in range(len(accounts)))
         conds.append(f"g.account IN ({placeholders})")
@@ -251,6 +350,11 @@ def run_trial_balance_engine(
     debit-natural account with net credit activity shows up on the credit side.
     """
     coa = _load_chart_of_accounts(company)
+    # v3.8.6 — ERPNext lists every account: a disabled account with a balance stays in
+    known = {a["name"] for a in coa}
+    extra = [a for a in _load_disabled_accounts(company) if a["name"] not in known]
+    if extra:
+        coa = sorted([*coa, *extra], key=lambda a: a.get("lft") or 0)
     if root_types:
         coa = [a for a in coa if a.get("root_type") in root_types]
     coa_by_name = {a["name"]: a for a in coa}
@@ -273,32 +377,47 @@ def run_trial_balance_engine(
     # before that.
     period_start = from_date or fiscal_year_start
     opening_to = _day_before(period_start)
-    opening_sums = _gl_sums_per_account(
-        company=company, from_date=None, to_date=opening_to,
-        cost_center=cost_center, project=project,
+    common = dict(
+        company=company, cost_center=cost_center, project=project,
         finance_book=finance_book, dimension_filters=dimension_filters,
-        include_default_fb=include_default_fb,
+        include_default_fb=include_default_fb, erp_books=True,
     )
+
+    # v3.8.6 — "With Period Closing Entry for opening balances" off, as ERPNext:
+    # Period Closing Vouchers are left out of the opening. It matters only when
+    # the books were closed before the period; income and expense accounts then
+    # open with what they held before that closing.
+    pcv_end = None if with_pcv_opening else _last_period_closing_end(company, period_start)
+    no_pcv = bool(pcv_end)
+
+    opening_sums = _gl_sums_per_account(from_date=None, to_date=opening_to, exclude_pcv=no_pcv, **common)
 
     # v3.8.4 — income and expense accounts restart at zero each fiscal year
     # (the prior year is closed to equity), as in ERPNext's Trial Balance: their
     # opening counts only from the fiscal-year start to the day before the period.
+    pl_from = fiscal_year_start
+    if no_pcv and fiscal_year_start and str(_day_after(pcv_end)) > str(fiscal_year_start):
+        pl_from = _day_after(pcv_end)
     pl_opening = (_gl_sums_per_account(
-        company=company, from_date=fiscal_year_start, to_date=opening_to,
-        cost_center=cost_center, project=project,
-        finance_book=finance_book, dimension_filters=dimension_filters,
-        include_default_fb=include_default_fb,
-    ) if fiscal_year_start and str(period_start) > str(fiscal_year_start) else {})
-    # v3.8.5 — without the period-closing rule (or showing unclosed P&L), income and
-    # expense carry their full history like every other account
-    pl_full_history = (not with_pcv_opening) or show_unclosed_pl
+        from_date=pl_from, to_date=opening_to, exclude_pcv=no_pcv, **common,
+    ) if pl_from and str(period_start) > str(pl_from) else {})
+    if no_pcv:
+        _add_sums(pl_opening, _gl_sums_per_account(from_date=None, to_date=pcv_end, exclude_pcv=True, **common))
+    # v3.8.5 — "Show unclosed fiscal year's P&L balances": income and expense
+    # carry their full history like every other account
+    pl_full_history = show_unclosed_pl
+
+    # v3.8.6 — entries marked "Is Opening" dated inside the period belong to the
+    # opening columns, not to the period (ERPNext). Accounts Settings → "Ignore
+    # Is Opening check for reporting" turns this off.
+    opening_by_flag = not _ignore_is_opening_check()
+    opening_entries = (_gl_opening_entry_sums(from_date=period_start, to_date=as_of_date, **common)
+                       if opening_by_flag else {})
 
     # Period activity: period_start through as_of_date (the TO date).
     period_sums = _gl_sums_per_account(
-        company=company, from_date=period_start, to_date=as_of_date,
-        cost_center=cost_center, project=project,
-        finance_book=finance_book, dimension_filters=dimension_filters,
-        exclude_pcv=not pcv_current, include_default_fb=include_default_fb,
+        from_date=period_start, to_date=as_of_date,
+        exclude_pcv=not pcv_current, exclude_opening=opening_by_flag, **common,
     )
 
     # First pass: leaf account rows.
@@ -310,6 +429,9 @@ def run_trial_balance_engine(
             op = pl_opening.get(a["name"], {"debit": 0.0, "credit": 0.0})
         else:
             op = opening_sums.get(a["name"], {"debit": 0.0, "credit": 0.0})
+        oe = opening_entries.get(a["name"])
+        if oe:
+            op = {"debit": op["debit"] + oe["debit"], "credit": op["credit"] + oe["credit"]}
         pd = period_sums.get(a["name"], {"debit": 0.0, "credit": 0.0})
         op_dr, op_cr = op["debit"], op["credit"]
         pd_dr, pd_cr = pd["debit"], pd["credit"]
@@ -337,12 +459,12 @@ def run_trial_balance_engine(
             "depth": _depth(a["name"]),
             "lft": a.get("lft") or 0,
             "rgt": a.get("rgt") or 0,
-            "opening_debit": round(op_dr_disp, 2),
-            "opening_credit": round(op_cr_disp, 2),
-            "period_debit": round(pd_dr, 2),
-            "period_credit": round(pd_cr, 2),
-            "closing_debit": round(cl_dr, 2),
-            "closing_credit": round(cl_cr, 2),
+            "opening_debit": round(op_dr_disp, 6),
+            "opening_credit": round(op_cr_disp, 6),
+            "period_debit": round(pd_dr, 6),
+            "period_credit": round(pd_cr, 6),
+            "closing_debit": round(cl_dr, 6),
+            "closing_credit": round(cl_cr, 6),
             "has_parties": (a.get("account_type") or "") in {"Receivable", "Payable"},
         }
 
@@ -381,7 +503,7 @@ def run_trial_balance_engine(
             "lft": a.get("lft") or 0,
             "rgt": a.get("rgt") or 0,
             "has_parties": False,
-            **{k: round(v, 2) for k, v in agg.items()},
+            **{k: round(v, 6) for k, v in agg.items()},
         }
 
     # Merge in tree pre-order, but sort siblings by account_number (then lft as
@@ -436,16 +558,16 @@ def run_trial_balance_engine(
                        "period_credit", "closing_debit", "closing_credit")
         for r in accounts:
             for k in amount_keys:
-                r[k] = round(r[k] * conversion_rate, 2)
+                r[k] = round(r[k] * conversion_rate, 6)
 
     # Totals = sum of leaf rows (groups would double-count).
     totals = {
-        "opening_debit": round(sum(r["opening_debit"] for r in accounts if not r["is_group"]), 2),
-        "opening_credit": round(sum(r["opening_credit"] for r in accounts if not r["is_group"]), 2),
-        "period_debit": round(sum(r["period_debit"] for r in accounts if not r["is_group"]), 2),
-        "period_credit": round(sum(r["period_credit"] for r in accounts if not r["is_group"]), 2),
-        "closing_debit": round(sum(r["closing_debit"] for r in accounts if not r["is_group"]), 2),
-        "closing_credit": round(sum(r["closing_credit"] for r in accounts if not r["is_group"]), 2),
+        "opening_debit": round(sum(r["opening_debit"] for r in accounts if not r["is_group"]), 6),
+        "opening_credit": round(sum(r["opening_credit"] for r in accounts if not r["is_group"]), 6),
+        "period_debit": round(sum(r["period_debit"] for r in accounts if not r["is_group"]), 6),
+        "period_credit": round(sum(r["period_credit"] for r in accounts if not r["is_group"]), 6),
+        "closing_debit": round(sum(r["closing_debit"] for r in accounts if not r["is_group"]), 6),
+        "closing_credit": round(sum(r["closing_credit"] for r in accounts if not r["is_group"]), 6),
     }
 
     # Optional row filters. Applied last so totals always reflect the full
@@ -482,8 +604,17 @@ def run_trial_balance_parties_engine(
     cost_center: str | list | None = None,
     project: str | list | None = None,
     presentation_currency: str | None = None,
+    from_date: str | None = None,
+    finance_book: str | None = None,
+    include_default_fb: bool = True,
+    pcv_current: bool = True,
 ) -> list[dict]:
     """Per-party breakdown for one control account (Receivable or Payable).
+
+    v3.8.6 — follows the same rules as the account row it expands: the period
+    starts at `from_date` when given, entries marked "Is Opening" count in the
+    opening, and the finance-book rule is ERPNext's. The party lines therefore
+    add up to the account row.
 
     Returns a list of {party_type, party, party_name, opening_debit,
     opening_credit, period_debit, period_credit, closing_debit, closing_credit}.
@@ -492,16 +623,29 @@ def run_trial_balance_parties_engine(
     a company can have thousands; lazy-load only when the user expands.
     """
     # Opening: pre-FY-start sums grouped by party for this single account.
-    opening_to = _day_before(fiscal_year_start)
+    period_start = from_date or fiscal_year_start
+    opening_to = _day_before(period_start)
+    books = dict(finance_book=finance_book, include_default_fb=include_default_fb)
+    opening_by_flag = not _ignore_is_opening_check()
     op_sums = _gl_sums_per_party(
         company=company, account=account,
         from_date=None, to_date=opening_to,
-        cost_center=cost_center, project=project,
+        cost_center=cost_center, project=project, **books,
     )
+    if opening_by_flag:
+        for key, v in _gl_sums_per_party(
+            company=company, account=account,
+            from_date=period_start, to_date=as_of_date,
+            cost_center=cost_center, project=project, only_opening=True, **books,
+        ).items():
+            s = op_sums.setdefault(key, {"debit": 0.0, "credit": 0.0})
+            s["debit"] += v["debit"]
+            s["credit"] += v["credit"]
     pd_sums = _gl_sums_per_party(
         company=company, account=account,
-        from_date=fiscal_year_start, to_date=as_of_date,
+        from_date=period_start, to_date=as_of_date,
         cost_center=cost_center, project=project,
+        exclude_opening=opening_by_flag, exclude_pcv=not pcv_current, **books,
     )
 
     party_keys = set(op_sums.keys()) | set(pd_sums.keys())
@@ -555,6 +699,8 @@ def _gl_sums_per_party(
     *, company: str, account: str,
     from_date: str | None, to_date: str | None,
     cost_center: str | list | None = None, project: str | list | None = None,
+    finance_book: str | None = None, include_default_fb: bool = True,
+    exclude_opening: bool = False, only_opening: bool = False, exclude_pcv: bool = False,
 ) -> dict[tuple[str, str], dict[str, float]]:
     conds = ["g.company = %(company)s", "g.is_cancelled = 0", "g.account = %(account)s"]
     params: dict[str, Any] = {"company": company, "account": account}
@@ -565,6 +711,15 @@ def _gl_sums_per_party(
     # v1.9.58 — native dims now accept lists for multi-select.
     _apply_in_clause(conds, params, "cost_center", cost_center, "cost_center")
     _apply_in_clause(conds, params, "project", project, "project")
+    # v3.8.6 — the same rules as the Trial Balance row this drill expands
+    if _has_finance_books():
+        conds.append(_erp_finance_book_clause(params, finance_book, include_default_fb))
+    if only_opening:
+        conds.append("g.is_opening = 'Yes'")
+    elif exclude_opening:
+        conds.append("IFNULL(g.is_opening, 'No') != 'Yes'")
+    if exclude_pcv:
+        conds.append("g.voucher_type != 'Period Closing Voucher'")
     sql = f"""
         SELECT g.party_type AS party_type, g.party AS party,
                SUM(g.debit) AS debit, SUM(g.credit) AS credit
@@ -873,6 +1028,20 @@ def run_balance_sheet_engine(
 
 
 # ─── Date helpers ────────────────────────────────────────────────────────
+
+
+def _day_after(date_str: str) -> str:
+    """Return the calendar day after `date_str` as 'YYYY-MM-DD'."""
+    from datetime import timedelta
+    return (getdate(date_str) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def _add_sums(into: dict, more: dict) -> None:
+    """Add {account: {debit, credit}} sums into another such dict, in place."""
+    for acc, v in more.items():
+        s = into.setdefault(acc, {"debit": 0.0, "credit": 0.0})
+        s["debit"] += v["debit"]
+        s["credit"] += v["credit"]
 
 
 def _day_before(date_str: str) -> str:

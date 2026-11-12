@@ -122,6 +122,7 @@ export default function StatementApp() {
       if (source === 'gl') {
         const r = await api.generalLedger({
           company, accounts: acctSel, from_date: fromDate, to_date: toDate, with_description: 1,
+          show_opening_entries: 1,   // v3.8.6 — a statement keeps listing opening invoices as lines
           customer: partyType === 'Customer' ? [party] : null, supplier: partyType === 'Supplier' ? [party] : null,
         } as any);
         setData({ kind: 'gl', ...r });
